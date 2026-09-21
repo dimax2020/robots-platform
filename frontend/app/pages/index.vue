@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { PhArrowRight, PhArrowUpRight, PhDatabase, PhGitBranch, PhChartLineUp, PhPlay } from '@phosphor-icons/vue'
-import { products } from '~/data/catalog'
 import { projects, objectTypeLabel, objectTypeImage } from '~/data/projects'
 
 useHead({ title: 'Платформа роботизации. Каталог и подбор решений' })
 
-const featured = computed(() => products.filter((p) => ['p-01', 'p-02', 'p-04', 'p-10'].includes(p.id)))
+const { products } = useCatalog()
+// На главной показываем четыре самых зрелых решения каталога
+const featured = computed(() =>
+  [...products.value]
+    .sort((a, b) => b.trl - a.trl || b.marketPotential - a.marketPotential || b.completeness - a.completeness)
+    .slice(0, 4),
+)
 const demos = computed(() => projects.filter((p) => p.isDemo))
 
 const rules = [

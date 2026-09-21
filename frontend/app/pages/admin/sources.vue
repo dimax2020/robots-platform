@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { PhArrowsClockwise, PhArrowSquareOut, PhWarningCircle, PhCheckCircle, PhFile } from '@phosphor-icons/vue'
-import { sources, sourceKindLabel, confidenceByKind, products } from '~/data/catalog'
+import { sourceKindLabel, confidenceByKind } from '~/data/catalog'
+
+const { sources } = useCatalog()
 
 definePageMeta({ layout: 'admin' })
 useHead({ title: 'Админка · Источники' })
 
-const changed = new Set(['s-ronavi'])
-const usage = (id: string) => products.reduce((n, p) => n + p.attrs.filter((a) => a.sourceId === id).length, 0)
+// Плановая перепроверка источников ещё не запускалась: отмечать изменившиеся пока нечем (§9.4)
+const changed = new Set<string>()
+const usage = (id: string) => sources.value.find((s) => s.id === id)?.usageCount ?? 0
 const fmt = (d: string) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
 const kinds = Object.entries(sourceKindLabel) as [keyof typeof sourceKindLabel, string][]
 </script>

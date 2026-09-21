@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { PhArrowRight, PhCaretDown, PhEnvelopeSimple } from '@phosphor-icons/vue'
 import { projectById, capexLines, opexLines, effectLines, norms, scenarios, type CostLine } from '~/data/projects'
-import { sourceById } from '~/data/catalog'
+import { demoSourceById as sourceById } from '~/data/demo'
 
 const route = useRoute()
 const project = computed(() => projectById(route.params.id as string))

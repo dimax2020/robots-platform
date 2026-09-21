@@ -1,0 +1,188 @@
+slug	name	manufacturer	availability	trl
+85tk	85ТК	Завод Агромаш	piloting	7
+ak-2000-2	AK-2000-2	ГК «Автомакон»	operation	9
+amr-100-gruzopodemnost-do-100-kg	AMR 100 (грузоподъемность до 100 кг)	Moros	operation	9
+amr-1500-gruzopodemnost-do-1-500-kg	AMR 1500 (грузоподъемность до 1 500 кг)	Moros	piloting	8
+amr-800-gruzopodemnost-do-800-kg	AMR 800 (грузоподъемность до 800 кг)	Moros	operation	9
+aripix-a1	ARIPIX А1	Арипикс Роботикс	operation	9
+arm95-200-gruzopodemnost-do-18-kg	ARM95-200 (грузоподъемность до 18 кг)	Прикладная Робототехника	piloting	7
+as-rs-b	AS-RS B	Диком-Сервис	piloting	6
+as-rs-p	AS-RS P	Диком-Сервис	operation	9
+astramis-aerounit	Astramis AeroUnit	Астрамис	rnd	6
+astramis-surfexunit	Astramis SurfexUnit	Астрамис	rnd	5
+azarrus-1-0a	Azarrus 1.0A	Деморобот	operation	8
+cognitive-agro-pilot-dlya-traktora-s-ii	COGNITIVE AGRO PILOT для трактора с ИИ	Cognitive Pilot	piloting	6
+cargo-unit	Cargo UNIT	Дронсхаб	operation	9
+d-operator-p	D. Operator P	Диком-Сервис	operation	8
+dh-cloud-control	DH: Cloud Control	Дронсхаб	operation	8
+dmp-15000	DMP 15000	Диком-Сервис	operation	6
+dmr-1200-gruzopodemnost-do-1-200-kg	DMR 1200 (грузоподъемность до 1 200 кг)	Диком-Сервис	piloting	8
+dmr-300-carrier-b	DMR 300 Carrier B	Диком-Сервис	operation	8
+dmr-600-gruzopodemnost-do-600-kg	DMR 600 (грузоподъемность до 600 кг)	Диком-Сервис	piloting	7
+dmr-carrier-p	DMR Carrier P	Диком-Сервис	piloting	8
+evocargo-n1	EVOCARGO N1	Evocargo	operation	9
+iq-bus-v	IQ-BUS V	Аврора Роботикс	piloting	7
+innovtol-3s	InnoVTOL-3S	Университет Иннополис	rnd	5
+innospector	Innospector	Университет Иннополис	operation	8
+l5	L5	Автотех	piloting	7
+mark-2-se	MARK 2 SE	R2B	operation	9
+mark-a-agro	MARK A (Agro)	Электромотив	piloting	7
+martin	MARTin	Миррико	operation	9
+mule	MULE	СМ РОБОТИКС	piloting	7
+og-07-strekoza	OG-07 "Стрекоза"	Бас Глори Эйр	operation	8
+omega	Omega	НПП «Авакс -Геосервис	operation	8
+pallet-shuttle	Pallet Shuttle	Стелкон	operation	9
+pick-by-voice	Pick by Voice	Умный сервис	operation	8
+pick-by-light	Pick by light	Умный сервис	rnd	8
+promobot-v-4	Promobot V.4	Промобот	operation	9
+r-cafe-1-3	R-Cafe 1.3	Робопро	operation	9
+rc5-16	RC5-16	Робопро	operation	8
+rh06a2	RH06A2	СМД	operation	8
+ronavi-h1500-gruzopodemnost-do-1-500-kg	Ronavi H1500 (грузоподъемность до 1 500 кг)	Ronavi Robotics	operation	8
+ronavi-h2000-gruzopodemnost-do-2-000-kg	Ronavi H2000 (грузоподъемность до 2 000 кг)	Ronavi Robotics	operation	8
+ronavi-m-gruzopodemnost-do-1200-kg	Ronavi M (грузоподъемность до 1200 кг)	Ronavi Robotics	piloting	7
+ronavi-rcm-gruzopodemnost-do-350-kg	Ronavi RCM (грузоподъемность до 350 кг)	Ronavi Robotics	rnd	3
+ronavi-sd-gruzopodemnost-do-10-kg	Ronavi SD (грузоподъемность до 10 кг)	Ronavi Robotics	piloting	8
+ronavi-sr-gruzopodemnost-do-50-kg	Ronavi SR (грузоподъемность до 50 кг)	Ronavi Robotics	operation	8
+sigma	SIGMA	НПП «Авакс -Геосервис	operation	9
+smartcube	SmartCube	ARS Smart Robotics	operation	8
+supercam-x4	Supercam X4	Финко	operation	9
+supercam-x4e	Supercam X4E	Финко	operation	8
+supercam-h6m2	Supercam Х6М2	Финко	rnd	7
+t-16	T-16	Зала Аэро	operation	9
+t-300-8e	T-300-8E	ЛМТ	piloting	6
+tfm-15-8e	TFM-15-8E	ЛМТ	operation	9
+tagarka-gruzopodemnost-do-35-000-kg	Tagarka (грузоподъемность до 35 000 кг)	Семаргл	piloting	8
+tagarka-gruzopodemnost-do-6-000-kg	Tagarka (грузоподъемность до 6 000 кг)	Семаргл	piloting	8
+unit	Unit	Яку Роботикс	piloting	8
+minisigma	miniSIGMA	НПП «Авакс -Геосервис	operation	9
+a-50	А-50	Аэромакс	operation	8
+ak-sc80	АК-SC80	ГК «Автомакон»	operation	9
+amt-s300	АМТ S300	АМТ	operation	9
+agrobot	Агробот	Аврора Роботикс	piloting	7
+aydol	Айдол	Айдол	piloting	7
+albatros-m5	Альбатрос М5	Альбатрос	operation	9
+ardi	Арди	Промобот	rnd	6
+arkus	Аркус	НИУ ВШЭ	rnd	3
+atlant	Атлант	Кингпро	piloting	7
+bvs-omdzhet-m01	БВС ОМДЖЕТ -М01	Роспроект	operation	9
+bvs-omdzhet-03	БВС ОМДЖЕТ-03	Роспроект	operation	9
+briz	БРИЗ	Си Проект	piloting	7
+bro-2-1	БРО 2.1	168Роботикс	operation	8
+bro-3-0	БРО 3.0	168Роботикс	rnd	7
+bek-sivuch	БЭК "Сивуч"	Техносфера	rnd	7
+bek-r	БЭК-Р	СевГУ	rnd	6
+bagira	Багира	Прикладная Робототехника	rnd	4
+barabulka	Барабулька	СевГУ	piloting	7
+belka	Белка	Дронсхаб	rnd	7
+berill	Берилл	Валдай Роботы	operation	8
+bespilotnoe-taksi-yandeks	Беспилотное такси Яндекс	Яндекс	piloting	7
+bespilotnyy-amt-6-6	Беспилотный AMT 6×6	АМТ	operation	8
+bespilotnyy-lvenok-moskva	Беспилотный «Львёнок-Москва»	ПК ТС	piloting	7
+bespilotnyy-asfaltoukladchik	Беспилотный асфальтоукладчик	НПО ГКМП	piloting	8
+bespilotnyy-buldozer	Беспилотный бульдозер	ДСТ-УРАЛ	operation	9
+bespilotnyy-katok	Беспилотный каток	Раскат	piloting	8
+bespilotnyy-pogruzchik	Беспилотный погрузчик	МФТИ	piloting	7
+bespilotnyy-poezd-2024	Беспилотный поезд "2024"	Метровагонмаш	piloting	6
+bespilotnyy-tyagach-kognitiv-pilot	Беспилотный тягач (Когнитив Пилот)	Cognitive Pilot	operation	8
+v-120	В-120	Аэромакс	rnd	7
+vt-440m	ВТ-440м	НПП »Радар ММС	piloting	8
+venom-sarancha	Веном Саранча	Робком	piloting	7
+vihr-1m	Вихрь-1М	Интэк	operation	8
+vnutrennyaya-diagnostika-trub-zhkh	Внутренняя диагностика труб ЖКХ	Юникон	operation	9
+vnutritrubnye-robotizirovannye-sistemy-tyubot	Внутритрубные роботизированные системы Тьюбот	Тьюбот	operation	9
+volshebnik	Волшебник	Промтехника-Приволжье	operation	9
+vorker	Воркер	Сбербанк	piloting	7
+geoskan-201	Геоскан 201	Геоскан	operation	9
+geoskan-201-agro	Геоскан 201 Агро	Геоскан	operation	9
+geoskan-201-termo	Геоскан 201 Термо	Геоскан	operation	9
+geoskan-401	Геоскан 401	Геоскан	operation	9
+geoskan-401-geodeziya	Геоскан 401 Геодезия	Геоскан	operation	9
+geoskan-401-lidar	Геоскан 401 Лидар	Геоскан	operation	9
+geoskan-701	Геоскан 701	Геоскан	operation	7
+geoskan-701-video	Геоскан 701 Видео	Геоскан	operation	9
+geoskan-801	Геоскан 801	Геоскан	operation	9
+geoskan-gemini	Геоскан Gemini	Геоскан	operation	9
+gorgona-15	Горгона 15	КБ Атл	operation	8
+grin	Грин	Сбербанк	rnd	4
+gruzovik-m700-v2	Грузовик M700 V2	Лаборатория Будущего	operation	8
+gruzovik-m500-v2	Грузовик М500 V2	Лаборатория Будущего	operation	8
+gumich-spasatel	Гумич спасатель	Гумич РТК	piloting	7
+diam-20	ДИАМ 20	ГК «Икар	operation	8
+diam-20k	ДИАМ 20К	ГК «Икар	operation	7
+delta-robot	Дельта-робот	Битроботикс	operation	9
+depesha-3	Депеша-3	НПО «Высокоточные комплексы»	piloting	7
+defektoskop	Дефектоскоп	МАИ	rnd	6
+irbis	ИРБИС	Прикладная Робототехника	piloting	7
+inventarizator-ai-stock-counter-12m	Инвентаризатор AI Stock Counter 12M	ГК «Автомакон»	operation	9
+intellektualnyy-robot-manipulyator-dlya-avtomaticheskogo-sbo	Интеллектуальный робот-манипулятор для автоматического сбора томатов	НГУ	rnd	5
+kalkan	Калкан	СевГУ	piloting	7
+kati	Кати	Агробит	operation	8
+kirovec-agrobot	Кировец Агробот	Петербургский Тракторный Завод	rnd	6
+klinbotiks-400-pro	Клинботикс 400 PRO	ГК «Автомакон»	operation	8
+klinbotiks-600	Клинботикс 600	ГК «Автомакон»	operation	8
+kolesnyy-robot	Колесный робот	Агробит	rnd	7
+kompleks-upravleniya-kranami-virsayn-sdu	Комплекс управления кранами ВИРСАЙН СДУ	Вирсайн Инновации	operation	8
+kurer-30	Курьер-30	Клеверкоптер	operation	9
+legat-patrol	Легат Патрол	Дронсхаб	operation	6
+legioner-e29	Легионер Е29	ГК Тихие Крылья	operation	9
+locman	Лоцман	НПП ПТ Океанос	piloting	6
+mark	МАРК	Виафор	piloting	7
+mk	МК	СевГУ	piloting	7
+mrsk	МРСК	КБ-интеграл	operation	8
+mark-2	Марк	Кингпро	piloting	7
+model-a12-1450	Модель А12-1450	Эйдос-Робототехника	operation	9
+model-a220-2700	Модель А220-2700	Эйдос-Робототехника	operation	9
+model-a25-1720	Модель А25-1720	Эйдос-Робототехника	operation	9
+model-a6-2000	Модель А6-2000	Эйдос-Робототехника	operation	9
+morskoy-skorpion	Морской скорпион	СевГУ	piloting	7
+muravey	Муравей	Лаборатория Будущего	operation	8
+omdzhet-gm01	ОМДЖЕТ -ГМ01	Роспроект	piloting	7
+orkan	ОРКАН	Си Проект	piloting	7
+ortez-1	Ортез-1	НПО Андроидная Техника	rnd	9
+pegas	Пегас	Аэродин	operation	9
+piksel	Пиксель	Автономика	rnd	7
+rb-100	РБ-100	Ровбилдер	piloting	7
+rb-150	РБ-150	Ровбилдер	piloting	7
+rb-300	РБ-300	Ровбилдер	piloting	7
+rb-600	РБ-600	Ровбилдер	piloting	7
+rb-mirazh-1000	РБ-Мираж 1000	Ровбилдер	piloting	7
+rubi-s-03	РУБИ-С-03	РОБО	operation	9
+roboruka	Роборука	Сбербанк	rnd	5
+robot-gorodovoy	Робот Городовой	Гумич РТК	operation	8
+robot-dlya-transportirovki-detaley-i-instrumentov	Робот для транспортировки деталей и инструментов	ОДК-СТАР	rnd	5
+robot-inventarizator	Робот инвентаризатор	Яндекс	operation	8
+robot-komplektovschik	Робот-комплектовщик	Яндекс	rnd	7
+robot-laborant	Робот-лаборант	Газпром Нефть	rnd	7
+robot-pauk	Робот-паук	Атоммаш	operation	7
+robot-rastormazhivatel	Робот-растормаживатель	Концерн Телематика	piloting	8
+robot-rascepschik	Робот-расцепщик	Концерн Телематика	piloting	8
+robot-tyagach-robocv	Робот-тягач RoboCV	Робосиви	operation	8
+robot-shtabeler-robocv	Робот-штабелёр RoboCV	Робосиви	operation	8
+robotizirovannaya-peredvizhnaya-zaryadnaya-stanciya-dlya-ele	Роботизированная передвижная зарядная станция для электромобилей	Росатом	rnd	3
+robotizirovannaya-platforma-dlya-vyborochnogo-sbora-plodov	Роботизированная платформа для выборочного сбора плодов	Финансовый университет	piloting	6
+robotizirovannaya-sistema-patrulirovaniya-i-ohrany	Роботизированная система патрулирования и охраны	МАИ	operation	8
+robotizirovannyy-avtonomnyy-minitraktor-cp	Роботизированный автономный минитрактор CP	Cognitive Pilot	piloting	7
+robotizirovannyy-diagnosticheskiy-kompleks	Роботизированный диагностический комплекс	Диаконт	operation	9
+robotizirovannyy-kompleks-po-obsledovaniyu-grunta	Роботизированный комплекс по обследованию грунта	Аврора Роботикс	piloting	7
+robotizirovannyy-kompleks-po-ukladke-zagotovok	Роботизированный комплекс по укладке заготовок	Битроботикс	operation	8
+robotizirovannyy-lafetnyy-stvol	Роботизированный лафетный ствол	Коруфайер	operation	8
+robotizirovannyy-traktor-s-gibridnoy-silovoy-ustanovkoy	Роботизированный трактор с гибридной силовой установкой	ДГТУ	rnd	7
+robototehnicheskiy-kompleks-redload-pro-10-cobot	Робототехнический комплекс REDLOAD PRO 10 COBOT	Технорэд	operation	9
+robototehnicheskiy-kompleks-redweld-basic	Робототехнический комплекс REDWELD BASIC	Технорэд	operation	9
+robototehnicheskiy-kompleks-redweld-pro-10-cobot	Робототехнический комплекс REDWELD PRO 10 COBOT	Технорэд	operation	8
+rover-dlya-raboty-s-gruzovymi-vagonami	Ровер для работы с грузовыми вагонами	АО «НИИАС»	piloting	7
+sargan	Сарган	СевГУ	piloting	7
+seriya-sigma-100d-150-200-250a	Серия Sigma (100D, 150, 200, 250А)	Тарис	operation	9
+sibiryachok	Сибирячок	ЭВР	operation	9
+sistema-avtomatizirovannogo-sbora-yagod-s-ispolzovaniem-grup	Система автоматизированного сбора ягод с использованием группы мобильных роботов	ПНИПУ	rnd	4
+semabot-gruzopodemnost-do-1-500-kg	Сёмабот (грузоподъемность до 1 500 кг)	Семаргл	piloting	8
+tnpa-gnom-x	ТНПА «ГНОМ X»	Подводная робототехника	piloting	7
+tnpa-gnom-pro-vektor	ТНПА «ГНОМ Про Вектор»	Подводная робототехника	piloting	7
+tnpa-gnom-pro	ТНПА «ГНОМ Про»	Подводная робототехника	piloting	7
+tral-patrul-5	Трал Патруль 5	СМП Сервис	operation	8
+uchebnaya-yacheyka-rededucation-pro	Учебная ячейка REDEDUCATION PRO	Технорэд	operation	9
+fudtrak	Фудтрак	Соло Кофе	operation	9
+hersones	Херсонес	СевГУ	piloting	7
+yandeks-rover-r-4-0	Яндекс-ровер R 4.0	Яндекс	operation	9
+yasha	Яша	Свеза-Лес	piloting	7

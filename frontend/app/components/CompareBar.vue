@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { PhScales, PhX } from '@phosphor-icons/vue'
-import { products } from '~/data/catalog'
+const { products } = useCatalog()
 const { ids, clear, toggle } = useCompare()
 const route = useRoute()
-const items = computed(() => ids.value.map((id) => products.find((p) => p.id === id)!).filter(Boolean))
+const items = computed(() => ids.value.map((id) => products.value.find((p) => p.id === id)!).filter(Boolean))
 const visible = computed(() => ids.value.length >= 2 && route.path.startsWith('/catalog') && route.path !== '/catalog/compare')
 </script>
 

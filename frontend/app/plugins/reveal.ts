@@ -16,7 +16,10 @@ export default defineNuxtPlugin((nuxtApp) => {
           }
         }
       },
-      { rootMargin: '0px 0px -8% 0px', threshold: 0.08 },
+      // threshold обязан быть 0: доля видимой площади недостижима для блоков выше вьюпорта
+      // (таблица каталога на 187 строк — это 13 000px), и они навсегда остались бы прозрачными.
+      // Задержку появления до входа в кадр задаёт отрицательный rootMargin снизу.
+      { rootMargin: '0px 0px -8% 0px', threshold: 0 },
     )
     return io
   }

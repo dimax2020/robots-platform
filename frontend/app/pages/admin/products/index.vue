@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { PhPlus, PhPencilSimple, PhMagnifyingGlass } from '@phosphor-icons/vue'
-import { products, availabilityLabel, availabilityTone, type Availability } from '~/data/catalog'
+import { PhPencilSimple, PhMagnifyingGlass } from '@phosphor-icons/vue'
+import { availabilityLabel, availabilityTone, type Availability } from '~/data/catalog'
+
+const { products } = useCatalog()
 
 definePageMeta({ layout: 'admin' })
 useHead({ title: 'Админка · Продукты' })
@@ -9,7 +11,7 @@ const q = ref('')
 const status = ref<'' | Availability>('')
 const auto = ref<'' | 'yes' | 'no'>('')
 const fill = ref<'' | 'low' | 'ok'>('')
-const list = computed(() => products.filter((p) =>
+const list = computed(() => products.value.filter((p) =>
   (!q.value || (p.name + p.manufacturer).toLowerCase().includes(q.value.toLowerCase()))
   && (!status.value || p.availability === status.value)
   && (!auto.value || (auto.value === 'yes') === p.autoMatch)
@@ -20,7 +22,6 @@ const list = computed(() => products.filter((p) =>
 <template>
   <div class="admin-page">
     <AdminHead label="Продукты" title="Список продуктов" lead="Фильтры по типу, статусу, готовности к автоподбору и заполненности. Форма карточки повторяет публичную: те же шесть групп из справочника.">
-      <UiButton to="/admin/products/new"><template #icon><PhPlus :size="16" weight="bold" /></template>Добавить продукт</UiButton>
     </AdminHead>
 
     <div class="filters glass" v-reveal>

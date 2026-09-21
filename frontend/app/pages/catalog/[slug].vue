@@ -1,36 +1,62 @@
 <script setup lang="ts">
 import { PhScales, PhCheck, PhDownloadSimple, PhMapPin, PhArrowLeft, PhWarning } from '@phosphor-icons/vue'
-import { productBySlug, attrGroups, availabilityLabel, availabilityTone, formatRub, sources, sourceKindLabel, confidenceByKind, type AttrValue } from '~/data/catalog'
+import { attrGroups, availabilityLabel, availabilityTone, formatRub, sourceKindLabel, confidenceByKind, type AttrGroup, type AttrValue } from '~/data/catalog'
 
 const route = useRoute()
-const product = computed(() => productBySlug(route.params.slug as string))
-if (!product.value) throw createError({ statusCode: 404, statusMessage: 'Продукт не найден' })
-useHead({ title: () => `${product.value?.name} · Каталог` })
+const { product, sources, attributeDefs, pending } = useProduct(() => route.params.slug as string)
+if (!pending.value && !product.value) throw createError({ statusCode: 404, statusMessage: 'Продукт не найден' })
+useHead({ title: () => `${product.value?.name ?? 'Решение'} · Каталог` })
 
 const { has, toggle } = useCompare()
-const inCompare = computed(() => has(product.value!.id))
+const inCompare = computed(() => (product.value ? has(product.value.id) : false))
 
+// Идентификация лежит в колонках product, а не в attrs: источник у неё тот же, что у региона
+const catalogSourceId = computed(() => product.value?.attrs.find((a) => a.key === 'region')?.sourceId)
 const idAttrs = computed<AttrValue[]>(() => {
-  const p = product.value!
+  const p = product.value
+  if (!p) return []
+  const src = catalogSourceId.value
+  const row = (key: string, label: string, value: string | number): AttrValue =>
+    ({ group: 'identification', key, label, value, status: 'known', sourceId: src })
   return [
-    { group: 'identification', key: 'name', label: 'Название', value: p.name, status: 'known', sourceId: 's-catalog' },
-    { group: 'identification', key: 'manufacturer', label: 'Производитель', value: p.manufacturer, status: 'known', sourceId: 's-catalog' },
-    { group: 'identification', key: 'legal', label: 'Юрлицо', value: p.legalEntity, status: 'known', sourceId: 's-catalog' },
-    { group: 'identification', key: 'country', label: 'Страна происхождения', value: p.country, status: 'known', sourceId: 's-catalog' },
-    { group: 'identification', key: 'status', label: 'Статус', value: availabilityLabel[p.availability], status: 'known', sourceId: 's-catalog' },
-    { group: 'identification', key: 'trl', label: 'Уровень готовности технологии', value: `УГТ ${p.trl}`, status: 'known', sourceId: 's-catalog' },
-    { group: 'identification', key: 'mp', label: 'Рыночный потенциал', value: `${p.marketPotential} из 5`, status: 'known', sourceId: 's-catalog' },
+    row('name', 'Название', p.name),
+    row('manufacturer', 'Производитель', p.manufacturer),
+    row('legal', 'Юрлицо', p.legalEntity),
+    row('country', 'Страна происхождения', p.country),
+    row('status', 'Статус', availabilityLabel[p.availability]),
+    row('trl', 'Уровень готовности технологии', `УГТ ${p.trl}`),
+    row('mp', 'Рыночный потенциал', p.marketPotential ? `${p.marketPotential} из 5` : 'нет данных'),
   ]
 })
-const byGroup = (code: AttrValue['group']) => code === 'identification' ? idAttrs.value : product.value!.attrs.filter((a) => a.group === code)
-const usedSources = computed(() => {
-  const ids = new Set(product.value!.attrs.map((a) => a.sourceId).filter(Boolean) as string[])
-  return sources.filter((s) => ids.has(s.id))
+
+/**
+ * Таблица группы строится по справочнику характеристик, а не по тому, что уже заполнено:
+ * пустая строка «нет данных» — это и есть запрос вендору, её не должно не быть видно.
+ */
+const byGroup = (code: AttrGroup): AttrValue[] => {
+  if (code === 'identification') return idAttrs.value
+  const p = product.value
+  if (!p) return []
+  return attributeDefs.value
+    .filter((d) => d.group_code === code && (!d.required_for || d.required_for.includes(p.solutionTypeCode)))
+    .map((d) => p.attrs.find((a) => a.key === d.key) ?? {
+      group: code,
+      key: d.key,
+      label: d.unit ? `${d.label}, ${d.unit}` : d.label,
+      status: 'unknown' as const,
+    })
+}
+
+const usedSources = computed(() => sources.value)
+const filled = computed(() => product.value?.attrs.filter((a) => a.status === 'known').length ?? 0)
+const na = computed(() => product.value?.attrs.filter((a) => a.status === 'not_applicable').length ?? 0)
+const unknown = computed(() => {
+  const total = attributeDefs.value.filter(
+    (d) => !d.required_for || d.required_for.includes(product.value?.solutionTypeCode ?? ''),
+  ).length
+  return Math.max(total - filled.value - na.value, 0)
 })
-const known = computed(() => product.value!.attrs.filter((a) => a.status === 'known').length)
-const unknown = computed(() => product.value!.attrs.filter((a) => a.status === 'unknown').length)
-const na = computed(() => product.value!.attrs.filter((a) => a.status === 'not_applicable').length)
-const applicabilityText = computed(() => product.value!.attrs.filter((a) => a.group === 'applicability'))
+const applicabilityText = computed(() => product.value?.attrs.filter((a) => a.group === 'applicability') ?? [])
 </script>
 
 <template>
@@ -103,8 +129,16 @@ const applicabilityText = computed(() => product.value!.attrs.filter((a) => a.gr
             <div><h2 class="h3">Применимость</h2><div class="caption">Объекты, процессы, кейсы, риски</div></div>
           </div>
           <div class="apply">
+            <div><div class="caption">Отрасли</div><div class="tags"><span v-for="o in product.industries" :key="o" class="tag">{{ o }}</span></div></div>
             <div><div class="caption">Объекты</div><div class="tags"><span v-for="o in product.objects" :key="o" class="tag">{{ o }}</span></div></div>
             <div><div class="caption">Процессы</div><div class="tags"><span v-for="o in product.processes" :key="o" class="tag">{{ o }}</span></div></div>
+            <div v-if="product.cases.length" class="apply-text">
+              <div class="caption">Кейсы внедрения</div>
+              <div v-for="c in product.cases" :key="c.id" class="case">
+                <p class="body-sm">{{ c.summary }}</p>
+                <UiSourceTag v-if="c.sourceId" :source-id="c.sourceId" />
+              </div>
+            </div>
             <div v-for="a in applicabilityText" :key="a.key" class="apply-text">
               <div class="caption">{{ a.label }}</div>
               <div class="body-sm strong" :class="{ risk: a.key === 'risks' }"><PhWarning v-if="a.key === 'risks' && a.status === 'known'" :size="14" weight="fill" /> <template v-if="a.status === 'known'">{{ a.value }}</template><UiValueCell v-else :attr="a" /></div>
@@ -120,7 +154,7 @@ const applicabilityText = computed(() => product.value!.attrs.filter((a) => a.gr
           </div>
           <div class="dq">
             <div class="dq-stats">
-              <UiStat label="Заполнено" :value="`${Math.round(product.completeness * 100)}%`" :note="`${known} полей с данными`" />
+              <UiStat label="Заполнено" :value="`${Math.round(product.completeness * 100)}%`" :note="`${filled} полей с данными`" />
               <UiStat label="Нет данных" :value="String(unknown)" note="запрос вендору" />
               <UiStat label="Не применимо" :value="String(na)" note="поле не относится к типу" />
               <UiStat label="Автоподбор" :value="product.autoMatch ? 'Да' : 'Нет'" :note="product.autoMatch ? 'УГТ ≥ 7, не разработка' : 'УГТ < 7 или разработка'" />
@@ -179,6 +213,8 @@ const applicabilityText = computed(() => product.value!.attrs.filter((a) => a.gr
 .apply { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); }
 .apply-text { grid-column: span 2; display: grid; grid-template-columns: 160px 1fr auto; gap: 12px; align-items: start; }
 .apply-text .caption { padding-top: 2px; }
+.case { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: start; }
+.case + .case { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-hairline); }
 .risk { color: var(--state-warn); display: inline-flex; gap: 6px; align-items: flex-start; }
 .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .tag { font-size: 13px; font-weight: 600; padding: 5px 10px; border-radius: var(--radius-pill); background: rgba(15, 20, 19, 0.06); color: var(--ink-body); }

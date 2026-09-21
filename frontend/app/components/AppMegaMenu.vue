@@ -3,7 +3,7 @@ import {
   PhArrowRight, PhArrowUpRight, PhX, PhScales, PhPlus, PhPlay, PhLockSimple,
   PhSquaresFour, PhPackage, PhTray, PhBookOpenText, PhCalculator, PhLinkSimple, PhUploadSimple, PhRocketLaunch,
 } from '@phosphor-icons/vue'
-import { products, catalogTree, countNode, availabilityLabel, availabilityTone, formatRub } from '~/data/catalog'
+import { countNode, availabilityLabel, availabilityTone, formatRub } from '~/data/catalog'
 import { projects, objectTypeLabel, objectTypeImage, steps, isFullPath, proposals, fullPathSteps, shortPathSteps, type ObjectType } from '~/data/projects'
 
 export type MenuId = 'catalog' | 'projects' | 'compare' | 'admin'
@@ -11,10 +11,15 @@ defineProps<{ menu: MenuId }>()
 
 const { role } = useRole()
 const { ids, toggle, clear } = useCompare()
-const byId = (id: string) => products.find((p) => p.id === id)
+const { products, catalogTree, sources } = useCatalog()
+const byId = (id: string) => products.value.find((p) => p.id === id)
 
 /* Каталог */
-const objectsList = catalogTree.flatMap((ind) => (ind.children ?? []).map((obj) => ({ industry: ind.label, label: obj.label, count: countNode(obj) })))
+const objectsList = computed(() =>
+  catalogTree.value.flatMap((ind) => (ind.children ?? []).map((obj) => ({ industry: ind.label, label: obj.label, count: countNode(obj) })))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 8),
+)
 const uniq = (level: 'process' | 'solution') => {
   const map = new Map<string, Set<string>>()
   const walk = (n: { label: string; children?: any[]; productIds?: string[] }, depth: number) => {
@@ -28,13 +33,16 @@ const uniq = (level: 'process' | 'solution') => {
     }
     n.children?.forEach((c) => walk(c, depth + 1))
   }
-  catalogTree.forEach((n) => walk(n, 0))
+  catalogTree.value.forEach((n) => walk(n, 0))
   return [...map.entries()].map(([label, s]) => ({ label, count: s.size })).sort((a, b) => b.count - a.count)
 }
-const processes = uniq('process').slice(0, 8)
-const solutions = uniq('solution').slice(0, 8)
-const featured = ['p-01', 'p-02'].map(byId).filter(Boolean) as NonNullable<ReturnType<typeof byId>>[]
-const autoCount = products.filter((p) => p.autoMatch).length
+const processes = computed(() => uniq('process').slice(0, 8))
+const solutions = computed(() => uniq('solution').slice(0, 8))
+// Витрина меню — самые полные карточки каталога, а не фиксированный список id
+const featured = computed(() =>
+  [...products.value].sort((a, b) => b.completeness - a.completeness || b.trl - a.trl).slice(0, 2),
+)
+const autoCount = computed(() => products.value.filter((p) => p.autoMatch).length)
 
 /* Проекты */
 const objectMeta: Record<ObjectType, { text: string; full: boolean }> = {
@@ -54,16 +62,16 @@ const compareItems = computed(() => ids.value.map(byId).filter(Boolean) as NonNu
 
 /* Админка */
 const pending = proposals.filter((p) => p.status === 'pending').length
-const adminItems = [
+const adminItems = computed(() => [
   { to: '/admin', label: 'Обзор', icon: PhSquaresFour, note: 'Состояние каталога' },
-  { to: '/admin/products', label: 'Продукты', icon: PhPackage, note: `${products.length} карточек` },
+  { to: '/admin/products', label: 'Продукты', icon: PhPackage, note: `${products.value.length} карточек` },
   { to: '/admin/proposals', label: 'Очередь правок', icon: PhTray, note: `${pending} ждут решения`, hot: pending > 0 },
   { to: '/admin/refs', label: 'Справочники', icon: PhBookOpenText, note: 'Отрасли, объекты, процессы' },
   { to: '/admin/norms', label: 'Нормативы', icon: PhCalculator, note: 'Коэффициенты расчёта' },
-  { to: '/admin/sources', label: 'Источники', icon: PhLinkSimple, note: '1 изменился', hot: true },
+  { to: '/admin/sources', label: 'Источники', icon: PhLinkSimple, note: `${sources.value.length} в реестре` },
   { to: '/admin/import', label: 'Импорт', icon: PhUploadSimple, note: 'XLS и парсер по URL' },
   { to: '/admin/publish', label: 'Публикация', icon: PhRocketLaunch, note: 'v2026.09.3 · черновик' },
-]
+])
 </script>
 
 <template>
@@ -102,7 +110,7 @@ const adminItems = [
         </NuxtLink>
         <NuxtLink to="/catalog" class="cta glass-graphite glass-graphite-solid">
           <span class="cta-in">
-            <span class="cta-n display-4">47</span>
+            <span class="cta-n display-4">{{ products.length }}</span>
             <span class="cta-t">решений в каталоге<span class="cta-s">{{ autoCount }} готовы к автоподбору · УГТ ≥ 7</span></span>
             <PhArrowRight :size="18" weight="bold" />
           </span>

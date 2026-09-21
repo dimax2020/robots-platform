@@ -17,6 +17,8 @@ services:
     build: ./frontend
     environment:
       NUXT_PUBLIC_API_BASE: /api/v1
+      # SSR внутри сети compose идёт к контейнеру api напрямую, минуя traefik
+      NUXT_API_BASE_SERVER: http://api:8000/api/v1
     labels:
       - traefik.enable=true
       - traefik.http.routers.web.rule=PathPrefix(`/`)

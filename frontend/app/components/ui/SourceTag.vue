@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { PhArrowSquareOut, PhQuotes } from '@phosphor-icons/vue'
-import { sourceById, confidenceOf, sourceKindLabel } from '~/data/catalog'
+import { confidenceByKind, sourceKindLabel } from '~/data/catalog'
+import { demoSourceById } from '~/data/demo'
 
 const props = defineProps<{ sourceId?: string; quote?: string; align?: 'left' | 'right' }>()
-const src = computed(() => sourceById(props.sourceId))
-const conf = computed(() => confidenceOf(props.sourceId))
+const { sourceById } = useCatalog()
+// Источники каталога приходят из API, демонстрационные — из моков страниц проекта
+const src = computed(() => sourceById(props.sourceId) ?? demoSourceById(props.sourceId))
+const conf = computed(() => (src.value ? confidenceByKind[src.value.kind] : undefined))
 const fmt = (d: string) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
 </script>
 

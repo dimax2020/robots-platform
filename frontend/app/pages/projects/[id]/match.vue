@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { PhCaretDown, PhArrowRight, PhEnvelopeSimple, PhScales, PhFunction } from '@phosphor-icons/vue'
 import { projectById, matchFit, matchCheck, matchExcluded, isFullPath, type MatchRow } from '~/data/projects'
-import { products } from '~/data/catalog'
+import { demoProducts as products } from '~/data/demo'
 
 const route = useRoute()
 const project = computed(() => projectById(route.params.id as string))

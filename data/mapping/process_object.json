@@ -1,0 +1,129 @@
+{
+  "_note": "Сценарии применения (process) и их привязка к типам объектов. Ключ сопоставления — каноническая форма названия: trim, ё→е, нижний регистр, сжатые пробелы и дефисы. Один сценарий может висеть на нескольких типах объектов, поэтому связь many-to-many (object_process, §6.1).",
+
+  "aliases": {
+    "_note": "Опечатки и дубли-варианты из исходного файла. Ключ — каноническая форма как в CSV, значение — правильное название сценария.",
+    "доставка биоматериаловм": "Доставка биоматериалов",
+    "мониторинг состояния посевов и полей": "Мониторинг и анализ состояния посевов и полей",
+    "перевозка грузов магистральные перевозки": "Перевозка грузов, магистральные перевозки"
+  },
+
+  "split_extra": {
+    "_note": "Ячейки, где несколько сценариев склеены запятой со строчной буквы — общий разделитель их не ловит (§12.2).",
+    "мониторинг, патрулирование, перевозка грузов": [
+      "Мониторинг",
+      "Патрулирование территории",
+      "Перемещение грузов"
+    ]
+  },
+
+  "processes": [
+    { "name": "Внутрискладская логистика", "code": "warehouse_logistics", "objects": ["warehouse"] },
+    { "name": "Сортировка грузов", "code": "goods_sorting", "objects": ["warehouse"] },
+    { "name": "Инвентаризация склада", "code": "warehouse_inventory", "objects": ["warehouse"] },
+    { "name": "Сборка товаров", "code": "order_picking", "objects": ["warehouse"] },
+    { "name": "Перемещение грузов", "code": "goods_moving", "objects": ["warehouse", "production_shop"] },
+    { "name": "Перевозка грузов на закрытых площадках", "code": "closed_area_transport", "objects": ["warehouse", "production_shop", "airport"] },
+    { "name": "Доставка грузов", "code": "goods_delivery", "objects": ["warehouse", "city_area"] },
+
+    { "name": "Производство изделий", "code": "manufacturing", "objects": ["production_shop"] },
+    { "name": "Внутрипроизводственная логистика", "code": "intralogistics", "objects": ["production_shop"] },
+    { "name": "Укладка заготовок", "code": "blank_stacking", "objects": ["production_shop"] },
+    { "name": "Сортировка грузов на производстве", "code": "production_sorting", "objects": ["production_shop"] },
+    { "name": "Мониторинг состояния инфраструктуры", "code": "infrastructure_monitoring", "objects": ["production_shop"] },
+    { "name": "Автоматизированный лабораторный анализ пластовых вод", "code": "lab_water_analysis", "objects": ["production_shop"] },
+
+    { "name": "Администрирование торгового зала", "code": "retail_floor_service", "objects": ["retail_space"] },
+    { "name": "Приготовление напитков", "code": "beverage_preparation", "objects": ["retail_space"] },
+    { "name": "Нестационарная торговля", "code": "mobile_retail", "objects": ["retail_space", "city_area"] },
+
+    { "name": "Уборка помещений", "code": "indoor_cleaning", "objects": ["warehouse", "retail_space", "hospital", "airport", "production_shop"] },
+    { "name": "Уборка улиц", "code": "street_cleaning", "objects": ["city_area"] },
+    { "name": "Мойка фасадов", "code": "facade_washing", "objects": ["city_area"] },
+    { "name": "Мойка окон", "code": "window_washing", "objects": ["city_area"] },
+
+    { "name": "Оказание медицинской помощи", "code": "medical_assistance", "objects": ["hospital"] },
+    { "name": "Доставка биоматериалов", "code": "biomaterial_delivery", "objects": ["hospital"] },
+
+    { "name": "Доставка последней мили", "code": "last_mile_delivery", "objects": ["city_area"] },
+    { "name": "Городская доставка в постаматы", "code": "parcel_locker_delivery", "objects": ["city_area"] },
+    { "name": "Зарядка электромобилей", "code": "ev_charging", "objects": ["city_area"] },
+    { "name": "Обследование подземной инфраструктуры", "code": "underground_survey", "objects": ["city_area"] },
+    { "name": "Мониторинг состояния полигонов ТБО на предмет соответствия нормативным требованиям", "code": "landfill_monitoring", "objects": ["city_area"] },
+
+    { "name": "Дорожные работы", "code": "road_works", "objects": ["road_network"] },
+    { "name": "Ремонт дорожного покрытия", "code": "pavement_repair", "objects": ["road_network"] },
+    { "name": "Мониторинг состояния дорожного покрытия", "code": "pavement_monitoring", "objects": ["road_network"] },
+    { "name": "Мониторинг транспортной инфраструктуры", "code": "transport_infra_monitoring", "objects": ["road_network"] },
+    { "name": "Мониторинг ПДД", "code": "traffic_rules_monitoring", "objects": ["road_network"] },
+    { "name": "Разбор ДТП", "code": "accident_analysis", "objects": ["road_network"] },
+    { "name": "Общественная перевозка пассажиров", "code": "public_transport", "objects": ["road_network"] },
+    { "name": "Коммерческая перевозка пассажиров", "code": "commercial_transport", "objects": ["road_network"] },
+    { "name": "Перевозка грузов, магистральные перевозки", "code": "long_haul_freight", "objects": ["road_network"] },
+    { "name": "Логистика тяжелых грузов на дальние расстояния", "code": "heavy_freight_logistics", "objects": ["road_network"] },
+
+    { "name": "Обслуживание железнодорожной инфраструктуры и вагонов", "code": "railway_service", "objects": ["railway"] },
+    { "name": "Расцепка грузовых вагонов", "code": "wagon_uncoupling", "objects": ["railway"] },
+    { "name": "Регулярный мониторинг состояния железных дорог и детальный анализ", "code": "railway_monitoring", "objects": ["railway"] },
+
+    { "name": "Внутритрубная диагностика", "code": "in_pipe_diagnostics", "objects": ["pipeline_network"] },
+    { "name": "Внутритрубная диагностика, очистка и ремонт труб", "code": "in_pipe_service", "objects": ["pipeline_network"] },
+    { "name": "Регулярный мониторинг трубопроводов и детальный анализ", "code": "pipeline_monitoring", "objects": ["pipeline_network"] },
+    { "name": "Мониторинг трубопроводов", "code": "pipeline_survey", "objects": ["pipeline_network"] },
+    { "name": "Мониторинг теплотрасс", "code": "heating_network_monitoring", "objects": ["pipeline_network"] },
+
+    { "name": "Регулярный мониторинг ЛЭП", "code": "power_line_monitoring", "objects": ["power_grid"] },
+    { "name": "Детальный анализ состояния ЛЭП", "code": "power_line_analysis", "objects": ["power_grid"] },
+
+    { "name": "Вспашка", "code": "ploughing", "objects": ["farmland"] },
+    { "name": "Сбор урожая", "code": "harvesting", "objects": ["farmland"] },
+    { "name": "Внесение веществ на поля", "code": "field_spraying", "objects": ["farmland"] },
+    { "name": "Мониторинг и анализ состояния посевов и полей", "code": "crop_monitoring", "objects": ["farmland"] },
+    { "name": "Птицеводство", "code": "poultry_farming", "objects": ["farmland"] },
+    { "name": "Сбор молока", "code": "milking", "objects": ["farmland"] },
+
+    { "name": "Таксация лесов", "code": "forest_inventory", "objects": ["forest"] },
+    { "name": "Таксация лесосек", "code": "cutting_area_inventory", "objects": ["forest"] },
+    { "name": "Мониторинг пожарной опасности в лесах", "code": "forest_fire_monitoring", "objects": ["forest"] },
+    { "name": "Контроль лесопатологий", "code": "forest_pathology_control", "objects": ["forest"] },
+    { "name": "Борьба с незаконными рубками", "code": "illegal_logging_control", "objects": ["forest"] },
+    { "name": "Учёт животных и оценка состояния популяций на особо охраняемых природных территориях", "code": "wildlife_census", "objects": ["forest"] },
+
+    { "name": "Проведение подводных работ и мониторинга", "code": "underwater_works", "objects": ["water_area"] },
+    { "name": "Проведение работ на воде", "code": "surface_water_works", "objects": ["water_area"] },
+    { "name": "Доставка грузов по воде", "code": "water_freight", "objects": ["water_area"] },
+    { "name": "Доставка грузов под водой", "code": "underwater_freight", "objects": ["water_area"] },
+    { "name": "Мониторинг и контроль внутренних водных объектов для выявления незаконного вылова рыбы", "code": "fishing_control", "objects": ["water_area"] },
+    { "name": "Мониторинг мелководья", "code": "shallow_water_monitoring", "objects": ["water_area"] },
+    { "name": "Мониторинг паводков и затоплений", "code": "flood_monitoring", "objects": ["water_area"] },
+    { "name": "Ледовый мониторинг", "code": "ice_monitoring", "objects": ["water_area"] },
+    { "name": "Мониторинг переправ", "code": "crossing_monitoring", "objects": ["water_area"] },
+
+    { "name": "Возведение объектов", "code": "construction", "objects": ["construction_site"] },
+    { "name": "Демонтаж объектов", "code": "demolition", "objects": ["construction_site"] },
+    { "name": "Предпроектные изыскания", "code": "pre_design_survey", "objects": ["construction_site"] },
+    { "name": "Предпроектные изыскания с использованием фотограмметрии и воздушного лазерного сканирования", "code": "pre_design_survey_photogrammetry", "objects": ["construction_site"] },
+    { "name": "Выполнение контрольных мероприятий на этапе строительно-монтажных работ с использованием фотограмметрии, воздушного лазерного сканирования и тепловизионной съемки", "code": "construction_control", "objects": ["construction_site"] },
+    { "name": "Поиск дефектов зданий и сооружений при помощи ИИ", "code": "building_defect_detection", "objects": ["construction_site"] },
+    { "name": "Контроль использования земельных участков", "code": "land_use_control", "objects": ["construction_site"] },
+    { "name": "Контроль карьеров и земляных работ с использованием фотограмметрии", "code": "quarry_control", "objects": ["construction_site"] },
+    { "name": "Контроль состояния складов и отвалов горнодобывающих компаний с использованием фотограмметрии", "code": "mining_stockpile_control", "objects": ["construction_site"] },
+    { "name": "Геологический контроль (надзор)", "code": "geological_control", "objects": ["construction_site"] },
+    { "name": "Геофизическая разведка", "code": "geophysical_survey", "objects": ["construction_site"] },
+    { "name": "Мониторинг замкнутых пространств", "code": "confined_space_monitoring", "objects": ["construction_site"] },
+
+    { "name": "Патрулирование территории", "code": "area_patrol", "objects": ["guarded_perimeter"] },
+    { "name": "Патрулирование площадных объектов", "code": "site_patrol", "objects": ["guarded_perimeter", "airport"] },
+    { "name": "Мониторинг и патрулирование", "code": "monitoring_and_patrol", "objects": ["guarded_perimeter", "airport"] },
+    { "name": "Поиск пропавших людей", "code": "missing_person_search", "objects": ["guarded_perimeter", "remote_area"] },
+    { "name": "Тушение пожаров", "code": "firefighting", "objects": ["guarded_perimeter"] },
+    { "name": "Эвакуация пострадавших с места ЧС", "code": "casualty_evacuation", "objects": ["guarded_perimeter"] },
+    { "name": "Оценка ущерба от ЧС", "code": "disaster_damage_assessment", "objects": ["guarded_perimeter"] },
+    { "name": "Информационная поддержка наземных сил с применением БПЛА микрокласса", "code": "ground_force_support", "objects": ["guarded_perimeter"] },
+    { "name": "Мониторинг", "code": "general_monitoring", "objects": ["guarded_perimeter", "construction_site", "forest"] },
+
+    { "name": "Доставка в удаленные, труднодоступные районы", "code": "remote_delivery", "objects": ["remote_area"] },
+    { "name": "Доставка грузов в труднодоступные регионы", "code": "remote_freight", "objects": ["remote_area"] },
+    { "name": "Перевозка грузов в труднодоступных районах", "code": "remote_area_transport", "objects": ["remote_area"] }
+  ]
+}

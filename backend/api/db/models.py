@@ -114,6 +114,7 @@ class Product(Base):
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     solution_type_id: Mapped[int] = mapped_column(ForeignKey("solution_type.id"), nullable=False)
+    slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False)  # отклонение от §6.2, см. §15
     name: Mapped[str] = mapped_column(Text, nullable=False)
     manufacturer: Mapped[str] = mapped_column(Text, nullable=False)
     legal_entity: Mapped[str | None] = mapped_column(Text)

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { PhPrinter, PhFileXls, PhFileCsv, PhImage, PhEnvelopeSimple, PhWarning } from '@phosphor-icons/vue'
 import { projectById, scenarios, objectTypeLabel, matchCheck } from '~/data/projects'
-import { products } from '~/data/catalog'
+import { demoProducts as products } from '~/data/demo'
 
 const route = useRoute()
 const project = computed(() => projectById(route.params.id as string))

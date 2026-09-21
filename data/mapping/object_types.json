@@ -1,0 +1,21 @@
+{
+  "_note": "Типы объектов. В catalog_export_v4.csv их нет — есть только отрасль и сценарий. Связь сценарий → тип объекта задаётся в process_object.json. Первые три кода совпадают с листами Датасеты_хакатон.xlsx и являются MVP-объектами (§2.1, §2.2).",
+  "object_types": [
+    { "code": "warehouse", "name": "Склад" },
+    { "code": "airport", "name": "Аэропорт" },
+    { "code": "hospital", "name": "Медучреждение" },
+    { "code": "production_shop", "name": "Производственный цех" },
+    { "code": "retail_space", "name": "Торговый объект" },
+    { "code": "city_area", "name": "Городская территория" },
+    { "code": "road_network", "name": "Автомобильные дороги" },
+    { "code": "railway", "name": "Железнодорожная инфраструктура" },
+    { "code": "pipeline_network", "name": "Трубопроводы и теплосети" },
+    { "code": "power_grid", "name": "ЛЭП и энергообъекты" },
+    { "code": "farmland", "name": "Сельхозугодья" },
+    { "code": "forest", "name": "Лесной фонд" },
+    { "code": "water_area", "name": "Акватория" },
+    { "code": "construction_site", "name": "Стройплощадка и карьер" },
+    { "code": "guarded_perimeter", "name": "Охраняемый периметр" },
+    { "code": "remote_area", "name": "Удалённые и труднодоступные территории" }
+  ]
+}

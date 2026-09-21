@@ -17,6 +17,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 COPY engine ./engine
 COPY api ./api
+COPY scripts ./scripts
+COPY alembic.ini ./
 
 EXPOSE 8000
 

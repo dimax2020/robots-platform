@@ -1,42 +1,64 @@
 <script setup lang="ts">
 import { PhPlus, PhDotsSixVertical, PhArrowRight } from '@phosphor-icons/vue'
-import { catalogTree, countNode } from '~/data/catalog'
+import { attrGroups, type TreeNode } from '~/data/catalog'
+
+const { catalogTree, products, attributeDefs } = useCatalog()
 
 definePageMeta({ layout: 'admin' })
 useHead({ title: 'Админка · Справочники' })
 
 const tab = ref('industries')
-const tabs = [
-  { id: 'industries', label: 'Отрасли', count: 6 },
-  { id: 'objects', label: 'Типы объектов', count: 4 },
-  { id: 'processes', label: 'Процессы', count: 9 },
-  { id: 'solutions', label: 'Типы решений', count: 8 },
-  { id: 'attrs', label: 'Характеристики', count: 27 },
-]
-const data: Record<string, { code: string; label: string; note?: string; count: number }[]> = {
-  industries: [
-    { code: 'logistics', label: 'Логистика и склады', count: 6 },
-    { code: 'transport', label: 'Транспорт и аэропорты', count: 2 },
-    { code: 'health', label: 'Медицина', count: 1 },
-    { code: 'manufacturing', label: 'Производство', count: 3 },
-    { code: 'retail', label: 'Ритейл', count: 2 },
-    { code: 'security', label: 'Охрана и мониторинг', count: 1 },
-  ],
-  objects: [
-    { code: 'warehouse', label: 'Склад', note: 'Полный путь расчёта', count: 8 },
-    { code: 'airport', label: 'Аэропорт', note: 'Короткий путь: параметры и подбор', count: 2 },
-    { code: 'hospital', label: 'Медучреждение', note: 'Короткий путь: параметры и подбор', count: 1 },
-    { code: 'plant', label: 'Цех', note: 'Не в MVP', count: 3 },
-  ],
-  processes: [
-    { code: 'move', label: 'Внутрискладское перемещение', count: 5 }, { code: 'pick', label: 'Комплектация', count: 3 }, { code: 'palletize', label: 'Паллетирование', count: 2 }, { code: 'inventory', label: 'Инвентаризация', count: 1 }, { code: 'sort', label: 'Сортировка', count: 2 }, { code: 'storage', label: 'Плотное хранение', count: 1 }, { code: 'patrol', label: 'Патрулирование', count: 2 }, { code: 'disinfect', label: 'Дезинфекция', count: 1 }, { code: 'transport', label: 'Транспортировка грузов', count: 2 },
-  ],
-  solutions: catalogTree.flatMap((n) => (n.children ?? []).map((c) => ({ code: c.label.toLowerCase().replace(/\s+/g, '_'), label: c.label, note: n.label, count: countNode(c) }))),
-  attrs: [
-    { code: 'payload_kg', label: 'Грузоподъёмность, кг', note: 'Технические · число', count: 9 }, { code: 'speed_ms', label: 'Скорость, м/с', note: 'Технические · число', count: 8 }, { code: 'autonomy_h', label: 'Автономность, ч', note: 'Технические · число', count: 7 }, { code: 'accuracy_mm', label: 'Точность позиционирования, мм', note: 'Технические · число', count: 6 }, { code: 'ip', label: 'Класс защиты', note: 'Технические · перечисление', count: 8 }, { code: 'floor_flat', label: 'Ровность пола, мм/2 м', note: 'Инфраструктура · число', count: 5 }, { code: 'floor_load', label: 'Нагрузка на пол, т/м²', note: 'Инфраструктура · число', count: 4 }, { code: 'aisle_mm', label: 'Ширина проезда, мм', note: 'Инфраструктура · число', count: 6 }, { code: 'price_rub', label: 'Цена, ₽', note: 'Экономика · число · интервал', count: 7 },
-  ],
+
+/** Уровни дерева каталога: у каждого узла считаем уникальные продукты в поддереве. */
+const atDepth = (depth: number) => {
+  const acc = new Map<string, { note: string; ids: Set<string> }>()
+  const walk = (n: TreeNode, d: number, parent: string) => {
+    if (d === depth) {
+      const entry = acc.get(n.label) ?? { note: parent, ids: new Set<string>() }
+      const collect = (x: TreeNode) => { x.productIds?.forEach((id) => entry.ids.add(id)); x.children?.forEach(collect) }
+      collect(n)
+      if (entry.note !== parent && !entry.note.includes(parent)) entry.note = `${entry.note}, ${parent}`
+      acc.set(n.label, entry)
+      return
+    }
+    n.children?.forEach((c) => walk(c, d + 1, n.label))
+  }
+  catalogTree.value.forEach((n) => walk(n, 0, ''))
+  return [...acc.entries()]
+    .map(([label, { note, ids }]) => ({ code: slugOf(label), label, note: note || undefined, count: ids.size }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'ru'))
 }
-const list = computed(() => data[tab.value] ?? [])
+
+const slugOf = (s: string) => s.toLowerCase().replace(/[^a-zа-яё0-9]+/g, '_').replace(/^_|_$/g, '')
+
+const groupLabel = (code: string) => attrGroups.find((g) => g.code === code)?.label ?? code
+const datatypeLabel: Record<string, string> = {
+  number: 'число', text: 'текст', bool: 'да/нет', enum: 'перечисление', range: 'интервал',
+}
+
+const data = computed<Record<string, { code: string; label: string; note?: string; count: number }[]>>(() => ({
+  industries: atDepth(0),
+  objects: atDepth(1),
+  processes: atDepth(2),
+  solutions: atDepth(3),
+  attrs: attributeDefs.value.map((d) => ({
+    code: d.key,
+    label: d.unit ? `${d.label}, ${d.unit}` : d.label,
+    note: `${groupLabel(d.group_code)} · ${datatypeLabel[d.datatype] ?? d.datatype}`,
+    // Сколько продуктов уже имеют это значение: у ТТХ из CSV это ноль, и так и должно быть видно
+    count: products.value.filter((p) => p.attrs.some((a) => a.key === d.key && a.status === 'known')).length,
+  })),
+}))
+
+const tabs = computed(() => [
+  { id: 'industries', label: 'Отрасли', count: data.value.industries!.length },
+  { id: 'objects', label: 'Типы объектов', count: data.value.objects!.length },
+  { id: 'processes', label: 'Процессы', count: data.value.processes!.length },
+  { id: 'solutions', label: 'Типы решений', count: data.value.solutions!.length },
+  { id: 'attrs', label: 'Характеристики', count: data.value.attrs!.length },
+])
+
+const list = computed(() => data.value[tab.value] ?? [])
 </script>
 
 <template>

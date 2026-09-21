@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { PhArrowRight, PhArrowLeft, PhLock, PhCheck, PhClockCounterClockwise, PhCopy } from '@phosphor-icons/vue'
 import { projectById, objectTypeLabel, objectTypeImage, steps, isFullPath, scenarios } from '~/data/projects'
-import { products } from '~/data/catalog'
+import { demoProducts as products } from '~/data/demo'
 
 const route = useRoute()
 const project = computed(() => projectById(route.params.id as string))

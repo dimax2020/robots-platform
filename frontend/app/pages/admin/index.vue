@@ -1,20 +1,23 @@
 <script setup lang="ts">
 import { PhPackage, PhTray, PhBookOpenText, PhCalculator, PhLinkSimple, PhUploadSimple, PhRocketLaunch, PhArrowRight, PhWarningCircle } from '@phosphor-icons/vue'
-import { products, sources } from '~/data/catalog'
 import { proposals, norms } from '~/data/projects'
 
 definePageMeta({ layout: 'admin' })
 useHead({ title: 'Админка · Обзор' })
+
+const { products, sources, attributeDefs } = useCatalog()
 const pending = proposals.filter((p) => p.status === 'pending').length
-const tiles = [
-  { to: '/admin/products', icon: PhPackage, title: 'Продукты', value: String(products.length), note: `${products.filter(p => p.autoMatch).length} готовы к автоподбору` },
+// Карточка, которую стоит проверить первой: меньше всех заполнена
+const leastComplete = computed(() => [...products.value].sort((a, b) => a.completeness - b.completeness)[0])
+const tiles = computed(() => [
+  { to: '/admin/products', icon: PhPackage, title: 'Продукты', value: String(products.value.length), note: `${products.value.filter(p => p.autoMatch).length} готовы к автоподбору` },
   { to: '/admin/proposals', icon: PhTray, title: 'Очередь правок', value: String(pending), note: 'ждут решения', tone: 'brand' },
-  { to: '/admin/refs', icon: PhBookOpenText, title: 'Справочники', value: '4', note: 'отрасли, объекты, процессы, типы решений' },
+  { to: '/admin/refs', icon: PhBookOpenText, title: 'Справочники', value: String(attributeDefs.value.length), note: 'характеристик в справочнике' },
   { to: '/admin/norms', icon: PhCalculator, title: 'Нормативы', value: String(norms.length), note: 'все с обоснованием' },
-  { to: '/admin/sources', icon: PhLinkSimple, title: 'Источники', value: String(sources.length), note: '1 изменился с последней проверки', tone: 'warn' },
-  { to: '/admin/import', icon: PhUploadSimple, title: 'Импорт', value: '3', note: 'файла организатора загружены' },
+  { to: '/admin/sources', icon: PhLinkSimple, title: 'Источники', value: String(sources.value.length), note: 'плановая проверка ещё не запускалась' },
+  { to: '/admin/import', icon: PhUploadSimple, title: 'Импорт', value: '1', note: 'файл организатора загружен' },
   { to: '/admin/publish', icon: PhRocketLaunch, title: 'Публикация', value: 'v2026.09.3', note: '6 изменений к выпуску', mono: true },
-]
+])
 </script>
 
 <template>
@@ -27,7 +30,7 @@ const tiles = [
         <div class="h4">Источник изменился: ronavi.example/h1500</div>
         <div class="body-sm muted">Страница производителя обновлена 18 сентября. Каталог сам не переписывается: проверьте карточку Ronavi H1500 и примите или отклоните изменения.</div>
       </div>
-      <UiButton to="/admin/products/ronavi-h1500" size="sm" variant="secondary">Проверить карточку <template #after><PhArrowRight :size="14" weight="bold" /></template></UiButton>
+      <UiButton :to="`/admin/products/${leastComplete?.slug ?? ''}`" size="sm" variant="secondary">Проверить карточку <template #after><PhArrowRight :size="14" weight="bold" /></template></UiButton>
     </div>
 
     <div class="tiles">

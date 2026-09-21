@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { PhX, PhPlus, PhWarning, PhDownloadSimple } from '@phosphor-icons/vue'
-import { products, attrGroups, availabilityLabel, availabilityTone, formatRub, type AttrValue } from '~/data/catalog'
+import { attrGroups, availabilityLabel, availabilityTone, formatRub, type AttrValue, type Product } from '~/data/catalog'
+
+const { products } = useCatalog()
 
 useHead({ title: 'Сравнение решений' })
 const { ids, toggle } = useCompare()
-const items = computed(() => ids.value.map((id) => products.find((p) => p.id === id)!).filter(Boolean))
-const candidates = computed(() => products.filter((p) => !ids.value.includes(p.id)))
+const items = computed(() => ids.value.map((id) => products.value.find((p) => p.id === id)!).filter(Boolean))
+const candidates = computed(() => products.value.filter((p) => !ids.value.includes(p.id)))
 const adding = ref(false)
 
 // Строки из одного справочника: объединение ключей всех выбранных продуктов по группам
@@ -17,9 +19,9 @@ const rows = computed(() => {
     return { group: g, keys: Array.from(keys.entries()) }
   }).filter((g) => g.keys.length)
 })
-const cell = (p: typeof products[number], key: string, group: AttrValue['group']): AttrValue =>
+const cell = (p: Product, key: string, group: AttrValue['group']): AttrValue =>
   p.attrs.find((a) => a.key === key) ?? { key, label: '', group, status: 'not_applicable' }
-const manual = (p: typeof products[number]) => !p.autoMatch
+const manual = (p: Product) => !p.autoMatch
 </script>
 
 <template>

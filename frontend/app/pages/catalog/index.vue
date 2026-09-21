@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { PhMagnifyingGlass, PhSlidersHorizontal, PhFunnelSimple, PhCheckSquare, PhSquare } from '@phosphor-icons/vue'
-import { products, catalogTree, availabilityLabel, type Availability } from '~/data/catalog'
+import { availabilityLabel, type Availability } from '~/data/catalog'
+
+const { products, catalogTree, pending, error } = useCatalog()
 
 useHead({ title: 'Каталог решений' })
 
@@ -23,7 +25,7 @@ const toggleAvail = (a: Availability) => {
 const reset = () => { q.value = ''; selectedNode.value = ''; nodeIds.value = null; avail.value = []; onlyAuto.value = false; minTrl.value = 1 }
 
 const filtered = computed(() => {
-  let list = products.slice()
+  let list = products.value.slice()
   if (nodeIds.value) list = list.filter((p) => nodeIds.value!.includes(p.id))
   if (avail.value.length) list = list.filter((p) => avail.value.includes(p.availability))
   if (onlyAuto.value) list = list.filter((p) => p.autoMatch)
@@ -48,7 +50,7 @@ const activeChips = computed(() => {
   return chips
 })
 
-const countOf = (a: Availability) => products.filter((p) => p.availability === a).length
+const countOf = (a: Availability) => products.value.filter((p) => p.availability === a).length
 const plural = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'модель' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'модели' : 'моделей')
 const emptyHint = computed(() => {
   if (avail.value.length && avail.value.length < 3) return `Снимите фильтр по статусу «${availabilityLabel[avail.value[0]!]}»`

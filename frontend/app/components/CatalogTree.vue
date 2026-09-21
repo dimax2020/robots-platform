@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { PhCaretRight } from '@phosphor-icons/vue'
-import type { TreeNode } from '~/data/catalog'
+import { countNode, type TreeNode } from '~/data/catalog'
 
 const props = withDefaults(defineProps<{ nodes: TreeNode[]; depth?: number; selected?: string; openAll?: boolean }>(), { depth: 0 })
 const emit = defineEmits<{ select: [label: string, ids: string[]] }>()
@@ -8,8 +8,10 @@ const emit = defineEmits<{ select: [label: string, ids: string[]] }>()
 const open = reactive<Record<string, boolean>>({})
 props.nodes.forEach((n, i) => { open[n.label] = props.openAll || (props.depth < 2 && i === 0) })
 
-const countOf = (n: TreeNode): number => n.productIds ? n.productIds.length : (n.children ?? []).reduce((s, c) => s + countOf(c), 0)
 const idsOf = (n: TreeNode): string[] => n.productIds ? n.productIds : Array.from(new Set((n.children ?? []).flatMap(idsOf)))
+// countNode считает уникальные позиции: одно решение законно попадает в несколько ветвей,
+// и сумма счётчиков детей завышает число втрое
+const countOf = countNode
 const toggle = (n: TreeNode) => {
   if (n.children) open[n.label] = !open[n.label]
   emit('select', n.label, idsOf(n))
