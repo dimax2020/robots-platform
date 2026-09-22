@@ -1,0 +1,488 @@
+{
+  "_note": "Нормативы подбора и расчёта количества (calc_norm, §3, ТЗ 3.5.1). Читает scripts.seed и резолвер лестницы достоверности. Плоские ключи — выражения RuleSpec через norm.<key>; точечные — только резолвер (default.<attr>.<family>, default.site.<field>.<object_type>). Экономические коэффициенты (integration_pct, energy_tariff и пр.) — этап E4, здесь их нет.",
+
+  "norms": [
+    {
+      "key": "k_util",
+      "value": 0.82,
+      "unit": "доля",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "assumption",
+        "publisher": "Команда платформы",
+        "rationale": "0,82 = 1 − 0,18. На листе «Склад» Датасеты_хакатон.xlsx коэффициент потерь рабочего времени 25% (отпуск, болезнь, текучесть) относится к людям. У робота нет обеда и перекуров: 12-часовой слот уже урезан до смены 11 ч, зарядка вынесена в uptime = work/(work+charge). Остаются технические потери на диспетчеризацию, разъезды и микропростои. Лист «Легенда» задаёт коридор загрузки AMR 70–85%; 18% потерь — верх коридора без повторного вычета зарядки, поэтому 0,82, а не 0,75."
+      }
+    },
+    {
+      "key": "n_reserve",
+      "value": 1,
+      "unit": "шт",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "assumption",
+        "publisher": "Команда платформы",
+        "rationale": "1 штука. В легенде датасета резерв 15–20% на пике уже сидит в peak_factor склада (1,5) и в k_util. n_reserve в формуле — целое N+1 на машину в зарядке или ремонте: без неё ceil(Q/q) оставляет парк без подмены, две запасные начисляют вторую надбавку сверх пика."
+      }
+    },
+    {
+      "key": "t_wait_s",
+      "value": 20,
+      "unit": "с",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "assumption",
+        "publisher": "Команда платформы",
+        "rationale": "20 с. Лист «Склад»: 1 этаж (лифта в цикле нет), есть WMS, рабочий проход 2,8 м. В цикле остаются уступление во встречном проезде (~10 с в среднем: то 0, то 20 с) и квитирование WMS при стыковке (~10 с). Очередь на зарядку в цикл не кладём — она уже в charge_time_h."
+      }
+    },
+    {
+      "key": "f_passes",
+      "value": 1,
+      "unit": "раз",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "assumption",
+        "publisher": "Команда платформы",
+        "rationale": "1 проход за окно. Поля «Площадь активной зоны» (склад, 10 000 м²) и «Площадь, убираемая роботизированной уборкой» (аэропорт, 51 000 м²) — это площадь, которую надо закрыть, а не удвоить. Второй проход нужен только в грязных зонах и задаётся override; иначе формула area_window молча удваивает парк."
+      }
+    },
+    {
+      "key": "f_frequency",
+      "value": 1,
+      "unit": "раз",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "assumption",
+        "publisher": "Команда платформы",
+        "rationale": "1 полный проход паллетомест за окно. Лист «Склад» даёт 20 000 паллетомест и не задаёт периодичность инвентаризации. f_frequency — сколько раз за выбранное окно посчитать всю ёмкость; 1 значит «закрыть склад за это окно». Ежемесячный цикл — 1/30 через what-if, иначе парк умножится на 30."
+      }
+    },
+    {
+      "key": "rounds_required",
+      "value": 24,
+      "unit": "шт",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "assumption",
+        "publisher": "Команда платформы",
+        "rationale": "24 обхода. Лист «Аэропорт» считает потоки на календарные сутки, стационар медучреждения — 24/7/365. Регламент охраны периметра — не реже одного обхода в час; за сутки это 24. Для склада с окном 2×11 ч это 24/22 ≈ 1,1 обхода в час — запас на передачу смены, без второго робота на тот же маршрут."
+      }
+    },
+    {
+      "key": "n_stops",
+      "value": 4,
+      "unit": "шт",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "catalog",
+        "publisher": "ФЦ БАС, Датасеты_хакатон.xlsx",
+        "rationale": "4 остановки. Лист «Аэропорт»: 4 режимные зоны (airside, landside, стерильная, перрон) — по одной фиксации на зону. Склад и больница своих КПП в датасете не дают; 4×60 с = 4 мин, t_round не обнуляется и не раздувается до логистической разгрузки."
+      }
+    },
+    {
+      "key": "t_stop_s",
+      "value": 60,
+      "unit": "с",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "assumption",
+        "publisher": "Команда платформы",
+        "rationale": "60 с. Остановка патруля — осмотр зоны и запись в журнал, не разгрузка. Норматив доставки питания в больнице 20 мин — другая операция (flow_cycle). Минуты хватает камере/оператору подтвердить зону; 30 с мало на журнал, 120 с уже едят заметную долю обхода на периметре склада."
+      }
+    },
+    {
+      "key": "trl_min_automatch",
+      "value": 7,
+      "unit": "УГТ",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "assumption",
+        "publisher": "Команда платформы",
+        "rationale": "7. ТЗ 3.4.4 и Architecture §7.2: продукт с УГТ ниже 7 в автоподбор не входит, только ручное добавление. Шкала 1–9, серийная готовность начинается с 7; порог 6 пустил бы макеты, порог 8 выкинул бы пилоты с УГТ 7, которых в каталоге большинство."
+      }
+    },
+    {
+      "key": "analogue_min_sample",
+      "value": 3,
+      "unit": "шт",
+      "solution_type_code": null,
+      "editable": false,
+      "source": {
+        "kind": "assumption",
+        "publisher": "Команда платформы",
+        "rationale": "3. Медиана по двум вендорам — середина интервала и прыгает от одного выброса (скорости патруля в ttx_manual.csv: 1,81 и 3,33 м/с). С трёх значений средний член — паспорт реального продукта. У flow_cycle по скорости 18 точек, у зарядки station_robots только 2: при пороге 3 резолвер не выдаст букву C по паре, а уйдёт на семейство или на этот норматив."
+      }
+    },
+
+    {
+      "key": "default.charge_time_h.flow_cycle",
+      "value": 2.0,
+      "unit": "ч",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "analogue",
+        "publisher": "Команда платформы",
+        "rationale": "2,0 ч — медиана по 3 продуктам семейства flow_cycle с известной зарядкой в data/ttx_manual.csv: AK-2000-2, DMR-1200, DMR-300 Carrier B. У всех трёх паспортные 2 ч, разброса нет."
+      }
+    },
+    {
+      "key": "default.charge_time_h.area_window",
+      "value": 1.75,
+      "unit": "ч",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "analogue",
+        "publisher": "Команда платформы",
+        "rationale": "1,75 ч — медиана по 4 поломоечным из data/ttx_manual.csv: Klinbotiks 400 Pro 1 ч, Klinbotiks 600 1,5 ч, Mark 2 SE 2 ч, RUBI S-03 3,5 ч. При чётной выборке медиана — среднее двух средних членов (1,5 и 2,0)."
+      }
+    },
+    {
+      "key": "default.charge_time_h.station_robots",
+      "value": 4.0,
+      "unit": "ч",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "analogue",
+        "publisher": "Команда платформы",
+        "rationale": "4,0 ч — медиана по 2 системам хранения с АКБ в data/ttx_manual.csv: Pallet Shuttle и SmartCube, у обеих 4 ч. Краны AS/RS и D.Operator питаются от сети, зарядки не имеют и в выборку не вошли — иначе медиана уехала бы в ноль и сломала бы uptime."
+      }
+    },
+    {
+      "key": "default.charge_time_h",
+      "value": 2.0,
+      "unit": "ч",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "analogue",
+        "publisher": "Команда платформы",
+        "rationale": "2,0 ч — медиана по всем 9 продуктам data/ttx_manual.csv с известной зарядкой: 1; 1,5; 2; 2; 2; 2; 3,5; 4; 4. Средний член упорядоченного ряда — 2 ч; это же значение у четырёх транспортных AMR, поэтому общий fallback совпадает с flow_cycle."
+      }
+    },
+    {
+      "key": "default.work_time_h.flow_cycle",
+      "value": 10.0,
+      "unit": "ч",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "analogue",
+        "publisher": "Команда платформы",
+        "rationale": "10,0 ч — медиана по 13 продуктам flow_cycle в data/ttx_manual.csv (AK-2000-2, AMR-100/800/1500, DMR-300/600/1200, DMR Carrier P, Ronavi H1500/H2000/M/SD/SR). Ряд 7; 8×4; 10×4; 16; 19; 21; 22, седьмой член — 10 ч (Ronavi H1500/H2000, DMR Carrier P, Ronavi SD)."
+      }
+    },
+    {
+      "key": "default.work_time_h.area_window",
+      "value": 4.5,
+      "unit": "ч",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "analogue",
+        "publisher": "Команда платформы",
+        "rationale": "4,5 ч — медиана по 6 поломоечным в data/ttx_manual.csv: Klinbotiks 400 Pro 3 ч, Klinbotiks 600 / Mark 2 SE / AK-SC80 по 4,5 ч, Unit 6 ч, RUBI S-03 10 ч. Три из шести дают 4,5 — это типовая автономность поломойки между док-станциями, не смена 8–11 ч."
+      }
+    },
+    {
+      "key": "default.work_time_h.station_robots",
+      "value": 24.0,
+      "unit": "ч",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "analogue",
+        "publisher": "Команда платформы",
+        "rationale": "24,0 ч — медиана по 6 стационарным системам в data/ttx_manual.csv: SmartCube 8 ч, Pallet Shuttle 20 ч, AS/RS-P / D.Operator P / А12-1450 / А25-1720 по 24 ч (питание от сети, 24/7). Четыре из шести работают без ночной паузы, медиана не должна падать до сменной автономности AMR."
+      }
+    },
+    {
+      "key": "default.work_time_h",
+      "value": 10.0,
+      "unit": "ч",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "analogue",
+        "publisher": "Команда платформы",
+        "rationale": "10,0 ч — медиана по всем 28 продуктам data/ttx_manual.csv с известным временем работы. Ряд от 2 ч (инвентаризатор) до 72 ч (Робот-городовой); 14-й и 15-й члены оба равны 10 ч. Fallback для семейств без своей выборки, чтобы лестница не возвращала None."
+      }
+    },
+    {
+      "key": "default.speed_loaded_ms.flow_cycle",
+      "value": 2.0,
+      "unit": "м/с",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "analogue",
+        "publisher": "Команда платформы",
+        "rationale": "2,0 м/с — медиана по 18 продуктам flow_cycle в data/ttx_manual.csv (AMR Ronavi/ДиКом, FMR, тягачи, комплектовщик, Evocargo N1). Ряд 1,0…6,25 м/с, при n=18 медиана — среднее 9-го и 10-го членов, оба 2,0 м/с (DMR-1200, DMR-600). 6,25 м/с Evocargo — улица, не складской проезд, на медиану не влияет."
+      }
+    },
+    {
+      "key": "default.speed_loaded_ms",
+      "value": 2.0,
+      "unit": "м/с",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "analogue",
+        "publisher": "Команда платформы",
+        "rationale": "2,0 м/с — медиана по всем 27 продуктам data/ttx_manual.csv с известной скоростью с грузом. При n=27 медиана — 14-й член упорядоченного ряда, он равен 2,0 м/с. Совпадает с медианой flow_cycle: складские AMR доминируют в выборке."
+      }
+    },
+    {
+      "key": "default.speed_empty_ms.perimeter_rounds",
+      "value": 2.57,
+      "unit": "м/с",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "analogue",
+        "publisher": "Команда платформы",
+        "rationale": "2,57 м/с — медиана по 2 продуктам семейства perimeter_rounds в data/ttx_manual.csv: Робот-городовой 3,33 м/с (6–18 км/ч) и Яндекс Ровер R-4.0 1,81 м/с (5–8 км/ч). Среднее двух — 2,57. Выборка меньше analogue_min_sample, поэтому резолвер по классу до этой ступени не дойдёт через медиану класса, но норматив-допущение лестницы обязан существовать."
+      }
+    },
+    {
+      "key": "default.speed_empty_ms",
+      "value": 2.0,
+      "unit": "м/с",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "analogue",
+        "publisher": "Команда платформы",
+        "rationale": "2,0 м/с — медиана по всем 28 продуктам data/ttx_manual.csv с известной скоростью без груза. При n=28 медиана — среднее 14-го и 15-го членов, оба 2,0 м/с. Нужен как fallback, когда у семейства нет своей скорости (count_window в выборке 0,4 и 1,0 — слишком мало и слишком медленно для общего ключа)."
+      }
+    },
+    {
+      "key": "default.robots_per_station",
+      "value": 1,
+      "unit": "шт",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "assumption",
+        "publisher": "Команда платформы",
+        "rationale": "1. §3.3: у крана-штабелёра и шаттла один робот на позицию, множитель больше единицы бывает только у кубического хранения. SmartCube в ttx_manual.csv даёт 4 робота на станцию — это ТТХ продукта, лестница возьмёт их со ступени vendor. Норматив равен единице, чтобы AS/RS и шаттл без своего поля не получили кубический множитель."
+      }
+    },
+    {
+      "key": "default.throughput.area_window",
+      "value": 1650,
+      "unit": "м²/ч",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "analogue",
+        "publisher": "Команда платформы",
+        "rationale": "1650 м²/ч — медиана по 5 поломоечным с единицей м²/ч в data/ttx_manual.csv: Klinbotiks 400 Pro 950, Mark 2 SE 1400, Klinbotiks 600 1650, RUBI S-03 1750, AK-SC80 4000. Unit (4200 м²/заряд) исключён: другая размерность, в q = throughput × k_util формулы area_window нужна производительность в м²/ч, не за заряд."
+      }
+    },
+    {
+      "key": "default.t_load_s",
+      "value": 30,
+      "unit": "с",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "assumption",
+        "publisher": "Команда платформы",
+        "rationale": "30 с. В ttx_manual.csv времени погрузки нет. Лист «Склад»: средняя паллета 800 кг, есть WMS. Роликовый AMR отдаёт тару за ~15 с, вилочный снимает паллету за 45–60 с. 30 с — середина: в цикле 2L/v + t_load + t_unload + t_wait при L=25 м и v=2 м/с (оба из датасета/ТТХ) погрузка не доминирует над пробегом и не обнуляет цикл."
+      }
+    },
+    {
+      "key": "default.t_unload_s",
+      "value": 30,
+      "unit": "с",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "assumption",
+        "publisher": "Команда платформы",
+        "rationale": "30 с. Симметрично default.t_load_s: в каталоге ТТХ разгрузки нет, операция стыковки на приёмной стороне та же (подтверждение WMS + сход груза). Разные числа без данных разъехали бы цикл в одну сторону; ноль по §6.1 считается пустым и всё равно подставится отсюда."
+      }
+    },
+
+    {
+      "key": "default.site.shift_hours.airport",
+      "value": 24,
+      "unit": "ч",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "catalog",
+        "publisher": "ФЦ БАС, Датасеты_хакатон.xlsx",
+        "rationale": "24 ч. На листе «Аэропорт» блока «Режим работы» нет — в отличие от склада (2×11) и больницы (3×8). Потоки заданы за календарные сутки (пассажиры = год/365, 280 рейсов/сут), есть ночной лимит шума 70 дБА — смена не заканчивается вечером. Если подставить 8 ч, часовой поток из суточного завысится втрое."
+      }
+    },
+    {
+      "key": "default.site.shifts_per_day.airport",
+      "value": 1,
+      "unit": "смен",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "assumption",
+        "publisher": "Команда платформы",
+        "rationale": "1. Сменности на листе «Аэропорт» нет; сутки — одна непрерывная смена 24 ч. Три смены при shift_hours=24 дали бы окно 72 ч и занизили бы поток из суточного объёма втрое."
+      }
+    },
+    {
+      "key": "default.site.days_year.airport",
+      "value": 365,
+      "unit": "дн",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "catalog",
+        "publisher": "ФЦ БАС, Датасеты_хакатон.xlsx",
+        "rationale": "365. Лист «Аэропорт», «Среднесуточное количество пассажиров»: «= Годовой поток / 365». Нерабочих суток датасет не закладывает; 250 из дефолта SiteProfile для аэропорта неверны."
+      }
+    },
+    {
+      "key": "default.site.shift_hours.hospital",
+      "value": 8,
+      "unit": "ч",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "catalog",
+        "publisher": "ФЦ БАС, Датасеты_хакатон.xlsx",
+        "rationale": "8 ч. Лист «Медучреждение»: «Количество смен медперсонала» = 3, примечание «3 смены по 8 ч или 2 по 12 ч». Базовое число смен — 3, поэтому длительность 8, не 12: иначе при shifts_per_day=3 окно стало бы 36 ч при стационаре 24/7/365."
+      }
+    },
+    {
+      "key": "default.site.shifts_per_day.hospital",
+      "value": 3,
+      "unit": "смен",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "catalog",
+        "publisher": "ФЦ БАС, Датасеты_хакатон.xlsx",
+        "rationale": "3. Лист «Медучреждение», базовое значение «Количество смен медперсонала (уход за пациентами)» = 3 (диапазон 2–3). Вместе с shift_hours=8 даёт окно 24 ч, что совпадает с режимом стационара 24/7/365 на том же листе."
+      }
+    },
+    {
+      "key": "default.site.days_year.hospital",
+      "value": 365,
+      "unit": "дн",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "catalog",
+        "publisher": "ФЦ БАС, Датасеты_хакатон.xlsx",
+        "rationale": "365. Лист «Медучреждение», «Режим работы стационара»: 24/7/365. Поликлиника 5/2 на расчёт не влияет: внутрибольничная логистика (питание, бельё, анализы) привязана к круглосуточному стационару."
+      }
+    },
+    {
+      "key": "default.site.shift_hours.warehouse",
+      "value": 11,
+      "unit": "ч",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "catalog",
+        "publisher": "ФЦ БАС, Датасеты_хакатон.xlsx",
+        "rationale": "11 ч. Лист «Склад», «Продолжительность смены» = 11, примечание «с учётом перерывов на обед и техн. пауз». Рядом «стандартно 2 смены по 12 ч/сутки»: 12 — слот, 11 — смена после пауз. Подставлять 8 из дефолта SiteProfile нельзя — часовой поток из суточного завысится на 11/8."
+      }
+    },
+    {
+      "key": "default.site.shifts_per_day.warehouse",
+      "value": 2,
+      "unit": "смен",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "catalog",
+        "publisher": "ФЦ БАС, Датасеты_хакатон.xlsx",
+        "rationale": "2. Лист «Склад», «Количество рабочих смен в сутки» = 2 (диапазон 1–3), примечание «стандартно: 2 смены по 12 ч/сутки». Вместе с 11 ч это окно 22 ч, не 8."
+      }
+    },
+    {
+      "key": "default.site.days_year.warehouse",
+      "value": 365,
+      "unit": "дн",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "catalog",
+        "publisher": "ФЦ БАС, Датасеты_хакатон.xlsx",
+        "rationale": "365. Лист «Склад», «Рабочих дней в году» = 365 (min=max=365). FFC/RDC в датасете работает без выходных; 250 рабочих дней — не этот объект."
+      }
+    },
+    {
+      "key": "default.site.shift_hours",
+      "value": 11,
+      "unit": "ч",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "catalog",
+        "publisher": "ФЦ БАС, Датасеты_хакатон.xlsx",
+        "rationale": "11 ч. Общий fallback лестницы, когда у типа объекта нет своего ключа: берём базовую смену склада (единственная числовая «Продолжительность смены» в трёх листах). Аэропорт и больница перекрыты своими ключами 24 и 8."
+      }
+    },
+    {
+      "key": "default.site.shifts_per_day",
+      "value": 2,
+      "unit": "смен",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "catalog",
+        "publisher": "ФЦ БАС, Датасеты_хакатон.xlsx",
+        "rationale": "2. Общий fallback: базовые смены склада. Аэропорт перекрыт 1, больница — 3. Дефолт модели SiteProfile (=1) для склада занизил бы окно вдвое."
+      }
+    },
+    {
+      "key": "default.site.days_year",
+      "value": 365,
+      "unit": "дн",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "catalog",
+        "publisher": "ФЦ БАС, Датасеты_хакатон.xlsx",
+        "rationale": "365. На всех трёх листах датасета год непрерывный: склад 365, аэропорт год/365, стационар 24/7/365. Дефолт SiteProfile 250 рабочих дней этим объектам противоречит."
+      }
+    },
+    {
+      "key": "default.site.clean_area_share",
+      "value": 0.5,
+      "unit": "доля",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "catalog",
+        "publisher": "ФЦ БАС, Датасеты_хакатон.xlsx",
+        "rationale": "0,5. Лист «Склад»: площадь активной (роботизируемой) зоны 10 000 м² при общих 20 000 м², примечание «50% от общей площади». Если убираемая площадь не задана, берём половину area_m2: офисы, рампы и мезонины в активную зону датасет не включает."
+      }
+    },
+    {
+      "key": "default.site.clean_area_share.airport",
+      "value": 0.6,
+      "unit": "доля",
+      "solution_type_code": null,
+      "editable": true,
+      "source": {
+        "kind": "catalog",
+        "publisher": "ФЦ БАС, Датасеты_хакатон.xlsx",
+        "rationale": "0,6. Лист «Аэропорт»: убираемая роботизированной уборкой площадь 51 000 м² при терминале 85 000 м² = 51/85 ≈ 0,60. Примечание строки — «~60–70% от площади терминала (без закрытых и режимных зон)»; берём нижнюю границу, совпадающую с отношением базовых чисел, а не 0,5 склада."
+      }
+    }
+  ]
+}

@@ -12,7 +12,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-Step = Literal["match", "size", "cost", "rank", "layout", "sim"]
+Step = Literal["prepare", "match", "size", "cost", "rank", "layout", "sim"]
 Verdict = Literal["pass", "fail", "unknown"]
 Reliability = Literal["A", "B", "C", "D"]
 SourceKind = Literal["vendor", "dealer", "media", "catalog", "analogue", "assumption"]
@@ -88,6 +88,7 @@ class Product(BaseModel):
     market_potential: int | None = None
     summary: str | None = None
     attrs: dict[str, AttrValue] = Field(default_factory=dict)
+    case_process_codes: list[str] = Field(default_factory=list)  # коды процессов из product_case, для has_case
 
 
 class CalcNorm(BaseModel):
@@ -115,6 +116,7 @@ class Catalog(BaseModel):
     attribute_defs: list[AttributeDef] = Field(default_factory=list)
     sources: list[Source] = Field(default_factory=list)
     norms: list[CalcNorm] = Field(default_factory=list)
+    process_solutions: dict[str, list[str]] = Field(default_factory=dict)  # процесс → типы решений
 
 
 # ---------------------------------------------------------------------------
@@ -135,11 +137,23 @@ class SiteProfile(BaseModel):
     staff_salary_year_rub: float | None = None
     energy_tariff_rub_kwh: float | None = None
     budget_rub: float | None = None
+    clean_area_m2: float | None = None  # м² убираемой / активной зоны
+    pallet_places: int | None = None  # шт
+    storage_height_m: float | None = None  # м, высота зоны хранения
+    floor_load_kg_m2: float | None = None  # кг/м², несущая способность пола
+    floor_flatness_mm: float | None = None  # мм/2м
+    peak_factor: float = 1.0  # доля, пик к среднечасовой
+    power_kw: float | None = None  # кВт
+    noise_limit_dba: float | None = None  # дБА
+    has_wms: bool | None = None
 
 
 class Task(BaseModel):
     process_code: str
+    name: str | None = None  # человеческое название для интерфейса
     flow_per_hour: float | None = None
+    flow_per_day: float | None = None  # операций в сутки; в часовой переводит §6.1
+    peak_factor: float | None = None  # переопределение пика площадки
     route_len_m: float | None = None
     max_load_kg: float | None = None
     t_load_s: float = 0
@@ -262,6 +276,9 @@ class CalcResponse(BaseModel):
     engine_version: str
     catalog_version_id: int
     candidates: list[Candidate] = Field(default_factory=list)
+    # все посчитанные количества, а не только вошедшие в сценарий:
+    # строке кандидата нужно своё число, даже если в парк он не попал
+    options: list[SizedOption] = Field(default_factory=list)
     scenarios: list[Scenario] = Field(default_factory=list)
     vendor_queries: list[VendorQuery] = Field(default_factory=list)
     plan: Plan | None = None

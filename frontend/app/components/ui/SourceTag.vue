@@ -1,29 +1,45 @@
 <script setup lang="ts">
 import { PhArrowSquareOut, PhQuotes } from '@phosphor-icons/vue'
-import { confidenceByKind, sourceKindLabel } from '~/data/catalog'
+import { confidenceByKind, sourceKindLabel, type Confidence } from '~/data/catalog'
 import { demoSourceById } from '~/data/demo'
 
-const props = defineProps<{ sourceId?: string; quote?: string; align?: 'left' | 'right' }>()
+const props = defineProps<{ sourceId?: string; quote?: string; align?: 'left' | 'right'; text?: string }>()
 const { sourceById } = useCatalog()
-// Источники каталога приходят из API, демонстрационные — из моков страниц проекта
+// Источники каталога приходят из API, демонстрационные — из моков страниц проекта.
+// text — строка трассировки вида «[A] ronavi-robotics.ru/…», если отдельного source_id нет.
 const src = computed(() => sourceById(props.sourceId) ?? demoSourceById(props.sourceId))
-const conf = computed(() => (src.value ? confidenceByKind[src.value.kind] : undefined))
+const parsed = computed(() => {
+  if (!props.text) return undefined
+  const m = props.text.match(/^\[([A-D])\]\s*(.*)$/i)
+  if (!m) return { letter: undefined as Confidence | undefined, rest: props.text }
+  return { letter: m[1]!.toUpperCase() as Confidence, rest: m[2] || props.text }
+})
+const conf = computed(() => (src.value ? confidenceByKind[src.value.kind] : parsed.value?.letter))
 const fmt = (d: string) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
 </script>
 
 <template>
-  <span v-if="src" class="src" :class="[`c-${conf}`, align === 'right' ? 'right' : '']" tabindex="0">
-    <span class="letter">{{ conf }}</span>
+  <span v-if="src || parsed" class="src" :class="[`c-${conf}`, align === 'right' ? 'right' : '']" tabindex="0">
+    <span class="letter">{{ conf || '?' }}</span>
     <span class="pop glass glass-strong" role="tooltip">
-      <span class="pop-head">
-        <span class="label">{{ sourceKindLabel[src.kind] }}</span>
-        <span class="conf">достоверность {{ conf }}</span>
-      </span>
-      <span class="pub">{{ src.publisher }}</span>
-      <span v-if="quote || src.quote" class="quote"><PhQuotes :size="14" weight="fill" /> {{ quote || src.quote }}</span>
-      <span class="dates mono-sm">получено {{ fmt(src.fetchedAt) }}<template v-if="src.checkedAt !== src.fetchedAt"> · проверено {{ fmt(src.checkedAt) }}</template></span>
-      <a v-if="src.url && src.url.startsWith('http')" class="pop-link" :href="src.url" target="_blank" rel="noreferrer">Открыть источник <PhArrowSquareOut :size="14" /></a>
-      <span v-else class="pop-file mono-sm">{{ src.url || 'без ссылки' }}</span>
+      <template v-if="src">
+        <span class="pop-head">
+          <span class="label">{{ sourceKindLabel[src.kind] }}</span>
+          <span class="conf">достоверность {{ conf }}</span>
+        </span>
+        <span class="pub">{{ src.publisher }}</span>
+        <span v-if="quote || src.quote" class="quote"><PhQuotes :size="14" weight="fill" /> {{ quote || src.quote }}</span>
+        <span class="dates mono-sm">получено {{ fmt(src.fetchedAt) }}<template v-if="src.checkedAt !== src.fetchedAt"> · проверено {{ fmt(src.checkedAt) }}</template></span>
+        <a v-if="src.url && src.url.startsWith('http')" class="pop-link" :href="src.url" target="_blank" rel="noreferrer">Открыть источник <PhArrowSquareOut :size="14" /></a>
+        <span v-else class="pop-file mono-sm">{{ src.url || 'без ссылки' }}</span>
+      </template>
+      <template v-else>
+        <span class="pop-head">
+          <span class="label">Источник расчёта</span>
+          <span v-if="conf" class="conf">достоверность {{ conf }}</span>
+        </span>
+        <span class="pub">{{ parsed?.rest }}</span>
+      </template>
     </span>
   </span>
 </template>

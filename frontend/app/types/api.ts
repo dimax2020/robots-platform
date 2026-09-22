@@ -101,3 +101,151 @@ export interface ApiCatalogTree {
   catalog_version_id: number
   nodes: ApiTreeNode[]
 }
+
+// ---------------------------------------------------------------------------
+// Проекты и расчёт (§7, CalcResponse)
+// ---------------------------------------------------------------------------
+
+export type ApiVerdict = 'pass' | 'fail' | 'unknown'
+export type ApiScenarioCode = 'baseline' | 'per_task' | 'optimal'
+export type ApiTraceStepName = 'prepare' | 'match' | 'size' | 'rank' | 'cost' | 'layout' | 'sim'
+
+export interface ApiSiteProfile {
+  object_type_code: string
+  area_m2?: number | null
+  free_m2?: number | null
+  aisle_width_m?: number | null
+  temp_min_c?: number | null
+  temp_max_c?: number | null
+  shifts_per_day?: number | null
+  shift_hours?: number | null
+  days_year?: number | null
+  staff_salary_year_rub?: number | null
+  energy_tariff_rub_kwh?: number | null
+  budget_rub?: number | null
+  clean_area_m2?: number | null
+  pallet_places?: number | null
+  storage_height_m?: number | null
+  floor_load_kg_m2?: number | null
+  floor_flatness_mm?: number | null
+  peak_factor?: number | null
+  power_kw?: number | null
+  noise_limit_dba?: number | null
+  has_wms?: boolean | null
+}
+
+export interface ApiTask {
+  process_code: string
+  name?: string | null
+  flow_per_hour?: number | null
+  flow_per_day?: number | null
+  peak_factor?: number | null
+  route_len_m?: number | null
+  max_load_kg?: number | null
+  t_load_s?: number | null
+  t_unload_s?: number | null
+  container_types?: string[]
+  staff_fte_now?: number | null
+}
+
+export interface ApiProject {
+  id: string
+  owner_id: string
+  name: string
+  object_type_code: string
+  site: ApiSiteProfile
+  tasks: ApiTask[]
+  overrides: Record<string, number>
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface ApiProjectCreate {
+  name: string
+  object_type_code: string
+  industry_code?: string | null
+  use_demo?: boolean
+}
+
+export interface ApiProjectPatch {
+  name?: string | null
+  site?: ApiSiteProfile | null
+  tasks?: ApiTask[] | null
+  overrides?: Record<string, number> | null
+}
+
+export interface ApiSiteProfileRef {
+  object_type_code: string
+  name?: string | null
+  site: ApiSiteProfile
+  tasks: ApiTask[]
+  field_sources?: Record<string, string> | null
+}
+
+export interface ApiCandidate {
+  product_id: string
+  process_code: string
+  verdict: ApiVerdict
+  failed: string[]
+  unknown: string[]
+  score?: number | null
+}
+
+export interface ApiSizedOption {
+  product_id: string
+  process_code: string
+  count: number
+  formula: string
+  family: string
+}
+
+export interface ApiEconomics {
+  capex_rub: number
+  opex_year_rub: number
+  effect_year_rub: number
+  payback_years?: number | null
+  roi_pct?: number | null
+  tco_rub: number
+  horizon_years: number
+  breakdown: Record<string, number>
+}
+
+export interface ApiScenario {
+  code: ApiScenarioCode
+  name: string
+  options: ApiSizedOption[]
+  economics?: ApiEconomics | null
+  raas_available: boolean
+}
+
+export interface ApiVendorQuery {
+  product_id: string
+  product_name: string
+  manufacturer: string
+  field: string
+  source_url?: string | null
+}
+
+export interface ApiTraceStep {
+  step: ApiTraceStepName | string
+  product_id?: string | null
+  verdict?: ApiVerdict | null
+  formula?: string | null
+  value?: number | null
+  unit?: string | null
+  source?: string | null
+  message: string
+}
+
+export interface ApiCalcResponse {
+  engine_version: string
+  catalog_version_id: number
+  candidates: ApiCandidate[]
+  options: ApiSizedOption[]
+  scenarios: ApiScenario[]
+  vendor_queries: ApiVendorQuery[]
+  plan?: unknown | null
+  sim?: unknown | null
+  trace: ApiTraceStep[]
+  run_id: string
+}

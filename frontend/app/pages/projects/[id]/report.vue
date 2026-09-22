@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { PhPrinter, PhFileXls, PhFileCsv, PhImage, PhEnvelopeSimple, PhWarning } from '@phosphor-icons/vue'
-import { projectById, scenarios, objectTypeLabel, matchCheck } from '~/data/projects'
+import { projectById, scenarios, objectTypeLabel } from '~/data/projects'
 import { demoProducts as products } from '~/data/demo'
 
 const route = useRoute()
@@ -11,7 +11,11 @@ const p = (id: string) => products.find((x) => x.id === id)!
 const best = scenarios[2]!
 const f = (n: number) => n.toLocaleString('ru-RU')
 const f1 = (n: number) => n.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
-const requests = matchCheck.map((r) => ({ product: p(r.productId), missing: r.missing ?? [] }))
+const requests = [
+  { product: p('p-03'), missing: ['Автономность', 'Точность позиционирования', 'Требования к полу'] },
+  { product: p('p-06'), missing: ['Класс защиты'] },
+  { product: p('p-08'), missing: ['Производительность', 'Класс защиты'] },
+]
 const limits = [
   'Производительность трёх позиций взята по аналогу класса (достоверность C), паспортных данных нет.',
   'Ровность пола 3 мм на 2 м проходит по допуску Weibot G2P-600 впритык, нужен замер на площадке.',

@@ -31,4 +31,4 @@ dev = [
 package = false
 
 [tool.pytest.ini_options]
-testpaths = ["engine/tests"]
+testpaths = ["engine/tests", "api/tests"]

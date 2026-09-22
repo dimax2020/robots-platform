@@ -5,7 +5,7 @@ from fastapi import FastAPI
 
 from api.config import get_settings
 from api.db.session import get_sessionmaker
-from api.routers import admin, calc, catalog
+from api.routers import admin, calc, catalog, projects
 from api.services.catalog import load_engine_catalog
 from engine import ENGINE_VERSION
 from engine.models import Catalog
@@ -40,6 +40,8 @@ app = FastAPI(
 app.include_router(catalog.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(calc.router, prefix="/api/v1")
+app.include_router(projects.router, prefix="/api/v1")
+app.include_router(projects.refs_router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health")

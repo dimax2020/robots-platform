@@ -7,7 +7,7 @@ attr_proposal остаётся для импорта и парсера, где �
 from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
 
 from api.db.models import AttributeDef, Product, Source
@@ -48,8 +48,18 @@ def _resolve_source(db: DbSession, patch: AttrPatch) -> Source:
     return source
 
 
+@router.post("/catalog/reload")
+def reload_catalog(request: Request, db: DbSession) -> dict[str, int]:
+    """Перечитать снимок каталога в app.state без рестарта процесса (§7.2)."""
+    catalog = svc.reload_app_catalog(request.app, db)
+    return {
+        "catalog_version_id": catalog.version_id,
+        "products": len(catalog.products),
+    }
+
+
 @router.patch("/products/{product_id}/attrs", response_model=ProductDetail)
-def patch_attrs(product_id: UUID, patch: AttrPatch, db: DbSession) -> ProductDetail:
+def patch_attrs(product_id: UUID, patch: AttrPatch, request: Request, db: DbSession) -> ProductDetail:
     """Добавить или обновить характеристики продукта.
 
     В CSV организатора ТТХ нет ни одной, поэтому это основной путь их появления (§12.4).
@@ -82,6 +92,7 @@ def patch_attrs(product_id: UUID, patch: AttrPatch, db: DbSession) -> ProductDet
     product.attrs = attrs
 
     db.commit()
+    svc.reload_app_catalog(request.app, db)
     detail = svc.product_detail(db, str(product_id))
     if detail is None:  # pragma: no cover — продукт только что был на месте
         raise HTTPException(status_code=404, detail="Решение не найдено")

@@ -50,7 +50,7 @@ export const projects: Project[] = [
   { id: 'prj-1038', name: 'Фулфилмент Домодедово', objectType: 'warehouse', industry: 'Логистика и торговля', updatedAt: '2026-09-12T16:48:00', catalogVersion: 'v2026.09.1', modelVersion: 'm1.3', step: 7, area: 7200, shifts: 3, tasks: 3 },
 ]
 
-export const projectById = (id: string) => projects.find((p) => p.id === id) ?? projects[0]
+export const projectById = (id: string): Project => projects.find((p) => p.id === id) ?? projects[0]!
 
 export const isFullPath = (p: Project) => p.objectType === 'warehouse'
 
@@ -70,59 +70,6 @@ export const demoTasks: Task[] = [
   { id: 't2', process: 'Комплектация заказов', flow: '1 850 строк/смена', route: 32, container: 'Тара 600 × 400', peak: 1.4, load: 12, unload: 18 },
   { id: 't3', process: 'Паллетирование', flow: '96 палет/смена', route: 0, container: 'Короб 600 × 400 × 300', peak: 1.2, load: 0, unload: 0 },
   { id: 't4', process: 'Инвентаризация', flow: '14 000 ячеек/неделя', route: 0, container: 'Не применимо', peak: 1.0, load: 0, unload: 0 },
-]
-
-export interface MatchRow {
-  productId: string
-  score?: number
-  count?: number
-  missing?: string[]
-  reason?: string
-  explanation: { title: string; formula: string; human: string; sourceId?: string }[]
-}
-
-export const matchFit: MatchRow[] = [
-  { productId: 'p-01', score: 0.91, count: 7, explanation: [
-    { title: 'Грузоподъёмность', formula: '1 500 кг ≥ 1 200 кг · 1,1 = 1 320 кг', human: 'Максимальная палета с запасом 10% помещается в допуск робота.', sourceId: 's-ronavi' },
-    { title: 'Расчётное количество', formula: 'N = ⌈ 240 · 1,6 · t_cycle / (T_смены · k_загр) ⌉ = ⌈ 240 · 1,6 · 4,4 / (480 · 0,85) ⌉ = 5 → 7 с резервом 1,3', human: 'В пик нужны 5 машин, плюс резерв на зарядку и простой.', sourceId: 's-team' },
-    { title: 'Цикл', formula: 't_cycle = 2 · 85 м / 1,5 м/с + 40 с + 35 с = 188 с ≈ 3,1 мин; с манёврами 4,4 мин', human: 'Один рейс туда и обратно с погрузкой и разгрузкой.', sourceId: 's-ronavi' },
-  ] },
-  { productId: 'p-02', score: 0.87, count: 12, explanation: [
-    { title: 'Производительность', formula: '1 850 строк / (8 ч · 0,85) = 272 строк/ч; 272 / 160 · 1,4 = 2,4 робота на станцию', human: 'На каждую станцию комплектации нужно 2–3 робота в пик.', sourceId: 's-avtomakon' },
-    { title: 'Требования к полу', formula: 'ровность 3 мм на 2 м: параметр площадки = 3 мм', human: 'Пол площадки проходит по допуску впритык, замер обязателен.', sourceId: 's-avtomakon' },
-  ] },
-  { productId: 'p-04', score: 0.8, count: 2, explanation: [
-    { title: 'Нагрузка', formula: '12 кг ≥ 8 кг · 1,25 = 10 кг', human: 'Короб 8 кг укладывается в нагрузку с запасом на захват.', sourceId: 's-catalog-79' },
-  ] },
-  { productId: 'p-10', score: 0.72, count: 1, explanation: [
-    { title: 'Инвентаризация', formula: '14 000 ячеек / 900 ячеек/ч = 15,6 ч в неделю = 1 комплект', human: 'Один коптер закрывает недельный объём за две ночные смены.', sourceId: 's-catalog-79' },
-  ] },
-]
-
-export const matchCheck: MatchRow[] = [
-  { productId: 'p-03', missing: ['Автономность', 'Точность позиционирования', 'Требования к полу'], explanation: [
-    { title: 'Проверка нагрузки', formula: '300 кг ≥ 180 кг · 1,1 = 198 кг', human: 'Тара по массе проходит.', sourceId: 's-dikom' },
-    { title: 'Автономность', formula: 'нет данных', human: 'Без автономности невозможно посчитать резерв на зарядку. Запросить у вендора.' },
-  ] },
-  { productId: 'p-06', missing: ['Класс защиты'], explanation: [
-    { title: 'Высота стеллажа', formula: '6 000 мм ≥ 5 400 мм', human: 'Верхний ярус достижим.', sourceId: 's-avtomakon' },
-    { title: 'Пилотная стадия', formula: 'УГТ 7 ≥ 7', human: 'Проходит порог автоподбора, но производительность не подтверждена в эксплуатации.' },
-  ] },
-  { productId: 'p-08', missing: ['Производительность', 'Класс защиты'], explanation: [
-    { title: 'Температурный режим', formula: '−25…+40 °C ⊇ −5…+30 °C', human: 'Периметр в московском климате проходит.', sourceId: 's-mai' },
-  ] },
-]
-
-export const matchExcluded: MatchRow[] = [
-  { productId: 'p-07', reason: 'Нагрузка на пол 4 т/м² при паспортной 2,5 т/м²', explanation: [
-    { title: 'Нагрузка на пол', formula: '4 т/м² > 2,5 т/м²', human: 'Куб контейнеров тяжелее, чем выдерживает перекрытие площадки.', sourceId: 's-catalog' },
-  ] },
-  { productId: 'p-05', reason: 'Скорость коллаборативного режима ниже требуемого такта 9 циклов/мин', explanation: [
-    { title: 'Такт', formula: '9 циклов/мин < 12 циклов/мин', human: 'Линия требует больше циклов, чем даёт кобот в безопасном режиме.', sourceId: 's-catalog-79' },
-  ] },
-  { productId: 'p-09', reason: 'Процесс «Дезинфекция» не задан в задачах проекта', explanation: [
-    { title: 'Процесс', formula: 'Дезинфекция ∉ {перемещение, комплектация, паллетирование, инвентаризация}', human: 'Робот исправен, но задачи под него в проекте нет.' },
-  ] },
 ]
 
 export interface Scenario {

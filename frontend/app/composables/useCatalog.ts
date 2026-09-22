@@ -149,7 +149,7 @@ export const useProduct = (key: MaybeRefOrGetter<string>) => {
 
   const { data, pending, error, refresh } = useAsyncData<ApiProductDetail | null>(
     () => `product-${toValue(key)}`,
-    () => $fetch(`${base}/catalog/products/${toValue(key)}`).catch(() => null),
+    () => $fetch<ApiProductDetail>(`${base}/catalog/products/${toValue(key)}`).catch(() => null),
     { watch: [computed(() => toValue(key))] },
   )
 

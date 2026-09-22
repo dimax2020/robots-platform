@@ -43,6 +43,7 @@ from engine.models import Product as EngineProduct
 from engine.models import SolutionType as EngineSolutionType
 from engine.models import Source as EngineSource
 from engine.models import AttributeDef as EngineAttributeDef
+from engine.rules import validate_rule_spec
 
 
 def current_version_id(db: Session) -> int:
@@ -326,12 +327,38 @@ def load_engine_catalog(db: Session) -> Catalog:
     """Снимок каталога для движка: грузится один раз в lifespan и живёт в app.state (§11.1)."""
     hier = Hierarchy(db)
     products = current_products(db)
+
+    process_solutions: dict[str, list[str]] = defaultdict(list)
+    for proc_code, sol_code in db.execute(
+        select(Process.code, SolutionType.code)
+        .select_from(ProcessSolution)
+        .join(Process, Process.id == ProcessSolution.process_id)
+        .join(SolutionType, SolutionType.id == ProcessSolution.solution_type_id)
+    ):
+        process_solutions[proc_code].append(sol_code)
+
+    case_process_codes: dict[UUID, list[str]] = defaultdict(list)
+    for product_id, proc_code in db.execute(
+        select(ProductCase.product_id, Process.code).join(
+            Process, Process.id == ProductCase.process_id
+        )
+    ):
+        if proc_code not in case_process_codes[product_id]:
+            case_process_codes[product_id].append(proc_code)
+
+    solution_types: list[EngineSolutionType] = []
+    for s in hier.solution_types.values():
+        try:
+            validate_rule_spec(s.rule_spec)
+        except Exception as exc:
+            raise ValueError(f"Битый RuleSpec у типа решения {s.code}: {exc}") from exc
+        solution_types.append(
+            EngineSolutionType(code=s.code, name=s.name, family=s.family, rule_spec=s.rule_spec)
+        )
+
     return Catalog(
         version_id=current_version_id(db),
-        solution_types=[
-            EngineSolutionType(code=s.code, name=s.name, family=s.family, rule_spec=s.rule_spec)
-            for s in hier.solution_types.values()
-        ],
+        solution_types=solution_types,
         products=[
             EngineProduct(
                 id=p.id,
@@ -345,6 +372,7 @@ def load_engine_catalog(db: Session) -> Catalog:
                 market_potential=p.market_potential,
                 summary=p.summary,
                 attrs={k: AttrValue.model_validate(v) for k, v in p.attrs.items()},
+                case_process_codes=case_process_codes.get(p.id, []),
             )
             for p in products
         ],
@@ -368,4 +396,13 @@ def load_engine_catalog(db: Session) -> Catalog:
             )
             for n in db.scalars(select(DbCalcNorm)).all()
         ],
+        process_solutions=dict(process_solutions),
     )
+
+
+def reload_app_catalog(app: object, db: Session) -> Catalog:
+    """Перечитать снимок в app.state. Битый RuleSpec падает здесь, а не в расчёте (§7.2)."""
+    catalog = load_engine_catalog(db)
+    app.state.catalog = catalog  # type: ignore[attr-defined]
+    return catalog
+

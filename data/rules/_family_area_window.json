@@ -1,0 +1,23 @@
+{
+  "_note": "Семейство area_window: уборка помещений и работа по площади за смену. Формула: окно = часы смены × число смен; производительность q = throughput робота с учётом загрузки; число машин = ceil(убираемая площадь × число проходов / (q × окно)) плюс резерв.",
+  "solution_type": "_family_area_window",
+  "hard": [
+    { "field": "min_aisle_width_m", "op": "<=", "ref": "site.aisle_width_m" },
+    { "field": "temp_min_c", "op": "<=", "ref": "site.temp_min_c" }
+  ],
+  "soft": [
+    { "field": "trl", "weight": 0.25, "dir": "max" },
+    { "field": "availability", "weight": 0.2, "map": { "operation": 1.0, "piloting": 0.5, "rnd": 0.0 } },
+    { "field": "reliability", "weight": 0.2, "map": { "A": 1.0, "B": 0.7, "C": 0.35, "D": 0.1 } },
+    { "field": "price_rub", "weight": 0.2, "dir": "min" },
+    { "field": "has_case", "weight": 0.15, "dir": "max" }
+  ],
+  "sizing": {
+    "family": "area_window",
+    "vars": {
+      "t_window": "site.shift_hours * site.shifts_per_day",
+      "q": "robot.throughput * norm.k_util"
+    },
+    "formula": "ceil(site.clean_area_m2 * norm.f_passes / (q * t_window)) + norm.n_reserve"
+  }
+}

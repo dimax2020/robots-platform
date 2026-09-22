@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { PhCheck, PhArrowRight, PhSparkle } from '@phosphor-icons/vue'
 import { objectTypeLabel, objectTypeImage, type ObjectType, projects } from '~/data/projects'
+import { fetchErrorMessage } from '~/composables/useCalc'
 
 useHead({ title: 'Новый проект' })
 const route = useRoute()
 const router = useRouter()
+const { create, refresh } = useProjects()
 
 const industries = [
   { code: 'logistics', label: 'Логистика и торговля', objects: ['warehouse'] as ObjectType[] },
@@ -25,7 +27,27 @@ const demoFor = computed(() => projects.find((p) => p.isDemo && p.objectType ===
 
 const pickIndustry = (i: typeof industries[number]) => { type.value = i.objects[0]! }
 const applyDemo = () => { useDemo.value = true; name.value = demoFor.value.name }
-const create = () => { router.push(`/projects/${demoFor.value.id}/params`) }
+const creating = ref(false)
+const createError = ref('')
+const submit = async () => {
+  if (creating.value) return
+  creating.value = true
+  createError.value = ''
+  try {
+    const project = await create({
+      name: name.value.trim() || demoFor.value.name,
+      object_type_code: type.value,
+      industry_code: industry.value.code,
+      use_demo: true,
+    })
+    await refresh()
+    await router.push(`/projects/${project.id}/params`)
+  } catch (e: unknown) {
+    createError.value = fetchErrorMessage(e, 'Не удалось создать проект. Проверьте, что API запущен.')
+  } finally {
+    creating.value = false
+  }
+}
 </script>
 
 <template>
@@ -36,7 +58,9 @@ const create = () => { router.push(`/projects/${demoFor.value.id}/params`) }
       <p class="body-lg muted">Три поля: имя, отрасль и тип объекта. Параметры площадки и задачи собираются на следующем шаге.</p>
     </div>
 
-    <form class="wiz" @submit.prevent="create">
+    <UiCallout v-if="createError" tone="danger" title="Проект не создан">{{ createError }}</UiCallout>
+
+    <form class="wiz" @submit.prevent="submit">
       <div class="col" v-reveal="1">
         <div class="step glass">
           <div class="step-head"><span class="n mono-sm">1</span><span class="h3">Имя проекта</span></div>
@@ -85,7 +109,7 @@ const create = () => { router.push(`/projects/${demoFor.value.id}/params`) }
               <span><span class="strong">Подставить демо-набор</span><span class="caption block">{{ demoFor.name }}: {{ demoFor.area?.toLocaleString('ru-RU') }} м², {{ demoFor.tasks }} задачи</span></span>
               <PhCheck v-if="useDemo" :size="16" weight="bold" class="ok" />
             </button>
-            <UiButton type="submit" size="lg" block>Создать и перейти к параметрам<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
+            <UiButton type="submit" size="lg" block :disabled="creating">{{ creating ? 'Создаём…' : 'Создать и перейти к параметрам' }}<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
             <div class="caption">Проект сохраняется на версии каталога v2026.09.3 и модели m1.4.</div>
           </div>
         </div>

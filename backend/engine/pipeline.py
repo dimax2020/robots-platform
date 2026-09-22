@@ -1,13 +1,16 @@
-"""run_pipeline(req, catalog, norms) -> CalcResponse (§4).
+"""run_pipeline(req, catalog, norms) -> CalcResponse (§4, §6.5).
 
 Каждый шаг — чистая функция (input, catalog, norms) -> (result, list[TraceStep]).
 Без обращений к БД, без сайд-эффектов, без чтения настроек.
+vendor_queries приходят из match.
 """
 
 from __future__ import annotations
 
 from . import ENGINE_VERSION, cost, layout, match, rank, sim, size
-from .models import CalcNorm, CalcRequest, CalcResponse, Catalog, TraceStep
+from .models import CalcNorm, CalcRequest, CalcResponse, Catalog
+from .prepare import prepare
+from .resolve import Resolver
 
 
 def _apply_overrides(norms: list[CalcNorm], overrides: dict[str, float]) -> list[CalcNorm]:
@@ -22,9 +25,10 @@ def _apply_overrides(norms: list[CalcNorm], overrides: dict[str, float]) -> list
 
 def run_pipeline(req: CalcRequest, catalog: Catalog, norms: list[CalcNorm] | None = None) -> CalcResponse:
     norms = _apply_overrides(norms if norms is not None else catalog.norms, req.overrides)
-    trace: list[TraceStep] = []
+    resolver = Resolver(catalog, norms)
+    req, trace = prepare(req, resolver)
 
-    candidates, t = match.run(req, catalog)
+    candidates, vendor_queries, t = match.run(req, catalog, norms)
     trace += t
 
     options, t = size.run(req, candidates, catalog, norms)
@@ -47,8 +51,9 @@ def run_pipeline(req: CalcRequest, catalog: Catalog, norms: list[CalcNorm] | Non
         engine_version=ENGINE_VERSION,
         catalog_version_id=catalog.version_id,
         candidates=candidates,
+        options=options,
         scenarios=scenarios,
-        vendor_queries=[],
+        vendor_queries=vendor_queries,
         plan=plan,
         sim=shift,
         trace=trace,

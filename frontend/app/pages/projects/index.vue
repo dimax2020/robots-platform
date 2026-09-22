@@ -1,13 +1,19 @@
 <script setup lang="ts">
 import { PhPlus, PhCopy, PhTrash, PhArrowRight, PhLockSimple } from '@phosphor-icons/vue'
 import { projects, objectTypeLabel, objectTypeImage, steps, isFullPath } from '~/data/projects'
+import { fetchErrorMessage } from '~/composables/useCalc'
 
 useHead({ title: 'Проекты' })
 const { role } = useRole()
-const own = computed(() => projects.filter((p) => !p.isDemo))
+const { projects: live, pending, error } = useProjects()
+const own = computed(() => live.value)
 const demo = computed(() => projects.filter((p) => p.isDemo))
-const fmt = (d: string) => new Date(d).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-const stepLabel = (p: typeof projects[number]) => steps[Math.min(p.step, steps.length) - 1]?.label ?? 'Параметры'
+const fmt = (d: string) => {
+  if (!d) return '—'
+  const dt = new Date(d)
+  return Number.isNaN(dt.getTime()) ? '—' : dt.toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+const stepLabel = (p: (typeof projects)[number]) => steps[Math.min(p.step, steps.length) - 1]?.label ?? 'Параметры'
 </script>
 
 <template>
@@ -25,7 +31,15 @@ const stepLabel = (p: typeof projects[number]) => steps[Math.min(p.step, steps.l
 
     <div v-if="role !== 'guest'" class="block" v-reveal>
       <div class="h3 block-title">Мои проекты <span class="mono-sm muted">{{ own.length }}</span></div>
-      <div class="list glass glass-xl">
+      <UiCallout v-if="error" tone="danger" title="Не удалось загрузить проекты">{{ fetchErrorMessage(error, 'Сервер не ответил.') }}</UiCallout>
+      <div v-else-if="pending" class="list glass glass-xl"><UiSkeleton h="120px" /></div>
+      <div v-else-if="!own.length" class="list glass glass-xl">
+        <div class="empty-own">
+          <div class="h4">Пока нет сохранённых расчётов</div>
+          <div class="caption">Создайте проект — площадка и задачи предзаполнятся из профиля объекта.</div>
+        </div>
+      </div>
+      <div v-else class="list glass glass-xl">
         <table class="table">
           <thead><tr><th>Название</th><th>Тип объекта</th><th>Шаг</th><th>Обновлён</th><th>Версия каталога</th><th class="num">Действия</th></tr></thead>
           <tbody>
@@ -70,6 +84,7 @@ const stepLabel = (p: typeof projects[number]) => steps[Math.min(p.step, steps.l
 .block-title { display: flex; align-items: baseline; gap: 10px; }
 .list { padding: var(--space-3); }
 .list table { position: relative; z-index: 1; }
+.empty-own { position: relative; z-index: 1; padding: var(--space-8); display: grid; gap: 6px; }
 .name { color: var(--ink-strong); }
 .thumb { width: 28px; height: 28px; border-radius: 8px; object-fit: cover; }
 .progress { display: grid; gap: 4px; min-width: 140px; }

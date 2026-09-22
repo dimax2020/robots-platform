@@ -16,11 +16,13 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from argon2 import PasswordHasher
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from api.config import get_settings
 from api.db.models import (
+    AppUser,
     AttributeDef,
     CalcNorm,
     CatalogVersion,
@@ -36,17 +38,100 @@ from api.db.models import (
     Source,
 )
 from api.db.session import get_sessionmaker
+from api.deps import DEMO_USER_ID, DEMO_USER_LOGIN
+from engine.rules import validate_rule_spec
 
 SETTINGS = get_settings()
 DATA_DIR = SETTINGS.data_dir
 CATALOG_FILE = DATA_DIR / "catalog_normalized.json"
 ATTRIBUTES_FILE = DATA_DIR / "attributes.json"
-DEFAULT_RULES_FILE = DATA_DIR / "rules" / "_default.json"
+NORMS_FILE = DATA_DIR / "norms" / "calc_norms.json"
+RULES_DIR = DATA_DIR / "rules"
+DEFAULT_RULES_FILE = RULES_DIR / "_default.json"
 
 
 def load_json(path: Path) -> dict[str, Any]:
     with path.open(encoding="utf-8") as f:
         return json.load(f)
+
+
+def _strip_private(value: Any) -> Any:
+    """Ключи с «_» — заметки для людей, в rule_spec их нет (§4.1)."""
+    if isinstance(value, dict):
+        return {k: _strip_private(v) for k, v in value.items() if not str(k).startswith("_")}
+    if isinstance(value, list):
+        return [_strip_private(item) for item in value]
+    return value
+
+
+def resolve_rule_spec(code: str, family: str, default_rules: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """Файл типа → шаблон семейства → _default (§4.1). Файла семейства может ещё не быть."""
+    type_path = RULES_DIR / f"{code}.json"
+    family_path = RULES_DIR / f"_family_{family}.json"
+    if type_path.exists():
+        raw, origin, path = load_json(type_path), "type", type_path
+    elif family_path.exists():
+        raw, origin, path = load_json(family_path), "family", family_path
+    else:
+        raw, origin, path = default_rules, "default", DEFAULT_RULES_FILE
+
+    spec = _strip_private(raw)
+    spec["solution_type"] = code
+    spec["sizing"] = dict(spec.get("sizing") or {}, family=family)
+    try:
+        validate_rule_spec(spec)
+    except Exception as exc:
+        raise ValueError(f"Битый RuleSpec для типа {code} (файл {path}): {exc}") from exc
+    return spec, origin
+
+
+def seed_calc_norms(
+    db: Session,
+    rows: list[dict[str, Any]],
+    solution_types: dict[str, SolutionType],
+    captured_at: date,
+) -> int:
+    """Каждое число — source с непустым rationale (ТЗ 3.5.1). Уникальность calc_norm — (solution_type_id, key)."""
+    cache: dict[tuple[str, str | None, str], Source] = {}
+    seen: set[tuple[int | None, str]] = set()
+    inserted = 0
+    for row in rows:
+        src = row["source"]
+        rationale = (src.get("rationale") or "").strip()
+        if not rationale:
+            raise ValueError(f"Пустой source.rationale у норматива {row['key']}")
+        triple = (src["kind"], src.get("publisher"), rationale)
+        source = cache.get(triple)
+        if source is None:
+            source = Source(
+                kind=src["kind"],
+                publisher=src.get("publisher"),
+                rationale=rationale,
+                captured_at=captured_at,
+                title="Норматив расчёта количества",
+            )
+            db.add(source)
+            db.flush()
+            cache[triple] = source
+
+        st_code = row.get("solution_type_code")
+        st_id = solution_types[st_code].id if st_code else None
+        uniq = (st_id, row["key"])
+        if uniq in seen:
+            continue
+        seen.add(uniq)
+        db.add(
+            CalcNorm(
+                solution_type_id=st_id,
+                key=row["key"],
+                value=row["value"],
+                unit=row.get("unit"),
+                source_id=source.id,
+                editable=bool(row.get("editable", True)),
+            )
+        )
+        inserted += 1
+    return inserted
 
 
 def attr(value: Any, source_id: int, *, note: str | None = None, unit: str | None = None) -> dict[str, Any]:
@@ -84,17 +169,41 @@ def reset_catalog(db: Session) -> None:
     db.commit()
 
 
+def seed_demo_user(db: Session) -> AppUser:
+    """Демо-пользователь с фиксированным UUID. Авторизации нет — заглушка (§0, §7.1)."""
+    user = db.scalar(
+        select(AppUser).where(
+            (AppUser.id == DEMO_USER_ID) | (AppUser.login == DEMO_USER_LOGIN)
+        )
+    )
+    if user is not None:
+        return user
+    user = AppUser(
+        id=DEMO_USER_ID,
+        login=DEMO_USER_LOGIN,
+        password_hash=PasswordHasher().hash("demo"),
+        role="admin",
+    )
+    db.add(user)
+    db.flush()
+    return user
+
+
 def seed(db: Session, *, reset: bool) -> dict[str, int]:
     data = load_json(CATALOG_FILE)
     attributes = load_json(ATTRIBUTES_FILE)["attributes"]
     default_rules = load_json(DEFAULT_RULES_FILE)
+    norm_rows = load_json(NORMS_FILE)["norms"]
+
+    seed_demo_user(db)
 
     if reset:
         reset_catalog(db)
 
     if db.scalar(select(Product.id).limit(1)) is not None:
         print("Каталог уже засеян. Для пересева: python -m scripts.seed --reset")
-        return {}
+        db.commit()
+        return {"demo_user": 1}
 
     # 1. Версия каталога (§6.5): прогоны расчёта ссылаются на неё, продукты живут интервалом
     version = CatalogVersion(
@@ -149,15 +258,26 @@ def seed(db: Session, *, reset: bool) -> dict[str, int]:
         db.add(obj)
         processes[row["code"]] = obj
 
+    # RuleSpec: файл типа, иначе _family_<family>, иначе _default (§4.1)
+    rule_specs_real = 0
+    rule_specs_placeholder = 0
     solution_types: dict[str, SolutionType] = {}
     for row in data["solution_types"]:
-        spec = dict(default_rules, solution_type=row["code"])
-        spec["sizing"] = dict(default_rules["sizing"], family=row["family"])
+        spec, origin = resolve_rule_spec(row["code"], row["family"], default_rules)
+        if origin == "default":
+            rule_specs_placeholder += 1
+        else:
+            rule_specs_real += 1
         obj = SolutionType(code=row["code"], name=row["name"], family=row["family"], rule_spec=spec)
         db.add(obj)
         solution_types[row["code"]] = obj
 
     db.flush()
+
+    # Нормативы подбора (ТЗ 3.5.1, §3). Источник с той же тройкой kind+publisher+rationale не дублируем
+    n_norms = seed_calc_norms(
+        db, norm_rows, solution_types, date.fromisoformat(data["generated_at"])
+    )
 
     # 5. Связи справочников — из них джойнами собирается дерево каталога
     for link in data["industry_objects"]:
@@ -248,6 +368,10 @@ def seed(db: Session, *, reset: bool) -> dict[str, int]:
         "industry_objects": len(data["industry_objects"]),
         "object_processes": len(data["object_processes"]),
         "process_solutions": len(data["process_solutions"]),
+        "calc_norms": n_norms,
+        "rule_specs": rule_specs_real,
+        "rule_specs_placeholder": rule_specs_placeholder,
+        "demo_user": 1,
     }
 
 
@@ -256,7 +380,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--reset", action="store_true", help="вычистить каталог перед сидом")
     args = parser.parse_args(argv)
 
-    for path in (CATALOG_FILE, ATTRIBUTES_FILE, DEFAULT_RULES_FILE):
+    for path in (CATALOG_FILE, ATTRIBUTES_FILE, DEFAULT_RULES_FILE, NORMS_FILE):
         if not path.exists():
             print(f"Не найден файл данных: {path}", file=sys.stderr)
             if path == CATALOG_FILE:
