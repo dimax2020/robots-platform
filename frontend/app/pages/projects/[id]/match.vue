@@ -15,6 +15,10 @@ const { toggle, has } = useCompare()
 
 const tab = ref<'fit' | 'check' | 'excluded'>('fit')
 const open = ref<string | null>(null)
+const stepOpen = ref<string | null>(null)
+const prepOpen = ref(false)
+const outOpen = ref(false)
+const more = reactive<Record<string, boolean>>({})
 const calculating = ref(false)
 const calcError = ref('')
 
@@ -84,9 +88,28 @@ const emptyWhy = computed(() => {
   return 'Кандидатов нет: ни один продукт не прошёл отбор по процессам проекта. Проверьте тип объекта и список задач.'
 })
 
-watch(fit, (rows) => {
-  if (!open.value && rows[0]) open.value = rowKey(rows[0])
-}, { immediate: true })
+const toggleRow = (key: string) => {
+  open.value = open.value === key ? null : key
+  stepOpen.value = null
+}
+const toggleStep = (key: string) => {
+  stepOpen.value = stepOpen.value === key ? null : key
+}
+const stepKey = (row: string, step: string) => `${row}:${step}`
+const shownFields = (key: string, fields: string[]) => (more[key] ? fields : fields.slice(0, 3))
+const vendorPreview = (productId: string) => {
+  const fields = queriesOf(productId).map((q) => attrLabel(q.field))
+  if (!fields.length) return 'поля не сформированы'
+  if (fields.length <= 3) return fields.join(', ')
+  return `${fields.slice(0, 3).join(', ')} и ещё ${fields.length - 3}`
+}
+
+watch(list, (rows) => {
+  if (open.value && !rows.some((r) => rowKey(r) === open.value)) {
+    open.value = null
+    stepOpen.value = null
+  }
+})
 
 const runCalc = async () => {
   if (calculating.value || !project.value) return
@@ -181,16 +204,22 @@ const loading = computed(() => pending.value || catalogPending.value)
         <div class="sum glass neutral"><span class="display-3">{{ notInAuto.length }}</span><span><span class="h4">Вне автоподбора</span><span class="caption block">УГТ ниже 7 или разработка</span></span></div>
       </div>
 
-      <div v-if="globalTrace.length" class="prep glass" v-reveal>
-        <div class="h4">Как подготовлен вход</div>
-        <div class="caption">Преобразования площадки и потока, общие для всех кандидатов. Каждое число — из трассировки.</div>
-        <div v-for="(t, i) in globalTrace" :key="`${t.step}-${i}`" class="prep-item">
-          <UiBadge :tone="verdictTone(t.verdict)" size="sm">{{ STEP_TITLE[t.step] ?? t.step }}</UiBadge>
-          <div>
-            <p class="body-sm">{{ t.message }}</p>
-            <code v-if="t.formula" class="formula">{{ t.formula }}</code>
-            <div v-if="t.value != null" class="caption">{{ t.value.toLocaleString('ru-RU') }}<template v-if="t.unit"> {{ t.unit }}</template></div>
-            <div v-if="t.source" class="ex-src"><UiSourceTag :text="t.source" /><span class="caption">{{ sourceRest(t.source) }}</span></div>
+      <div v-if="globalTrace.length" class="fold glass">
+        <button type="button" class="fold-btn" :aria-expanded="prepOpen" @click="prepOpen = !prepOpen">
+          <span class="h4">Как подготовлен вход</span>
+          <span class="caption">{{ globalTrace.length }} {{ globalTrace.length === 1 ? 'запись' : 'записей' }} трассировки</span>
+          <PhCaretDown :size="14" weight="bold" class="caret" :class="{ up: prepOpen }" />
+        </button>
+        <div v-if="prepOpen" class="prep-body">
+          <div class="caption">Преобразования площадки и потока, общие для всех кандидатов.</div>
+          <div v-for="(t, i) in globalTrace" :key="`${t.step}-${i}`" class="prep-item">
+            <UiBadge :tone="verdictTone(t.verdict)" size="sm">{{ STEP_TITLE[t.step] ?? t.step }}</UiBadge>
+            <div>
+              <p class="body-sm">{{ t.message }}</p>
+              <code v-if="t.formula" class="formula">{{ t.formula }}</code>
+              <div v-if="t.value != null" class="caption">{{ t.value.toLocaleString('ru-RU') }}<template v-if="t.unit"> {{ t.unit }}</template></div>
+              <div v-if="t.source" class="ex-src"><UiSourceTag :text="t.source" /><span class="caption">{{ sourceRest(t.source) }}</span></div>
+            </div>
           </div>
         </div>
       </div>
@@ -225,11 +254,14 @@ const loading = computed(() => pending.value || catalogPending.value)
 
             <div v-if="tab === 'check'" class="metric wide">
               <span class="caption">Не хватает данных</span>
-              <span class="missing"><span v-for="m in r.unknown" :key="m" class="miss">{{ attrLabel(m) }}</span></span>
+              <span class="missing">
+                <span v-for="m in shownFields(rowKey(r), r.unknown)" :key="m" class="miss">{{ attrLabel(m) }}</span>
+                <button v-if="r.unknown.length > 3" type="button" class="miss more" @click="more[rowKey(r)] = !more[rowKey(r)]">{{ more[rowKey(r)] ? 'свернуть' : `ещё ${r.unknown.length - 3}` }}</button>
+              </span>
             </div>
             <div v-if="tab === 'check'" class="metric vendor">
               <span class="caption">Запрос вендору</span>
-              <span class="body-sm">{{ queriesOf(r.productId).map((q) => attrLabel(q.field)).join(', ') || 'поля не сформированы' }}</span>
+              <span class="body-sm">{{ vendorPreview(r.productId) }}</span>
               <a
                 v-if="queriesOf(r.productId).find((q) => q.sourceUrl)"
                 class="src-link caption"
@@ -241,10 +273,14 @@ const loading = computed(() => pending.value || catalogPending.value)
 
             <div v-if="tab === 'excluded'" class="metric wide">
               <span class="caption">Причина отказа</span>
-              <span class="body-sm reason">{{ r.failed.map(attrLabel).join(', ') || 'жёсткое правило не пройдено' }}</span>
+              <span class="missing">
+                <span v-for="m in shownFields('fail:' + rowKey(r), r.failed)" :key="m" class="miss fail">{{ attrLabel(m) }}</span>
+                <button v-if="r.failed.length > 3" type="button" class="miss more" @click="more['fail:' + rowKey(r)] = !more['fail:' + rowKey(r)]">{{ more['fail:' + rowKey(r)] ? 'свернуть' : `ещё ${r.failed.length - 3}` }}</button>
+                <span v-if="!r.failed.length" class="body-sm reason">жёсткое правило не пройдено</span>
+              </span>
             </div>
 
-            <button type="button" class="expand" :aria-expanded="open === rowKey(r)" @click="open = open === rowKey(r) ? null : rowKey(r)">
+            <button type="button" class="expand" :aria-expanded="open === rowKey(r)" @click="toggleRow(rowKey(r))">
               <PhFunction :size="16" weight="bold" /> Объяснение <PhCaretDown :size="14" weight="bold" class="caret" />
             </button>
           </div>
@@ -252,23 +288,28 @@ const loading = computed(() => pending.value || catalogPending.value)
           <Transition name="exp">
             <div v-if="open === rowKey(r)" class="explain">
               <div v-if="formulaOf(r)" class="ex">
-                <div class="ex-title h4">Итоговая формула количества</div>
+                <div class="ex-title h4">Формула количества</div>
                 <code class="formula">{{ formulaOf(r) }}</code>
-                <p class="body-sm human">Число на карточке взято из этой записи трассировки, не из скрытого коэффициента.</p>
               </div>
-              <div v-for="g in groupedTrace(r.productId)" :key="g.step" class="ex">
-                <div class="ex-title h4">{{ g.title }}</div>
-                <div v-for="(e, i) in g.items" :key="`${g.step}-${i}`" class="ex-item">
-                  <div class="ex-head">
-                    <UiBadge v-if="e.verdict" :tone="verdictTone(e.verdict)" size="sm">{{ verdictLabel(e.verdict) }}</UiBadge>
-                    <p class="body-sm human">{{ e.message }}</p>
-                  </div>
-                  <code v-if="e.formula" class="formula">{{ e.formula }}</code>
-                  <div v-if="e.value != null" class="caption val">{{ e.value.toLocaleString('ru-RU') }}<template v-if="e.unit"> {{ e.unit }}</template></div>
-                  <div class="ex-src">
-                    <UiSourceTag v-if="e.source" :text="e.source" />
-                    <span v-if="e.source" class="caption">{{ sourceRest(e.source) }}</span>
-                    <span v-else class="caption">без источника: правило платформы</span>
+              <div v-for="g in groupedTrace(r.productId)" :key="g.step" class="step">
+                <button type="button" class="step-btn" :aria-expanded="stepOpen === stepKey(rowKey(r), g.step)" @click="toggleStep(stepKey(rowKey(r), g.step))">
+                  <span class="body-sm strong">{{ g.title }}</span>
+                  <span class="caption">{{ g.items.length }}</span>
+                  <PhCaretDown :size="14" weight="bold" class="caret" :class="{ up: stepOpen === stepKey(rowKey(r), g.step) }" />
+                </button>
+                <div v-if="stepOpen === stepKey(rowKey(r), g.step)" class="step-body">
+                  <div v-for="(e, i) in g.items" :key="`${g.step}-${i}`" class="ex-item">
+                    <div class="ex-head">
+                      <UiBadge v-if="e.verdict" :tone="verdictTone(e.verdict)" size="sm">{{ verdictLabel(e.verdict) }}</UiBadge>
+                      <p class="body-sm human">{{ e.message }}</p>
+                    </div>
+                    <code v-if="e.formula" class="formula">{{ e.formula }}</code>
+                    <div v-if="e.value != null" class="caption val">{{ e.value.toLocaleString('ru-RU') }}<template v-if="e.unit"> {{ e.unit }}</template></div>
+                    <div class="ex-src">
+                      <UiSourceTag v-if="e.source" :text="e.source" />
+                      <span v-if="e.source" class="caption">{{ sourceRest(e.source) }}</span>
+                      <span v-else class="caption">без источника: правило платформы</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -276,7 +317,7 @@ const loading = computed(() => pending.value || catalogPending.value)
                 <p class="body-sm human">Для этой строки трассировка пуста — числу в интерфейсе не на что опереться.</p>
               </div>
               <div class="ex-foot">
-                <span class="caption">Это текст для заказчика, не технический лог. Формула с подставленными числами и единицами.</span>
+                <span class="caption">Формула с подставленными числами. Подробности шага открываются отдельно.</span>
                 <button type="button" class="link body-sm" @click="toggle(r.productId)">{{ has(r.productId) ? 'Убрать из сравнения' : 'Добавить в сравнение' }}</button>
               </div>
             </div>
@@ -284,13 +325,23 @@ const loading = computed(() => pending.value || catalogPending.value)
         </article>
       </TransitionGroup>
 
-      <UiCallout tone="warn" title="Вне автоподбора">
-        Продукты в разработке и с УГТ ниже 7 в автоподбор не попадают<template v-if="notInAuto.length">: {{ notInAuto.map((x) => x.name).join(', ') }}</template>. Их можно добавить в сравнение вручную, с предупреждением.
-      </UiCallout>
+      <div v-if="notInAuto.length" class="fold glass">
+        <button type="button" class="fold-btn" :aria-expanded="outOpen" @click="outOpen = !outOpen">
+          <span class="h4">Вне автоподбора</span>
+          <span class="caption">{{ notInAuto.length }} · УГТ ниже 7 или разработка</span>
+          <PhCaretDown :size="14" weight="bold" class="caret" :class="{ up: outOpen }" />
+        </button>
+        <div v-if="outOpen" class="out-body">
+          <p class="caption">В автоподбор не попадают. В сравнение их можно добавить вручную, с предупреждением.</p>
+          <div class="out-list">
+            <span v-for="x in notInAuto" :key="x.id" class="out-name">{{ x.name }}</span>
+          </div>
+        </div>
+      </div>
     </template>
   </ProjectShell>
 
-  <section v-else class="container missing">
+  <section v-else class="container gone">
     <UiCallout tone="danger" title="Проект не найден">Нет ни сохранённого расчёта, ни демо-макета с таким адресом.</UiCallout>
     <UiButton to="/projects">К списку проектов</UiButton>
   </section>
@@ -326,9 +377,23 @@ const loading = computed(() => pending.value || catalogPending.value)
 .expand { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 10px; font-size: 13px; font-weight: 700; color: var(--ink-strong); background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--border-hairline); transition: all var(--dur-fast) var(--ease); white-space: nowrap; }
 .expand:hover { background: #fff; }
 .caret { transition: transform var(--dur-fast) var(--ease); }
-.open .caret { transform: rotate(180deg); }
-.explain { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; padding: 4px 16px 16px; }
+.mrow.open > .mrow-main .caret,
+.caret.up { transform: rotate(180deg); }
+.explain { position: relative; z-index: 1; display: grid; gap: 8px; padding: 4px 16px 16px; }
 .ex { display: grid; gap: 10px; padding: 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.65); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); align-content: start; }
+.step { border-radius: 12px; background: rgba(255, 255, 255, 0.65); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); overflow: hidden; }
+.step-btn { width: 100%; display: flex; align-items: center; gap: 10px; padding: 12px 14px; text-align: left; }
+.step-btn .caption { margin-left: auto; }
+.step-body { display: grid; gap: 10px; padding: 0 14px 14px; }
+.fold { overflow: hidden; }
+.fold > * { position: relative; z-index: 1; }
+.fold-btn { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px; text-align: left; }
+.fold-btn .caption { margin-left: auto; }
+.prep-body, .out-body { display: grid; gap: 12px; padding: 0 16px 16px; }
+.out-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.out-name { font-size: 13px; font-weight: 600; padding: 4px 8px; border-radius: 6px; background: rgba(15, 20, 19, 0.05); color: var(--ink-strong); }
+.miss.more { cursor: pointer; background: transparent; box-shadow: inset 0 0 0 1px rgba(138, 82, 0, 0.35); }
+.miss.fail { background: var(--state-danger-tint); color: var(--state-danger); }
 .ex-item { display: grid; gap: 8px; padding-top: 8px; border-top: 1px solid rgba(15, 20, 19, 0.06); }
 .ex-item:first-of-type { padding-top: 0; border-top: 0; }
 .ex-head { display: grid; gap: 6px; }
@@ -343,7 +408,7 @@ const loading = computed(() => pending.value || catalogPending.value)
 .empty { padding: var(--space-10); text-align: center; display: grid; gap: 8px; justify-items: center; }
 .empty > * { position: relative; z-index: 1; }
 .call-actions { margin-top: 10px; }
-.missing { padding-top: var(--space-12); display: grid; gap: var(--space-4); justify-items: start; }
+.gone { padding-top: var(--space-12); display: grid; gap: var(--space-4); justify-items: start; }
 .rows-enter-active, .rows-leave-active { transition: opacity var(--dur-mid) var(--ease), transform var(--dur-mid) var(--ease); }
 .rows-enter-from, .rows-leave-to { opacity: 0; transform: translateY(8px); }
 .rows-leave-active { position: absolute; width: 100%; }
