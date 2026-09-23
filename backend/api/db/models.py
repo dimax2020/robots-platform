@@ -123,6 +123,7 @@ class Product(Base):
     trl: Mapped[int | None] = mapped_column(SmallInteger)
     market_potential: Mapped[int | None] = mapped_column(SmallInteger)
     summary: Mapped[str | None] = mapped_column(Text)
+    png_url: Mapped[str | None] = mapped_column(Text)
     attrs: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
     )  # ключ attribute_def.key → AttrValue

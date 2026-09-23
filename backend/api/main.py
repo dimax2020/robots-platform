@@ -1,4 +1,7 @@
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
+import logging
+
 
 import redis
 from fastapi import FastAPI
@@ -11,9 +14,27 @@ from engine import ENGINE_VERSION
 from engine.models import Catalog
 
 
+async def watch_catalog(app: FastAPI, marker, seen):
+    def refresh():
+        with get_sessionmaker()() as db:
+            return load_engine_catalog(db)
+
+    while True:
+        await asyncio.sleep(30)
+        try:
+            current = marker.read_text() if marker.exists() else None
+            if current != seen:
+                app.state.catalog = await asyncio.to_thread(refresh)
+                seen = current
+        except Exception:
+            logging.getLogger(__name__).exception("Не удалось обновить каталог после импорта")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    marker = settings.data_dir / ".catalog-refresh"
+    seen = marker.read_text() if marker.exists() else None
 
     # Каталог грузится один раз и живёт в app.state: ходить в БД на каждое движение
     # ползунка незачем, а падение валидации видно при старте, а не в середине расчёта (§11.1).
@@ -25,8 +46,14 @@ async def lifespan(app: FastAPI):
         app.state.catalog = Catalog(version_id=0)
 
     app.state.cache = redis.from_url(settings.redis_url, decode_responses=True)
-    yield
-    app.state.cache.close()
+    watcher = asyncio.create_task(watch_catalog(app, marker, seen))
+    try:
+        yield
+    finally:
+        watcher.cancel()
+        with suppress(asyncio.CancelledError):
+            await watcher
+        app.state.cache.close()
 
 
 app = FastAPI(

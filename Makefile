@@ -1,4 +1,4 @@
-.PHONY: up down logs migrate seed reseed normalize ttx reset ps test
+.PHONY: up down logs migrate seed reseed normalize ttx reset ps test parse
 
 # Поднять всё и привести БД в рабочее состояние: схема, каталог из CSV, ТТХ ручного поиска
 up:
@@ -53,3 +53,11 @@ ttx:
 
 test:
 	cd backend && uv run pytest
+
+# Парсер и импорт работают последовательно в отдельном контейнере.
+parse:
+	docker compose build api parser
+	docker compose run --rm api alembic upgrade head
+	docker compose run --rm parser python run.py --once
+	docker compose up -d api
+	docker compose restart api
