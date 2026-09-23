@@ -14,19 +14,23 @@ const industries = [
   { code: 'health', label: 'Здравоохранение', objects: ['hospital'] as ObjectType[] },
 ]
 const objectMeta: Record<ObjectType, { text: string; full: boolean }> = {
-  warehouse: { text: 'Параметры, подбор, три сценария, экономика, what-if, симуляция смены, 2D-план, отчёт.', full: true },
-  airport: { text: 'Параметры площадки и список применимых решений. Экономика и план в MVP закрыты.', full: false },
-  hospital: { text: 'Параметры корпуса и список применимых решений. Экономика и план в MVP закрыты.', full: false },
+  warehouse: { text: 'Параметры, подбор, сравнение, экономика, what-if, визуализация, отчёт.', full: true },
+  airport: { text: 'Параметры, подбор и сравнение. Экономика и визуализация в MVP закрыты.', full: false },
+  hospital: { text: 'Параметры, подбор и сравнение. Экономика и визуализация в MVP закрыты.', full: false },
 }
 
 const type = ref<ObjectType>((route.query.type as ObjectType) || 'warehouse')
 const industry = computed(() => industries.find((i) => i.objects.includes(type.value))!)
 const name = ref('')
-const useDemo = ref(false)
+// По умолчанию включён: без профиля площадки подбору нечем считать, но выключить можно
+const useDemo = ref(true)
 const demoFor = computed(() => projects.find((p) => p.isDemo && p.objectType === type.value)!)
 
 const pickIndustry = (i: typeof industries[number]) => { type.value = i.objects[0]! }
-const applyDemo = () => { useDemo.value = true; name.value = demoFor.value.name }
+const applyDemo = () => {
+  useDemo.value = !useDemo.value
+  if (useDemo.value) name.value = demoFor.value.name
+}
 const creating = ref(false)
 const createError = ref('')
 const submit = async () => {
@@ -38,7 +42,7 @@ const submit = async () => {
       name: name.value.trim() || demoFor.value.name,
       object_type_code: type.value,
       industry_code: industry.value.code,
-      use_demo: true,
+      use_demo: useDemo.value,
     })
     await refresh()
     await router.push(`/projects/${project.id}/params`)
@@ -102,13 +106,14 @@ const submit = async () => {
             <div class="s-row"><span class="caption">Имя</span><span class="strong">{{ name || 'Без названия' }}</span></div>
             <div class="s-row"><span class="caption">Отрасль</span><span class="strong">{{ industry.label }}</span></div>
             <div class="s-row"><span class="caption">Объект</span><span class="strong">{{ objectTypeLabel[type] }}</span></div>
-            <div class="s-row"><span class="caption">Путь</span><span class="strong">{{ objectMeta[type].full ? '7 шагов до отчёта' : '2 шага: параметры и подбор' }}</span></div>
+            <div class="s-row"><span class="caption">Путь</span><span class="strong">{{ objectMeta[type].full ? '7 шагов до отчёта' : '3 шага: параметры, подбор и сравнение' }}</span></div>
             <div class="hairline" />
             <button type="button" class="demo-btn" :class="{ on: useDemo }" @click="applyDemo">
               <PhSparkle :size="18" weight="duotone" />
               <span><span class="strong">Подставить демо-набор</span><span class="caption block">{{ demoFor.name }}: {{ demoFor.area?.toLocaleString('ru-RU') }} м², {{ demoFor.tasks }} задачи</span></span>
               <PhCheck v-if="useDemo" :size="16" weight="bold" class="ok" />
             </button>
+            <div class="caption">Без демо-набора параметры площадки придётся заполнить вручную.</div>
             <UiButton type="submit" size="lg" block :disabled="creating">{{ creating ? 'Создаём…' : 'Создать и перейти к параметрам' }}<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
             <div class="caption">Проект сохраняется на версии каталога v2026.09.3 и модели m1.4.</div>
           </div>

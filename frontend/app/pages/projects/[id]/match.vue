@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { PhCaretDown, PhArrowRight, PhScales, PhFunction, PhPlay, PhArrowSquareOut } from '@phosphor-icons/vue'
-import { isFullPath, projects } from '~/data/projects'
+import { PhCaretDown, PhScales, PhFunction, PhPlay, PhArrowSquareOut } from '@phosphor-icons/vue'
+import { projects } from '~/data/projects'
 import { labelProcess } from '~/data/siteFields'
 import { fetchErrorMessage, type CalcCandidate, type CalcTrace } from '~/composables/useCalc'
 
@@ -139,10 +139,7 @@ const loading = computed(() => pending.value || catalogPending.value)
         <template #icon><PhPlay :size="16" weight="bold" /></template>
         {{ calculating ? 'Считаем…' : run ? 'Пересчитать' : 'Запустить подбор' }}
       </UiButton>
-      <UiButton v-if="live && isFullPath(shell) && run" :to="`/projects/${shell.id}/scenarios`" size="lg" variant="secondary">
-        К сценариям<template #after><PhArrowRight :size="18" weight="bold" /></template>
-      </UiButton>
-      <UiButton v-else-if="live" to="/catalog/compare" size="lg" variant="secondary">
+      <UiButton v-if="live && run" :to="`/projects/${shell.id}/compare`" size="lg" variant="secondary">
         <template #icon><PhScales :size="16" weight="bold" /></template>Открыть сравнение
       </UiButton>
     </template>

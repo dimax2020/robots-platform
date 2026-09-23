@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhPlus, PhTrash, PhPencilSimple, PhArrowRight, PhFloppyDisk } from '@phosphor-icons/vue'
+import { PhPlus, PhTrash, PhPencilSimple, PhArrowRight, PhFloppyDisk, PhUploadSimple } from '@phosphor-icons/vue'
 import { objectTypeLabel, projects, type ObjectType } from '~/data/projects'
 import { fieldSources, labelProcess, processesByObject, siteFieldMeta } from '~/data/siteFields'
 import { asObjectType, fetchErrorMessage } from '~/composables/useCalc'
@@ -129,6 +129,51 @@ const onProcess = (t: ApiTask, code: string) => {
 const saving = ref(false)
 const calculating = ref(false)
 const notice = ref<{ ok: boolean; text: string } | null>(null)
+const siteErrors = reactive<Record<string, string>>({})
+const taskErrors = reactive<Record<number, Record<string, string>>>({})
+
+const clearFieldErrors = () => {
+  for (const k of Object.keys(siteErrors)) delete siteErrors[k]
+  for (const k of Object.keys(taskErrors)) delete taskErrors[Number(k)]
+}
+
+const fieldErrorCount = computed(() => {
+  let n = Object.keys(siteErrors).length
+  for (const row of Object.values(taskErrors)) n += Object.keys(row).length
+  return n
+})
+
+const siteError = (key: string) => siteErrors[key]
+const taskError = (i: number, key: string) => taskErrors[i]?.[key]
+
+const applyFieldErrors = (e: unknown): boolean => {
+  const detail = (e as { data?: { detail?: unknown } })?.data?.detail
+  if (!Array.isArray(detail)) return false
+  clearFieldErrors()
+  let applied = 0
+  for (const raw of detail) {
+    const item = raw as { loc?: unknown[]; msg?: string }
+    const loc = item.loc
+    const msg = item.msg
+    if (!Array.isArray(loc) || !msg) continue
+    if (loc[0] !== 'body') continue
+    if (loc[1] === 'site' && typeof loc[2] === 'string') {
+      siteErrors[loc[2]] = msg
+      applied += 1
+      continue
+    }
+    if (loc[1] === 'tasks') {
+      const idx = typeof loc[2] === 'number' ? loc[2] : Number(loc[2])
+      const key = loc[3]
+      if (Number.isInteger(idx) && typeof key === 'string') {
+        if (!taskErrors[idx]) taskErrors[idx] = {}
+        taskErrors[idx]![key] = msg
+        applied += 1
+      }
+    }
+  }
+  return applied > 0
+}
 
 const payload = (): { site: ApiSiteProfile; tasks: ApiTask[] } => ({
   site: { ...site, object_type_code: detail.value?.object_type_code ?? objectType.value },
@@ -147,10 +192,17 @@ const save = async () => {
     await update(payload())
     await refresh()
     applyDetail()
+    clearFieldErrors()
     notice.value = { ok: true, text: 'Параметры сохранены' }
     return true
   } catch (e: unknown) {
-    notice.value = { ok: false, text: fetchErrorMessage(e, 'Не удалось сохранить') }
+    if (applyFieldErrors(e)) {
+      const n = fieldErrorCount.value
+      notice.value = { ok: false, text: `На форме ${n} ${n === 1 ? 'проблема' : n < 5 ? 'проблемы' : 'проблем'} — исправьте поля ниже` }
+    } else {
+      clearFieldErrors()
+      notice.value = { ok: false, text: fetchErrorMessage(e, 'Не удалось сохранить') }
+    }
     return false
   } finally {
     saving.value = false
@@ -185,6 +237,10 @@ const fields = siteFieldMeta
     lead="Поля площадки зависят от типа объекта и приходят из справочника. Ручные правки видны как правки и не растворяются в исходных данных."
   >
     <template #actions>
+      <UiButton v-if="live" variant="secondary" disabled title="Заглушка: пока принимается только ручной ввод">
+        <template #icon><PhUploadSimple :size="16" weight="bold" /></template>
+        Загрузить Excel или CSV
+      </UiButton>
       <UiButton v-if="live" variant="secondary" :disabled="saving || calculating" @click="save">
         <template #icon><PhFloppyDisk :size="16" weight="bold" /></template>
         {{ saving ? 'Сохранение…' : 'Сохранить' }}
@@ -211,7 +267,8 @@ const fields = siteFieldMeta
     </div>
 
     <template v-else-if="live">
-      <UiCallout v-if="notice" :tone="notice.ok ? 'ok' : 'danger'">{{ notice.text }}</UiCallout>
+      <UiCallout v-if="notice" :tone="notice.ok ? 'ok' : 'danger'" :title="!notice.ok && fieldErrorCount ? `${fieldErrorCount} ${fieldErrorCount === 1 ? 'проблема' : fieldErrorCount < 5 ? 'проблемы' : 'проблем'} на форме` : undefined">{{ notice.text }}</UiCallout>
+      <p v-if="live" class="caption upload-note">Загрузка Excel или CSV — заглушка: пока принимается только ручной ввод.</p>
 
       <div class="grid-12 params">
         <div class="span-5 site glass" v-reveal>
@@ -223,7 +280,7 @@ const fields = siteFieldMeta
             <UiBadge tone="info" size="sm">из профиля объекта</UiBadge>
           </div>
           <div class="fields">
-            <label v-for="f in fields" :key="f.key" class="fld" :class="{ edited: siteEdited(f.key) }">
+            <label v-for="f in fields" :key="f.key" class="fld" :class="{ edited: siteEdited(f.key), err: !!siteError(f.key) }">
               <span class="fld-label body-sm">{{ f.label }}<span v-if="f.unit" class="muted"> · {{ f.unit }}</span></span>
               <span class="fld-in">
                 <select
@@ -245,7 +302,8 @@ const fields = siteFieldMeta
                 >
                 <PhPencilSimple v-if="siteEdited(f.key)" :size="14" weight="bold" class="edit-ic" />
               </span>
-              <span v-if="siteEdited(f.key)" class="caption edited-note">Правка вручную. Значение из профиля не используется.</span>
+              <span v-if="siteError(f.key)" class="caption err-note">{{ siteError(f.key) }}</span>
+              <span v-else-if="siteEdited(f.key)" class="caption edited-note">Правка вручную. Значение из профиля не используется.</span>
               <span v-else-if="siteSource(f.key)" class="caption src-note">{{ siteSource(f.key) }}</span>
             </label>
           </div>
@@ -269,45 +327,54 @@ const fields = siteFieldMeta
                 <button type="button" class="ic" aria-label="Удалить задачу" @click="removeTask(i)"><PhTrash :size="16" /></button>
               </div>
               <div class="task-grid">
-                <label class="tf" :class="{ edited: taskEdited(t, 'flow_per_day') }">
+                <label class="tf" :class="{ edited: taskEdited(t, 'flow_per_day'), err: !!taskError(i, 'flow_per_day') }">
                   <span class="caption">Поток · опер./сутки</span>
                   <input class="input input-mono" :value="fmt(t.flow_per_day)" placeholder="не задано" @input="setTaskNum(t, 'flow_per_day', ($event.target as HTMLInputElement).value)">
-                  <span v-if="!taskEdited(t, 'flow_per_day') && taskSource(t.process_code, 'flow_per_day')" class="caption src-note">{{ taskSource(t.process_code, 'flow_per_day') }}</span>
+                  <span v-if="taskError(i, 'flow_per_day')" class="caption err-note">{{ taskError(i, 'flow_per_day') }}</span>
+                  <span v-else-if="!taskEdited(t, 'flow_per_day') && taskSource(t.process_code, 'flow_per_day')" class="caption src-note">{{ taskSource(t.process_code, 'flow_per_day') }}</span>
                 </label>
-                <label class="tf" :class="{ edited: taskEdited(t, 'flow_per_hour') }">
+                <label class="tf" :class="{ edited: taskEdited(t, 'flow_per_hour'), err: !!taskError(i, 'flow_per_hour') }">
                   <span class="caption">Поток · опер./час</span>
                   <input class="input input-mono" :value="fmt(t.flow_per_hour)" placeholder="пересчитает движок" @input="setTaskNum(t, 'flow_per_hour', ($event.target as HTMLInputElement).value)">
+                  <span v-if="taskError(i, 'flow_per_hour')" class="caption err-note">{{ taskError(i, 'flow_per_hour') }}</span>
                 </label>
-                <label class="tf" :class="{ edited: taskEdited(t, 'route_len_m') }">
+                <label class="tf" :class="{ edited: taskEdited(t, 'route_len_m'), err: !!taskError(i, 'route_len_m') }">
                   <span class="caption">Длина маршрута · м</span>
                   <input class="input input-mono" :value="fmt(t.route_len_m)" placeholder="не применимо" @input="setTaskNum(t, 'route_len_m', ($event.target as HTMLInputElement).value)">
-                  <span v-if="!taskEdited(t, 'route_len_m') && taskSource(t.process_code, 'route_len_m')" class="caption src-note">{{ taskSource(t.process_code, 'route_len_m') }}</span>
+                  <span v-if="taskError(i, 'route_len_m')" class="caption err-note">{{ taskError(i, 'route_len_m') }}</span>
+                  <span v-else-if="!taskEdited(t, 'route_len_m') && taskSource(t.process_code, 'route_len_m')" class="caption src-note">{{ taskSource(t.process_code, 'route_len_m') }}</span>
                 </label>
-                <label class="tf" :class="{ edited: taskEdited(t, 'max_load_kg') }">
+                <label class="tf" :class="{ edited: taskEdited(t, 'max_load_kg'), err: !!taskError(i, 'max_load_kg') }">
                   <span class="caption">Макс. груз · кг</span>
                   <input class="input input-mono" :value="fmt(t.max_load_kg)" placeholder="не задано" @input="setTaskNum(t, 'max_load_kg', ($event.target as HTMLInputElement).value)">
-                  <span v-if="!taskEdited(t, 'max_load_kg') && taskSource(t.process_code, 'max_load_kg')" class="caption src-note">{{ taskSource(t.process_code, 'max_load_kg') }}</span>
+                  <span v-if="taskError(i, 'max_load_kg')" class="caption err-note">{{ taskError(i, 'max_load_kg') }}</span>
+                  <span v-else-if="!taskEdited(t, 'max_load_kg') && taskSource(t.process_code, 'max_load_kg')" class="caption src-note">{{ taskSource(t.process_code, 'max_load_kg') }}</span>
                 </label>
-                <label class="tf" :class="{ edited: taskEdited(t, 'peak_factor') }">
+                <label class="tf" :class="{ edited: taskEdited(t, 'peak_factor'), err: !!taskError(i, 'peak_factor') }">
                   <span class="caption">Пиковая нагрузка · коэф.</span>
                   <input class="input input-mono" :value="fmt(t.peak_factor)" placeholder="как у площадки" @input="setTaskNum(t, 'peak_factor', ($event.target as HTMLInputElement).value)">
+                  <span v-if="taskError(i, 'peak_factor')" class="caption err-note">{{ taskError(i, 'peak_factor') }}</span>
                 </label>
-                <label class="tf">
+                <label class="tf" :class="{ err: !!taskError(i, 'container_types') }">
                   <span class="caption">Тара</span>
                   <input class="input" :value="(t.container_types ?? []).join(', ')" placeholder="pallet, piece" @input="t.container_types = ($event.target as HTMLInputElement).value.split(',').map((s) => s.trim()).filter(Boolean)">
+                  <span v-if="taskError(i, 'container_types')" class="caption err-note">{{ taskError(i, 'container_types') }}</span>
                 </label>
-                <label class="tf">
+                <label class="tf" :class="{ err: !!taskError(i, 't_load_s') }">
                   <span class="caption">Погрузка · с</span>
                   <input class="input input-mono" :value="fmt(t.t_load_s)" placeholder="из норматива" @input="setTaskNum(t, 't_load_s', ($event.target as HTMLInputElement).value)">
+                  <span v-if="taskError(i, 't_load_s')" class="caption err-note">{{ taskError(i, 't_load_s') }}</span>
                 </label>
-                <label class="tf">
+                <label class="tf" :class="{ err: !!taskError(i, 't_unload_s') }">
                   <span class="caption">Разгрузка · с</span>
                   <input class="input input-mono" :value="fmt(t.t_unload_s)" placeholder="из норматива" @input="setTaskNum(t, 't_unload_s', ($event.target as HTMLInputElement).value)">
+                  <span v-if="taskError(i, 't_unload_s')" class="caption err-note">{{ taskError(i, 't_unload_s') }}</span>
                 </label>
-                <label class="tf" :class="{ edited: taskEdited(t, 'staff_fte_now') }">
+                <label class="tf" :class="{ edited: taskEdited(t, 'staff_fte_now'), err: !!taskError(i, 'staff_fte_now') }">
                   <span class="caption">Персонал сейчас · чел.</span>
                   <input class="input input-mono" :value="fmt(t.staff_fte_now)" placeholder="не задано" @input="setTaskNum(t, 'staff_fte_now', ($event.target as HTMLInputElement).value)">
-                  <span v-if="!taskEdited(t, 'staff_fte_now') && taskSource(t.process_code, 'staff_fte_now')" class="caption src-note">{{ taskSource(t.process_code, 'staff_fte_now') }}</span>
+                  <span v-if="taskError(i, 'staff_fte_now')" class="caption err-note">{{ taskError(i, 'staff_fte_now') }}</span>
+                  <span v-else-if="!taskEdited(t, 'staff_fte_now') && taskSource(t.process_code, 'staff_fte_now')" class="caption src-note">{{ taskSource(t.process_code, 'staff_fte_now') }}</span>
                 </label>
               </div>
               <div v-if="!taskEdited(t, 'flow_per_day') && taskSource(t.process_code) && !taskSource(t.process_code, 'flow_per_day')" class="caption src-note">{{ taskSource(t.process_code) }}</div>
@@ -335,8 +402,11 @@ const fields = siteFieldMeta
 .fld-in { position: relative; }
 .edit-ic { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--state-warn); }
 .edited .input, .edited .select { border-color: rgba(138, 82, 0, 0.35); background: #fff8ee; }
+.err .input, .err .select { border-color: rgba(176, 40, 36, 0.45); background: #fff5f4; }
 .edited-note { color: var(--state-warn); }
+.err-note { color: var(--state-danger); }
 .src-note { color: var(--ink-muted); }
+.upload-note { margin: 0; }
 .tasks { display: grid; gap: var(--space-4); }
 .task-list { display: grid; gap: 10px; }
 .task { padding: 14px 16px 16px; display: grid; gap: 12px; }

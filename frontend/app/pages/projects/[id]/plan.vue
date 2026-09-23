@@ -4,7 +4,7 @@ import { projectById, scenarios } from '~/data/projects'
 
 const route = useRoute()
 const project = computed(() => projectById(route.params.id as string))
-useHead({ title: () => `План и симуляция · ${project.value.name}` })
+useHead({ title: () => `Визуализация · ${project.value.name}` })
 
 const playing = ref(true)
 const speed = ref(1)
@@ -25,7 +25,7 @@ const util = computed(() => Math.round(tick.util * 100))
 </script>
 
 <template>
-  <ProjectShell :project="project" current="plan" title="2D-план и реплей смены" lead="Реплей того же прогона, который дал цифру количества. Если в прогоне 9 машин, на плане 9 машин. Это схема объекта, не игра.">
+  <ProjectShell :project="project" current="plan" title="Визуализация" lead="Реплей того же прогона, который дал цифру количества. Если в прогоне 9 машин, на плане 9 машин. Это схема объекта, не игра.">
     <template #actions>
       <UiButton variant="secondary"><template #icon><PhDownloadSimple :size="16" weight="bold" /></template>Выгрузить план</UiButton>
       <UiButton :to="`/projects/${project.id}/report`" size="lg">К отчёту<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>

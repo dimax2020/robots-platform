@@ -5,7 +5,7 @@ import { demoProducts as products } from '~/data/demo'
 
 const route = useRoute()
 const project = computed(() => projectById(route.params.id as string))
-useHead({ title: () => `Сценарии · ${project.value.name}` })
+useHead({ title: () => `Состав парка · ${project.value.name}` })
 if (!isFullPath(project.value)) {
   // Для аэропорта и медучреждения страница в MVP не открывается
 }
@@ -15,12 +15,12 @@ const f = (n: number) => n.toLocaleString('ru-RU')
 </script>
 
 <template>
-  <ProjectShell :project="project" current="scenarios" title="Три сценария" lead="Не меньше трёх способов закрыть объект. Числа в млн ₽, интервалом: нижняя, центральная и верхняя оценка.">
+  <ProjectShell :project="project" current="economics" title="Состав парка" lead="Три способа закрыть объект — часть шага «Экономика». Числа в млн ₽, интервалом: нижняя, центральная и верхняя оценка.">
     <template #actions>
       <UiButton :to="`/projects/${project.id}/economics`" size="lg">К экономике<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
     </template>
 
-    <UiCallout v-if="!isFullPath(project)" tone="info" title="Страница закрыта для этого типа объекта">Сценарии, экономика, what-if и план собираются только для склада. Ниже показан демонстрационный склад.</UiCallout>
+    <UiCallout v-if="!isFullPath(project)" tone="info" title="Страница закрыта для этого типа объекта">Состав парка, экономика, what-if и визуализация собираются только для склада. Ниже показан демонстрационный склад.</UiCallout>
 
     <div class="scen" v-reveal>
       <article v-for="(s, i) in scenarios" :key="s.id" class="sc" :class="[i === 0 ? 'glass' : chosen === s.id ? 'glass-graphite glass-graphite-solid chosen' : 'glass', { base: i === 0 }]" @click="i > 0 && (chosen = s.id)">

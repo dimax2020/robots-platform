@@ -1,0 +1,113 @@
+{
+  "_note": "Параметры шага 4. Направление better объявляется здесь, чтобы в коде сравнения не было ни одного неявного знака.",
+  "params": [
+    {
+      "key": "count",
+      "label": "Количество единиц",
+      "unit": "шт",
+      "group": "operational",
+      "origin": "engine",
+      "better": "min",
+      "rationale": "Меньше единиц на тот же поток — меньше парк, площадь под зарядные станции и обслуживание."
+    },
+    {
+      "key": "score",
+      "label": "Балл подбора",
+      "unit": null,
+      "group": "operational",
+      "origin": "engine",
+      "better": "max",
+      "rationale": "Выше балл — кандидат лучше закрывает жёсткие и мягкие требования площадки и задач."
+    },
+    {
+      "key": "reliability",
+      "label": "Достоверность",
+      "unit": null,
+      "group": "operational",
+      "origin": "engine",
+      "better": "max",
+      "rationale": "Буква A опирается на надёжные источники; ниже по алфавиту — выше риск ошибочного сравнения."
+    },
+    {
+      "key": "data_completeness",
+      "label": "Полнота данных",
+      "unit": null,
+      "group": "operational",
+      "origin": "engine",
+      "better": "max",
+      "rationale": "Больше известных полей — меньше сюрпризов при внедрении и меньше запросов вендору."
+    },
+    {
+      "key": "payload_kg",
+      "label": "Грузоподъёмность",
+      "unit": "кг",
+      "group": "technical",
+      "origin": "attr",
+      "better": "max",
+      "rationale": "Запас по грузоподъёмности закрывает нештатную тару без замены парка."
+    },
+    {
+      "key": "speed_loaded_ms",
+      "label": "Скорость с грузом",
+      "unit": "м/с",
+      "group": "technical",
+      "origin": "attr",
+      "better": "max",
+      "rationale": "Выше скорость с грузом — короче цикл рейса и меньше машин на тот же суточный поток."
+    },
+    {
+      "key": "throughput",
+      "label": "Производительность",
+      "unit": null,
+      "group": "technical",
+      "origin": "attr",
+      "better": "max",
+      "rationale": "Большая заявленная производительность означает меньший парк при том же объёме операций."
+    },
+    {
+      "key": "work_time_h",
+      "label": "Время работы",
+      "unit": "ч",
+      "group": "operational",
+      "origin": "attr",
+      "better": "max",
+      "rationale": "Дольше автономная работа — реже уход на зарядку и выше доступность смены."
+    },
+    {
+      "key": "charge_time_h",
+      "label": "Время зарядки",
+      "unit": "ч",
+      "group": "operational",
+      "origin": "attr",
+      "better": "min",
+      "rationale": "Короче зарядка — меньше простой и меньше резервных единиц в парке."
+    },
+    {
+      "key": "min_aisle_width_m",
+      "label": "Минимальная ширина прохода",
+      "unit": "м",
+      "group": "operational",
+      "origin": "attr",
+      "better": "min",
+      "rationale": "Уже требуемый проход легче вписать в существующую планировку без перестройки стеллажей."
+    },
+    {
+      "key": "price_rub",
+      "label": "Цена за единицу",
+      "unit": "₽",
+      "group": "economic",
+      "origin": "attr",
+      "better": "min",
+      "rationale": "Ниже цена единицы снижает стоимость оборудования при том же размере парка."
+    },
+    {
+      "key": "park_price_rub",
+      "label": "Стоимость парка (только оборудование, без внедрения и сервиса)",
+      "unit": "₽",
+      "group": "economic",
+      "origin": "derived",
+      "better": "min",
+      "rationale": "Меньшая стоимость парка дешевле закрывает задачу; это только оборудование, без внедрения и сервиса."
+    }
+  ]
+}

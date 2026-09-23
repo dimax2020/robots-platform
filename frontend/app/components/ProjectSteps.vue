@@ -4,15 +4,17 @@ import { steps, type Project, isFullPath } from '~/data/projects'
 
 const props = defineProps<{ project: Project; current?: string }>()
 const full = computed(() => isFullPath(props.project))
-const available = computed(() => (full.value ? steps.length : 2))
+// подбор и сравнение живут на process_solutions — открыты всем трём типам
+const available = computed(() => (full.value ? steps.length : 3))
 </script>
 
 <template>
   <nav class="steps" aria-label="Шаги расчёта">
     <ol>
+      <!-- номер в UI = i+2 (шаги ТЗ 2–8); project.step из mapProject — индекс рельса с 1, поэтому done/next сравниваем с i+1 -->
       <li v-for="(s, i) in steps" :key="s.code" :class="{ done: i + 1 < project.step && i < available, cur: s.path === current, locked: i >= available, next: i + 1 === project.step }">
         <NuxtLink v-if="i < available" :to="`/projects/${project.id}/${s.path}`">
-          <span class="dot"><PhCheck v-if="i + 1 < project.step" :size="12" weight="bold" /><span v-else class="n">{{ i + 1 }}</span></span>
+          <span class="dot"><PhCheck v-if="i + 1 < project.step" :size="12" weight="bold" /><span v-else class="n">{{ i + 2 }}</span></span>
           <span class="t">{{ s.label }}</span>
         </NuxtLink>
         <span v-else class="lk" :title="'Для этого типа объекта шаг в MVP не открывается'">

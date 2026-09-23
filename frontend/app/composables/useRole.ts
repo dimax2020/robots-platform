@@ -14,7 +14,8 @@ export const useRole = () => {
 
 // Список моделей для сравнения (заглушка на клиенте)
 export const useCompare = () => {
-  const ids = useState<string[]>('compare', () => ['p-01', 'p-02', 'p-03'])
+  // Пусто: мок-идентификаторы давали счётчик «3» при пустой странице сравнения
+  const ids = useState<string[]>('compare', () => [])
   const toggle = (id: string) => {
     ids.value = ids.value.includes(id) ? ids.value.filter((x) => x !== id) : [...ids.value, id]
   }

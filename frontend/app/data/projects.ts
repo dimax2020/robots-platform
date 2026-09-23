@@ -32,15 +32,15 @@ export interface Project {
 export const steps = [
   { code: 'params', label: 'Параметры', path: 'params' },
   { code: 'match', label: 'Подбор', path: 'match' },
-  { code: 'scenarios', label: 'Сценарии', path: 'scenarios' },
+  { code: 'compare', label: 'Сравнение', path: 'compare' },
   { code: 'economics', label: 'Экономика', path: 'economics' },
   { code: 'what-if', label: 'What-if', path: 'what-if' },
-  { code: 'plan', label: 'План', path: 'plan' },
+  { code: 'plan', label: 'Визуализация', path: 'plan' },
   { code: 'report', label: 'Отчёт', path: 'report' },
 ] as const
 
 export const fullPathSteps = 7
-export const shortPathSteps = 2
+export const shortPathSteps = 3
 
 export const projects: Project[] = [
   { id: 'demo-warehouse', name: 'Склад Внуково-Юг, 12 000 м²', objectType: 'warehouse', industry: 'Логистика и торговля', updatedAt: '2026-09-19T14:20:00', catalogVersion: 'v2026.09.3', modelVersion: 'm1.4', step: 6, isDemo: true, area: 12000, shifts: 2, tasks: 4 },

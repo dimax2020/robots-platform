@@ -13,7 +13,8 @@ export interface ApiRef {
 
 export interface ApiAttrValue {
   status: ApiValueStatus
-  value?: string | number | boolean | null
+  /** Число, текст, флаг или диапазон `[min, max]` из engine.models.AttrValue. */
+  value?: string | number | boolean | number[] | null
   unit?: string | null
   source_id?: number | null
   quote?: string | null
@@ -100,6 +101,27 @@ export interface ApiTreeNode {
 export interface ApiCatalogTree {
   catalog_version_id: number
   nodes: ApiTreeNode[]
+}
+
+/** Массовая выдача ТТХ: GET /catalog/attrs (E4 §2). */
+export interface ApiCatalogAttrs {
+  catalog_version_id: number
+  attrs: Record<string, Record<string, ApiAttrValue>>
+}
+
+export type ApiCompareGroup = 'technical' | 'operational' | 'economic'
+export type ApiCompareOrigin = 'attr' | 'engine' | 'derived'
+export type ApiCompareBetter = 'max' | 'min' | 'none'
+
+/** Запись спеки сравнения: GET /catalog/compare-spec отдаёт массив таких объектов (E4 §3). */
+export interface ApiCompareParam {
+  key: string
+  label: string
+  unit?: string | null
+  group: ApiCompareGroup
+  origin: ApiCompareOrigin
+  better: ApiCompareBetter
+  rationale: string
 }
 
 // ---------------------------------------------------------------------------

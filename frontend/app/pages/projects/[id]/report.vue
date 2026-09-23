@@ -30,8 +30,8 @@ const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'l
   <ProjectShell :project="project" current="report" title="Отчёт" lead="Сводка сценариев, интервал окупаемости, запросы вендорам и ограничения расчёта. Печать из браузера, выгрузка таблиц в Excel или CSV.">
     <template #actions>
       <UiButton variant="secondary" @click="print"><template #icon><PhPrinter :size="16" weight="bold" /></template>Печать в PDF</UiButton>
-      <UiButton variant="secondary"><template #icon><PhFileXls :size="16" weight="duotone" /></template>Excel</UiButton>
-      <UiButton variant="secondary"><template #icon><PhFileCsv :size="16" weight="duotone" /></template>CSV</UiButton>
+      <UiButton variant="secondary" disabled title="Заглушка: выгрузка ещё не реализована"><template #icon><PhFileXls :size="16" weight="duotone" /></template>Excel · заглушка</UiButton>
+      <UiButton variant="secondary" disabled title="Заглушка: выгрузка ещё не реализована"><template #icon><PhFileCsv :size="16" weight="duotone" /></template>CSV · заглушка</UiButton>
       <UiButton variant="secondary"><template #icon><PhImage :size="16" weight="duotone" /></template>План</UiButton>
     </template>
 

@@ -39,8 +39,12 @@ const changed = computed(() => knobs.filter((k) => k.value !== k.base).length)
   <ProjectShell :project="project" current="what-if" title="What-if и чувствительность" lead="Меняйте допущения и смотрите, как едет интервал. Интерпретация без жёсткого порога: рядом число, риски и смысл, не красный или зелёный штамп.">
     <template #actions>
       <UiButton variant="secondary" :disabled="!changed" @click="reset"><template #icon><PhArrowCounterClockwise :size="16" weight="bold" /></template>Сбросить</UiButton>
-      <UiButton :to="`/projects/${project.id}/plan`" size="lg">К плану<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
+      <UiButton :to="`/projects/${project.id}/plan`" size="lg">К визуализации<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
     </template>
+
+    <UiCallout tone="warn" title="Зависимость демонстрационная">
+      Коэффициенты эластичности и базовая окупаемость захардкожены и не выведены из данных проекта. Настоящий расчёт появится вместе с экономикой.
+    </UiCallout>
 
     <div class="wi">
       <section class="knobs glass" v-reveal>

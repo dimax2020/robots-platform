@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -111,3 +112,22 @@ class AttrPatch(BaseModel):
     source_publisher: str | None = None
     source_title: str | None = None
     rationale: str | None = None  # обязателен для analogue и assumption (§6.4)
+
+
+class CatalogAttrs(BaseModel):
+    """Массовая выдача attrs всех продуктов текущей версии (E4 §2)."""
+
+    catalog_version_id: int
+    attrs: dict[str, dict[str, AttrValue]]  # product UUID → key → AttrValue
+
+
+class CompareParamOut(BaseModel):
+    """Один параметр спеки сравнения из data/compare_spec.json (E4 §3)."""
+
+    key: str
+    label: str
+    unit: str | None = None
+    group: Literal["technical", "operational", "economic"]
+    origin: Literal["attr", "engine", "derived"]
+    better: Literal["max", "min", "none"]
+    rationale: str

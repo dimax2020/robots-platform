@@ -2,7 +2,9 @@
 import { PhX, PhPlus, PhWarning, PhDownloadSimple } from '@phosphor-icons/vue'
 import { attrGroups, availabilityLabel, availabilityTone, formatRub, type AttrValue, type Product } from '~/data/catalog'
 
-const { products } = useCatalog()
+const { products, ensureCompareData } = useCatalog()
+// Значения характеристик приходят массовой выдачей, её просит тот, кому она нужна
+await ensureCompareData()
 
 useHead({ title: 'Сравнение решений' })
 const { ids, toggle } = useCompare()

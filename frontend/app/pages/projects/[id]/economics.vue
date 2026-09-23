@@ -29,8 +29,16 @@ const maxT = Math.max(...tco.map((t) => t.base))
 <template>
   <ProjectShell :project="project" current="economics" title="Экономика и интервал окупаемости" lead="Состав парка переведён в деньги. Каждый коэффициент открывается: значение, единица, источник, обоснование. Недокументированных множителей нет.">
     <template #actions>
+      <UiButton :to="`/projects/${project.id}/scenarios`" variant="secondary">Состав парка</UiButton>
       <UiButton :to="`/projects/${project.id}/what-if`" size="lg">К what-if<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
     </template>
+
+    <UiCallout tone="warn" title="Числа демонстрационные">
+      Страница экономики — заглушка: CAPEX, OPEX, эффект и окупаемость не считаются движком. Состав парка шага 5 открывается отдельно.
+      <div class="call-actions">
+        <UiButton :to="`/projects/${project.id}/scenarios`" size="sm" variant="secondary">Открыть состав парка</UiButton>
+      </div>
+    </UiCallout>
 
     <div class="top" v-reveal>
       <div class="result glass-graphite glass-graphite-solid">
@@ -174,5 +182,6 @@ const maxT = Math.max(...tco.map((t) => t.base))
 .open .caret { transform: rotate(180deg); }
 .coef-body { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 16px; padding: 4px 14px 14px 148px; }
 .coef-body .caption { display: block; margin-bottom: 2px; }
+.call-actions { margin-top: 10px; }
 @media (max-width: 1100px) { .top, .cols { grid-template-columns: 1fr; } .coef-btn { grid-template-columns: 1fr auto; } .coef-body { padding-left: 14px; grid-template-columns: 1fr; } }
 </style>

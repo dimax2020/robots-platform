@@ -7,12 +7,14 @@
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from api.config import get_settings
 from api.db.models import (
     AttributeDef,
     CatalogVersion,
@@ -30,7 +32,9 @@ from api.db.models import (
 from api.db.models import CalcNorm as DbCalcNorm
 from api.schemas.catalog import (
     AttributeDefOut,
+    CatalogAttrs,
     CaseOut,
+    CompareParamOut,
     ProductCard,
     ProductDetail,
     RefOut,
@@ -210,6 +214,51 @@ def product_cards(db: Session) -> list[ProductCard]:
     hier = Hierarchy(db)
     defs = attribute_defs(db)
     return [card_of(p, hier, defs) for p in current_products(db)]
+
+
+_BETTER = frozenset({"max", "min", "none"})
+
+
+def catalog_attrs(db: Session) -> CatalogAttrs:
+    """Все attrs текущей версии одним проходом: product.attrs уже в JSONB строки (E4 §2)."""
+    products = current_products(db)
+    return CatalogAttrs(
+        catalog_version_id=current_version_id(db),
+        attrs={
+            str(p.id): {k: AttrValue.model_validate(v) for k, v in p.attrs.items()}
+            for p in products
+        },
+    )
+
+
+def compare_spec() -> list[CompareParamOut]:
+    """Спека сравнения из data/compare_spec.json через get_settings().data_dir (E4 §3)."""
+    path = get_settings().data_dir / "compare_spec.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"Файл спеки сравнения не найден: {path}")
+
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    params = raw.get("params")
+    if not isinstance(params, list) or not params:
+        raise ValueError("compare_spec.json: пустой или отсутствующий список params")
+
+    out: list[CompareParamOut] = []
+    for i, item in enumerate(params):
+        if not isinstance(item, dict):
+            raise ValueError(f"compare_spec.json: params[{i}] не объект")
+        rationale = item.get("rationale")
+        if not isinstance(rationale, str) or not rationale.strip():
+            raise ValueError(
+                f"compare_spec.json: params[{i}] ({item.get('key')!r}) — пустой rationale"
+            )
+        better = item.get("better")
+        if better not in _BETTER:
+            raise ValueError(
+                f"compare_spec.json: params[{i}] ({item.get('key')!r}) — "
+                f"better={better!r}, ожидается max|min|none"
+            )
+        out.append(CompareParamOut.model_validate(item))
+    return out
 
 
 def product_detail(db: Session, key: str) -> ProductDetail | None:

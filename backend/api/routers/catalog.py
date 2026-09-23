@@ -5,7 +5,9 @@ from api.db.models import Source
 from api.deps import DbSession
 from api.schemas.catalog import (
     AttributeDefOut,
+    CatalogAttrs,
     CatalogTree,
+    CompareParamOut,
     ProductDetail,
     ProductList,
     SourceOut,
@@ -13,6 +15,23 @@ from api.schemas.catalog import (
 from api.services import catalog as svc
 
 router = APIRouter(prefix="/catalog", tags=["catalog"])
+
+
+@router.get("/attrs", response_model=CatalogAttrs)
+def attrs(db: DbSession) -> CatalogAttrs:
+    """Массовая выдача характеристик всех продуктов текущей версии (E4 §2)."""
+    return svc.catalog_attrs(db)
+
+
+@router.get("/compare-spec", response_model=list[CompareParamOut])
+def compare_spec() -> list[CompareParamOut]:
+    """Параметры и направление сравнения из data/compare_spec.json (E4 §3)."""
+    try:
+        return svc.compare_spec()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/attributes", response_model=list[AttributeDefOut])

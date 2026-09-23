@@ -12,7 +12,9 @@ import {
 import type {
   ApiAttrValue,
   ApiAttributeDef,
+  ApiCatalogAttrs,
   ApiCatalogTree,
+  ApiCompareParam,
   ApiProductCard,
   ApiProductDetail,
   ApiProductList,
@@ -42,13 +44,29 @@ export const mapSource = (s: ApiSource): Source => ({
 const mapAttr = (key: string, v: ApiAttrValue, defs: Map<string, ApiAttributeDef>): AttrValue => {
   const def = defs.get(key)
   const group = def && GROUPS.has(def.group_code) ? def.group_code : 'technical'
+  const raw = v.value
+  let value: string | number | undefined
+  let range: [number, number] | undefined
+  if (typeof raw === 'boolean') {
+    value = raw ? 'да' : 'нет'
+  } else if (
+    Array.isArray(raw) &&
+    raw.length === 2 &&
+    typeof raw[0] === 'number' &&
+    typeof raw[1] === 'number'
+  ) {
+    range = [raw[0], raw[1]]
+  } else if (typeof raw === 'string' || typeof raw === 'number') {
+    value = raw
+  }
   return {
     key,
     label: def?.label ?? key,
     unit: v.unit ?? def?.unit ?? undefined,
     group,
     status: v.status,
-    value: typeof v.value === 'boolean' ? (v.value ? 'да' : 'нет') : (v.value ?? undefined),
+    value,
+    range,
     sourceId: v.source_id != null ? String(v.source_id) : undefined,
     quote: v.quote ?? undefined,
     note: v.note ?? undefined,
@@ -92,9 +110,15 @@ const mapTree = (n: ApiTreeNode): TreeNode => ({
   productIds: n.children.length ? undefined : n.product_ids,
 })
 
+const emptyAttrs = (): ApiCatalogAttrs => ({ catalog_version_id: 0, attrs: {} })
+
 /**
  * Каталог тянется один раз за SSR-проход и кладётся в payload: фильтры на странице
  * каталога работают по готовому массиву, без запросов на каждое нажатие.
+ *
+ * Массовые ТТХ и спека сравнения — лениво через ensureCompareData():
+ * страница сравнения зовёт явно; повторный вызов при уже загруженных данных — no-op.
+ * Общий ключ useAsyncData разделяет состояние между вызовами.
  */
 export const useCatalog = () => {
   const base = useApiBase()
@@ -119,15 +143,49 @@ export const useCatalog = () => {
     () => $fetch(`${base}/catalog/sources`),
     { default: () => [] },
   )
+  const attrsBundle = useAsyncData<ApiCatalogAttrs>(
+    'catalog-attrs',
+    () => $fetch(`${base}/catalog/attrs`),
+    { default: emptyAttrs, immediate: false },
+  )
+  const compareSpecReq = useAsyncData<ApiCompareParam[]>(
+    'catalog-compare-spec',
+    () => $fetch(`${base}/catalog/compare-spec`),
+    { default: () => [], immediate: false },
+  )
 
   const defs = computed(() => new Map(attributes.data.value.map((d) => [d.key, d])))
 
+  /**
+   * Ленивая подгрузка массовых ТТХ и спеки сравнения.
+   * Идемпотентна: при уже успешном кэше и при повторных вызовах useCatalog()
+   * (страница + сетка + UiSourceTag) повторный HTTP не стартует, pending не вспыхивает.
+   */
+  const ensureCompareData = async () => {
+    const jobs: Promise<unknown>[] = []
+    if (attrsBundle.status.value !== 'success') jobs.push(attrsBundle.execute())
+    if (compareSpecReq.status.value !== 'success') jobs.push(compareSpecReq.execute())
+    if (jobs.length) await Promise.all(jobs)
+  }
+
+  const attrsOf = (productId: string): AttrValue[] => {
+    const raw = attrsBundle.data.value.attrs[productId]
+    if (!raw) return []
+    return Object.entries(raw).map(([key, v]) => mapAttr(key, v, defs.value))
+  }
+
   return {
     attributeDefs: computed(() => attributes.data.value),
-    products: computed(() => list.data.value.products.map((c) => mapCard(c, [], []))),
+    products: computed(() =>
+      list.data.value.products.map((c) => mapCard(c, attrsOf(c.id), [])),
+    ),
     catalogTree: computed(() => treeData.data.value.nodes.map(mapTree)),
     sources: computed(() => sourceList.data.value.map(mapSource)),
     catalogVersionId: computed(() => list.data.value.catalog_version_id),
+    compareSpec: computed(() => compareSpecReq.data.value),
+    attrsPending: computed(() => attrsBundle.pending.value || compareSpecReq.pending.value),
+    attrsError: computed(() => attrsBundle.error.value || compareSpecReq.error.value),
+    ensureCompareData,
     pending: computed(() => list.pending.value || attributes.pending.value),
     error: computed(() => list.error.value || attributes.error.value || treeData.error.value),
     sourceById: (id?: string) => sourceList.data.value.map(mapSource).find((s) => s.id === id),
@@ -136,7 +194,14 @@ export const useCatalog = () => {
       return src ? confidenceByKind[src.kind] : undefined
     },
     refresh: async () => {
-      await Promise.all([attributes.refresh(), list.refresh(), treeData.refresh(), sourceList.refresh()])
+      const jobs = [attributes.refresh(), list.refresh(), treeData.refresh(), sourceList.refresh()]
+      if (attrsBundle.data.value.catalog_version_id || attrsBundle.status.value === 'success') {
+        jobs.push(attrsBundle.refresh())
+      }
+      if (compareSpecReq.data.value.length || compareSpecReq.status.value === 'success') {
+        jobs.push(compareSpecReq.refresh())
+      }
+      await Promise.all(jobs)
     },
     defs,
   }
