@@ -31,16 +31,28 @@ def run_once():
         except BlockingIOError:
             log.warning("Парсинг уже выполняется, повторный запуск пропущен")
             return
-        subprocess.run([sys.executable, "parser.py"], env=env, check=True)
-        subprocess.run(
-            [sys.executable, "-m", "scripts.import_robots", str(output)],
-            env=env, check=True,
-        )
-        # Все процессы API наблюдают этот маркер и перечитывают каталог.
-        marker = output.parent / ".catalog-refresh"
-        temporary = marker.with_suffix(".tmp")
-        temporary.write_text(str(uuid4()))
-        temporary.replace(marker)
+        failures = []
+        for script, destination in (
+            ("parser.py", output),
+            ("robort.py", Path(env.get("ROBORT_OUTPUT_FILE", str(output.parent / "robort_robots.json"))))
+        ):
+            source_env = {**env, "OUTPUT_FILE": str(destination)}
+            try:
+                subprocess.run([sys.executable, str(Path(__file__).with_name(script))], env=source_env, check=True)
+                subprocess.run(
+                    [sys.executable, "-m", "scripts.import_robots", str(destination)],
+                    env=source_env, check=True,
+                )
+                # Обновляем каталог после каждого успешного импорта.
+                marker = output.parent / ".catalog-refresh"
+                temporary = marker.with_suffix(".tmp")
+                temporary.write_text(str(uuid4()))
+                temporary.replace(marker)
+            except subprocess.CalledProcessError:
+                log.exception("Ошибка парсинга или импорта %s", script)
+                failures.append(script)
+        if failures:
+            raise RuntimeError("Не обработаны источники: " + ", ".join(failures))
 
 
 def main():
