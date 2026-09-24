@@ -31,7 +31,7 @@ def main():
 
             #time.sleep(0.5)
 
-        except requests.RequestException as exc:
+        except Exception as exc:
             print(f"Request error: {exc}")
 
     output = Path(os.environ.get("OUTPUT_FILE", "robots.json"))
@@ -132,11 +132,11 @@ def parse_product_page(product_url, robot_name):
 
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # Изображение робота
+    # Изображение робота. На части карточек слайдера нет — это не повод бросать весь обход.
     png_url = None
-
     image = soup.select_one(".product-item-detail-slider-image.active img")
-    png_url = urljoin(BASE_URL, image.attrs['src'])
+    if image is not None and image.get("src"):
+        png_url = urljoin(BASE_URL, image["src"])
 
     # Полные характеристики
     specs = {}

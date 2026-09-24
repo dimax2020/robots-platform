@@ -46,6 +46,49 @@ def empty(value):
     return value is None or isinstance(value, str) and not value.strip()
 
 
+# Кириллица в латиницу, чтобы «БРО 2.1» совпало с «BRO 2.1».
+_CYR = {
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh",
+    "з": "z", "и": "i", "й": "i", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o",
+    "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f", "х": "h", "ц": "c",
+    "ч": "ch", "ш": "sh", "щ": "sch", "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "u",
+    "я": "ya",
+}
+
+
+def name_tokens(value: str) -> list[str]:
+    """Имя без скобок и регистра, кириллица приведена к латинице, разбито на слова."""
+    text = re.sub(r"\([^)]*\)", " ", value)
+    text = "".join(_CYR.get(ch, ch) for ch in text.lower().replace("ё", "е"))
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return [token for token in text.split() if token]
+
+
+def _distinctive(tokens: list[str]) -> bool:
+    # «Unit» и голые числа слишком короткие, чтобы склеивать по вхождению.
+    letters = any(ch.isalpha() for token in tokens for ch in token)
+    return letters and sum(len(token) for token in tokens) >= 5
+
+
+def _contains(short: list[str], long: list[str]) -> bool:
+    if not short or len(short) > len(long):
+        return False
+    width = len(short)
+    return any(long[i:i + width] == short for i in range(len(long) - width + 1))
+
+
+def names_match(left: str, right: str) -> bool:
+    """Совпадают, если одно имя целиком входит в другое как последовательность слов.
+
+    «Ronavi H1500» находит «Ronavi H1500 (грузоподъёмность до 1 500 кг)»,
+    «AK-2000-2» находит «AUTOMACON AK-2000-2», «БРО 2.1» находит «168robotics BRO 2.1».
+    """
+    a, b = name_tokens(left), name_tokens(right)
+    if not _distinctive(a) or not _distinctive(b):
+        return False
+    return _contains(a, b) or _contains(b, a)
+
+
 def load_rows(path):
     rows = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(rows, list):
@@ -122,14 +165,16 @@ def import_rows(db, rows, *, dry_run=False):
         entry = {"name": row["name"]}
         report.append(entry)
         # Экранируем спецсимволы LIKE: имя — буквальный префикс, а не SQL-шаблон.
-        prefix = row["name"].replace("!", "!!").replace("%", "!%").replace("_", "!_")
-        stmt = (
-            select(Product)
-            .where(Product.valid_to.is_(None), Product.name.ilike(prefix + "%", escape="!"))
-            .order_by(Product.id)
-            .with_for_update()
-        )
-        matches = db.scalars(stmt).all()
+        # Сначала все текущие имена: вхождение слова не выразить одним ILIKE,
+        # а каталог маленький. Блокируем уже найденную строку.
+        current = db.scalars(
+            select(Product).where(Product.valid_to.is_(None)).order_by(Product.id)
+        ).all()
+        matches = [product for product in current if names_match(row["name"], product.name)]
+        if len(matches) == 1:
+            matches = db.scalars(
+                select(Product).where(Product.id == matches[0].id).with_for_update()
+            ).all()
         if len(matches) != 1:
             entry["status"] = "not_found" if not matches else "ambiguous"
             continue

@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts.import_robots import MAPPING, additions, load_rows, map_row
+from scripts.import_robots import MAPPING, additions, load_rows, map_row, names_match
 
 
 def test_mapping_and_units():
@@ -72,3 +72,25 @@ def test_png_url_only_fills_empty_column(existing):
 @pytest.mark.parametrize("value", [None, "", "   "])
 def test_empty_png_url_is_ignored(value):
     assert map_row({"png_url": value}) == ({}, {}, [])
+
+
+@pytest.mark.parametrize(("left", "right"), [
+    ("Ronavi H1500", "Ronavi H1500 (грузоподъемность до 1 500 кг)"),
+    ("AK-2000-2", "AUTOMACON AK-2000-2"),
+    ("БРО 2.1", "168robotics BRO 2.1"),
+    ("БРО 3.0", "168robotics BRO 3.0"),
+    ("Ортез-1", "Ортез-1"),
+])
+def test_names_match_when_one_phrase_contains_the_other(left, right):
+    assert names_match(left, right)
+    assert names_match(right, left)
+
+
+@pytest.mark.parametrize(("left", "right"), [
+    ("Клинботикс 400 PRO", "Waybot Cleanbotics 400 PRO"),
+    ("Unit", "Unitree A2"),
+    ("AMR 100", "AUTOMACON AK-100"),
+    ("Ronavi H1500", "Ronavi H2000"),
+])
+def test_names_do_not_match_lookalikes(left, right):
+    assert not names_match(left, right)
