@@ -6,7 +6,7 @@ ENV PYTHONUNBUFFERED=1
 COPY parser/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY parser/parser.py parser/run.py ./
+COPY parser/parser.py parser/run.py parser/robort.py ./
 COPY api ./api
 COPY scripts ./scripts
 
