@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { PhArrowLeft } from '@phosphor-icons/vue'
 import { type Project, objectTypeLabel, isFullPath } from '~/data/projects'
-defineProps<{ project: Project; current: string; title: string; lead?: string }>()
+defineProps<{
+  project: Project
+  current: string
+  title: string
+  lead?: string
+  substages?: { id: string; label: string; to: string }[]
+  currentSub?: string
+}>()
 </script>
 
 <template>
@@ -15,7 +22,7 @@ defineProps<{ project: Project; current: string; title: string; lead?: string }>
           <span class="mono-sm muted">каталог {{ project.catalogVersion }} · модель {{ project.modelVersion }}</span>
         </span>
       </div>
-      <ProjectSteps :project="project" :current="current" />
+      <ProjectSteps :project="project" :current="current" :substages="substages" :current-sub="currentSub" />
     </div>
     <div class="shell-title" v-reveal="1">
       <div>

@@ -154,6 +154,35 @@ export interface ApiSiteProfile {
   power_kw?: number | null
   noise_limit_dba?: number | null
   has_wms?: boolean | null
+  floors_count?: number | null
+  main_aisle_width_m?: number | null
+  floor_type?: string | null
+  inbound_pallets_per_day?: number | null
+  outbound_pallets_per_day?: number | null
+  pick_lines_per_day?: number | null
+  pick_units_per_day?: number | null
+  piece_pick_share_pct?: number | null
+  sku_count?: number | null
+  sku_a_share_pct?: number | null
+  staff_total?: number | null
+  pickers_count?: number | null
+  forklift_operators?: number | null
+  pack_operators?: number | null
+  picker_salary_month_rub?: number | null
+  forklift_salary_month_rub?: number | null
+  payroll_burden?: number | null
+  picker_lines_per_hour?: number | null
+  time_loss_pct?: number | null
+  picker_route_m?: number | null
+  conveyor_length_m?: number | null
+  rack_type?: string | null
+  pallet_mass_kg?: number | null
+  unit_mass_kg?: number | null
+  pallet_dims_mm?: string | null
+  unit_dims_mm?: string | null
+  oversized_share_pct?: number | null
+  erp_name?: string | null
+  payback_years?: number | null
 }
 
 export interface ApiTask {

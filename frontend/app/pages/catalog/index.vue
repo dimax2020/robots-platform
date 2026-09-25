@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { PhMagnifyingGlass, PhSlidersHorizontal, PhFunnelSimple, PhCheckSquare, PhSquare } from '@phosphor-icons/vue'
-import { availabilityLabel, type Availability } from '~/data/catalog'
+import { availabilityLabel, type Availability, type Product } from '~/data/catalog'
 
 const { products, catalogTree, pending, error } = useCatalog()
 
@@ -50,6 +50,20 @@ const activeChips = computed(() => {
   return chips
 })
 
+const filterFeed = (items: Product[]) => {
+  let list = items.slice()
+  if (avail.value.length) list = list.filter((p) => avail.value.includes(p.availability))
+  if (onlyAuto.value) list = list.filter((p) => p.autoMatch)
+  if (minTrl.value > 1) list = list.filter((p) => p.trl >= minTrl.value)
+  if (q.value.trim()) {
+    const s = q.value.trim().toLowerCase()
+    list = list.filter((p) => [p.name, p.manufacturer].join(' ').toLowerCase().includes(s))
+  }
+  if (sort.value === 'price') list.sort((a, b) => (a.priceRub ?? 1e12) - (b.priceRub ?? 1e12))
+  if (sort.value === 'trl') list.sort((a, b) => b.trl - a.trl)
+  if (sort.value === 'name') list.sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+  return list
+}
 const countOf = (a: Availability) => products.value.filter((p) => p.availability === a).length
 const plural = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'модель' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'модели' : 'моделей')
 const emptyHint = computed(() => {
@@ -102,39 +116,42 @@ const emptyHint = computed(() => {
                 <PhCheckSquare v-if="onlyAuto" :size="18" weight="fill" /><PhSquare v-else :size="18" />
                 <span>Готов к автоподбору</span>
               </button>
-              <div class="caption">УГТ ≥ 7 и статус не «разработка»</div>
+              <div class="caption">УГТ ≥ 5 и статус не «разработка»</div>
             </div>
           </div>
         </div>
       </aside>
 
-      <div class="results">
+      <PlatformFeed v-slot="{ items, loading, error, done }" class="results">
         <div class="results-head">
           <div class="chips">
-            <span class="count h4">Найдено {{ filtered.length }} {{ plural(filtered.length) }}</span>
+            <span class="count h4">В списке {{ filterFeed(items).length }} {{ plural(filterFeed(items).length) }}</span>
             <UiChip v-for="c in activeChips" :key="c.key" removable @remove="c.clear" @click="c.clear">{{ c.label }}</UiChip>
             <button v-if="activeChips.length" type="button" class="link body-sm" @click="reset">Сбросить всё</button>
           </div>
           <label class="sort">
             <span class="caption">Сортировка</span>
             <select v-model="sort" class="select">
-              <option value="relevance">По релевантности</option>
+              <option value="relevance">По порядку каталога</option>
               <option value="price">По цене</option>
               <option value="trl">По УГТ</option>
               <option value="name">По названию</option>
             </select>
           </label>
         </div>
+        <p class="caption">Список подгружается по прокрутке, без номеров страниц. {{ done ? 'Это все карточки новой базы.' : 'Дальше подгрузится само.' }}</p>
+        <p v-if="error" class="caption">{{ error }}</p>
 
-        <TransitionGroup v-if="filtered.length" name="cards" tag="div" class="grid grid-cards cards">
-          <RobotCard v-for="p in filtered" :key="p.id" :product="p" />
-        </TransitionGroup>
-        <div v-else class="empty glass">
-          <div class="h3">По этим условиям ничего нет</div>
-          <p class="body muted">{{ emptyHint }}</p>
-          <UiButton variant="secondary" @click="reset">Сбросить фильтры</UiButton>
+        <div v-if="filterFeed(items).length" class="grid grid-cards cards">
+          <RobotCard v-for="p in filterFeed(items)" :key="p.id" :product="p" :to="`/catalog/card/${p.slug}`" :show-gate="false" />
         </div>
-      </div>
+        <div v-else-if="!loading" class="empty glass">
+          <div class="h3">В новой базе пока нет карточек под эти условия</div>
+          <p class="body muted">Загрузите каталог в админке платформы. Старый каталог по-прежнему открывается из меню сравнения.</p>
+          <UiButton to="/admin/platform" variant="secondary">К загрузке</UiButton>
+        </div>
+        <p v-if="loading" class="caption">Загрузка следующей порции…</p>
+      </PlatformFeed>
     </div>
   </section>
 </template>

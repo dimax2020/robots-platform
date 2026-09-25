@@ -1,152 +1,193 @@
 <script setup lang="ts">
-import { PhCaretDown, PhScales, PhFunction, PhPlay, PhArrowSquareOut } from '@phosphor-icons/vue'
+import { PhArrowRight } from '@phosphor-icons/vue'
 import { projects } from '~/data/projects'
-import { labelProcess } from '~/data/siteFields'
-import { fetchErrorMessage, type CalcCandidate, type CalcTrace } from '~/composables/useCalc'
+import { fetchErrorMessage } from '~/composables/useCalc'
+import { platformGet, platformSend } from '~/composables/usePlatform'
+import { photoFor } from '~/data/placeholders'
 
 const route = useRoute()
+const router = useRouter()
 const id = computed(() => route.params.id as string)
-const { products, defs, pending: catalogPending } = useCatalog()
-const { project, detail, run, pending, error, refresh, calculate } = useCalc(id)
+const { project, detail, pending, error, calculate } = useCalc(id)
 const demoProject = computed(() => projects.find((p) => p.id === id.value))
 const shell = computed(() => project.value ?? demoProject.value)
 useHead({ title: () => `Подбор · ${shell.value?.name ?? 'проект'}` })
-const { toggle, has } = useCompare()
 
-const tab = ref<'fit' | 'check' | 'excluded'>('fit')
-const open = ref<string | null>(null)
-const stepOpen = ref<string | null>(null)
-const prepOpen = ref(false)
-const outOpen = ref(false)
-const more = reactive<Record<string, boolean>>({})
-const calculating = ref(false)
-const calcError = ref('')
-
-const productOf = (productId: string) => products.value.find((p) => p.id === productId)
-const attrLabel = (key: string) => defs.value.get(key)?.label ?? key
-const processName = (code: string) => {
-  const task = detail.value?.tasks.find((t) => t.process_code === code)
-  return labelProcess(code, task?.name)
+interface Hit { product_id: string; name: string; slug: string; verdict: string; notes: string[]; image_url?: string | null; count?: number | null; count_note?: string }
+interface Group { process_code: string; process_name: string; best_product_id?: string | null; hits: Hit[] }
+interface PlatformProject {
+  id: string
+  object_code: string
+  processes: { code: string; enabled: boolean }[]
 }
 
-// все посчитанные количества, а не только вошедшие в парк: свой расчёт
-// показывается и тому кандидату, что проиграл по счёту
-const optionOf = (c: CalcCandidate) =>
-  (run.value?.options ?? []).find((o) => o.productId === c.productId && o.processCode === c.processCode)
-const countOf = (c: CalcCandidate) => optionOf(c)?.count
-const formulaOf = (c: CalcCandidate) => optionOf(c)?.formula
-
-const fit = computed(() => (run.value?.candidates ?? []).filter((c) => c.verdict === 'pass'))
-const check = computed(() => (run.value?.candidates ?? []).filter((c) => c.verdict === 'unknown'))
-const excluded = computed(() => (run.value?.candidates ?? []).filter((c) => c.verdict === 'fail'))
-const notInAuto = computed(() => products.value.filter((x) => !x.autoMatch))
-
-const tabs = computed(() => [
-  { id: 'fit', label: 'Подходит', count: fit.value.length },
-  { id: 'check', label: 'Требует проверки', count: check.value.length },
-  { id: 'excluded', label: 'Исключён', count: excluded.value.length },
-])
-const list = computed(() => (tab.value === 'fit' ? fit.value : tab.value === 'check' ? check.value : excluded.value))
-
-const rowKey = (c: CalcCandidate) => `${c.productId}:${c.processCode}`
-const tracesOf = (productId: string) => (run.value?.trace ?? []).filter((t) => t.productId === productId)
-const STEP_TITLE: Record<string, string> = {
-  prepare: 'Подготовка входа',
-  match: 'Жёсткие проверки',
-  size: 'Расчёт количества',
-  rank: 'Скоринг',
-}
-const STEP_ORDER = ['prepare', 'match', 'size', 'rank']
-const groupedTrace = (productId: string) => {
-  const items = tracesOf(productId)
-  const seen = new Set<string>()
-  const steps = [
-    ...STEP_ORDER.filter((s) => items.some((t) => t.step === s)),
-    ...items.map((t) => t.step).filter((s) => !STEP_ORDER.includes(s)),
-  ]
-  return steps
-    .filter((s) => {
-      if (seen.has(s)) return false
-      seen.add(s)
-      return true
-    })
-    .map((step) => ({
-      step,
-      title: STEP_TITLE[step] ?? step,
-      items: items.filter((t) => t.step === step),
-    }))
-}
-const globalTrace = computed(() => (run.value?.trace ?? []).filter((t) => !t.productId))
-const queriesOf = (productId: string) => (run.value?.vendorQueries ?? []).filter((q) => q.productId === productId)
-
-const emptyWhy = computed(() => {
-  if (!run.value) return ''
-  if (run.value.candidates.length) return ''
-  const msgs = globalTrace.value.map((t) => t.message).filter(Boolean)
-  if (!(detail.value?.tasks.length)) return 'В проекте нет задач: нечего сопоставлять с каталогом. Добавьте процессы на шаге параметров.'
-  if (msgs.length) return msgs.join(' ')
-  return 'Кандидатов нет: ни один продукт не прошёл отбор по процессам проекта. Проверьте тип объекта и список задач.'
-})
-
-const toggleRow = (key: string) => {
-  open.value = open.value === key ? null : key
-  stepOpen.value = null
-}
-const toggleStep = (key: string) => {
-  stepOpen.value = stepOpen.value === key ? null : key
-}
-const stepKey = (row: string, step: string) => `${row}:${step}`
-const shownFields = (key: string, fields: string[]) => (more[key] ? fields : fields.slice(0, 3))
-const vendorPreview = (productId: string) => {
-  const fields = queriesOf(productId).map((q) => attrLabel(q.field))
-  if (!fields.length) return 'поля не сформированы'
-  if (fields.length <= 3) return fields.join(', ')
-  return `${fields.slice(0, 3).join(', ')} и ещё ${fields.length - 3}`
-}
-
-watch(list, (rows) => {
-  if (open.value && !rows.some((r) => rowKey(r) === open.value)) {
-    open.value = null
-    stepOpen.value = null
-  }
-})
-
-const runCalc = async () => {
-  if (calculating.value || !project.value) return
-  calculating.value = true
-  calcError.value = ''
-  try {
-    await calculate()
-    await refresh()
-    tab.value = 'fit'
-  } catch (e: unknown) {
-    calcError.value = fetchErrorMessage(e, 'Не удалось запустить расчёт')
-  } finally {
-    calculating.value = false
-  }
-}
-
-const sourceRest = (source?: string) => {
-  if (!source) return ''
-  return source.replace(/^\[[A-D]\]\s*/i, '')
-}
-
-const verdictTone = (v?: CalcTrace['verdict']) => {
-  if (v === 'pass') return 'ok'
-  if (v === 'fail') return 'danger'
-  if (v === 'unknown') return 'warn'
-  return 'neutral'
-}
-const verdictLabel = (v?: CalcTrace['verdict']) => {
-  if (v === 'pass') return 'пройдено'
-  if (v === 'fail') return 'отказ'
-  if (v === 'unknown') return 'нет данных'
-  return ''
-}
+const groups = ref<Group[]>([])
+const basket = ref<Record<string, string>>({})
+const statusTab = ref('pass')
+const showFinal = ref(false)
+const statusOrder = ['pass', 'conditional', 'unknown', 'fail'] as const
+const loadingMatch = ref(true)
+const matchError = ref('')
+const startedAt = ref(0)
+const now = ref(0)
+let clock: ReturnType<typeof setInterval> | undefined
+const ranFor = ref('')
 
 const live = computed(() => Boolean(project.value))
-const noRun = computed(() => live.value && !pending.value && !error.value && !run.value)
-const loading = computed(() => pending.value || catalogPending.value)
+const verdictLabel: Record<string, string> = {
+  pass: 'Подходит',
+  conditional: 'С условием',
+  unknown: 'Уточнить',
+  fail: 'Не подходит',
+}
+const verdictTone: Record<string, 'ok' | 'warn' | 'info' | 'danger' | 'neutral'> = {
+  pass: 'ok',
+  conditional: 'warn',
+  unknown: 'info',
+  fail: 'danger',
+}
+
+const elapsed = computed(() => {
+  if (!startedAt.value) return '0,0 с'
+  const sec = Math.max(0, now.value - startedAt.value) / 1000
+  return `${sec.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} с`
+})
+
+const activeCode = computed(() => {
+  const query = typeof route.query.process === 'string' ? route.query.process : ''
+  if (groups.value.some((group) => group.process_code === query)) return query
+  return groups.value[0]?.process_code ?? ''
+})
+const activeGroup = computed(() => groups.value.find((group) => group.process_code === activeCode.value) ?? null)
+const nextGroup = computed(() => {
+  const index = groups.value.findIndex((group) => group.process_code === activeCode.value)
+  return index >= 0 ? groups.value[index + 1] : undefined
+})
+const substages = computed(() => groups.value.map((group) => ({
+  id: group.process_code,
+  label: group.process_name,
+  to: `/projects/${id.value}/match?process=${group.process_code}`,
+})))
+const counts = computed(() => {
+  const tally = { pass: 0, conditional: 0, unknown: 0, fail: 0 }
+  for (const hit of activeGroup.value?.hits ?? []) {
+    if (hit.verdict in tally) tally[hit.verdict as keyof typeof tally] += 1
+  }
+  return tally
+})
+const statusTabs = computed(() => {
+  const tabs: { id: string; label: string; count: number }[] = [
+    { id: 'pass', label: 'Подходит', count: counts.value.pass },
+    { id: 'conditional', label: 'С условием', count: counts.value.conditional },
+    { id: 'unknown', label: 'Уточнить', count: counts.value.unknown },
+    { id: 'fail', label: 'Не подходит', count: counts.value.fail },
+  ]
+  if (showFinal.value) tabs.push({ id: 'final', label: 'Итоговый выбор', count: groups.value.length })
+  return tabs
+})
+const visibleHits = computed(() => (activeGroup.value?.hits ?? []).filter((hit) => hit.verdict === statusTab.value))
+const revealFinal = () => {
+  showFinal.value = true
+  statusTab.value = 'final'
+}
+const buttonLabel = computed(() => {
+  if (loadingMatch.value) return 'Считаем…'
+  if (matchError.value || !nextGroup.value) return 'К сравнению'
+  return 'Следующий процесс'
+})
+
+const acceptable = (hit: Hit) => hit.verdict === 'pass' || hit.verdict === 'conditional'
+const chosenOf = (group: Group) => {
+  const saved = basket.value[group.process_code]
+  const picked = group.hits.find((hit) => hit.product_id === saved && acceptable(hit))
+  if (picked) return picked
+  return group.hits.find((hit) => hit.product_id === group.best_product_id) ?? group.hits.find(acceptable) ?? null
+}
+const chosen = computed(() => (activeGroup.value ? chosenOf(activeGroup.value) : null))
+const countText = (hit: Hit | null) => {
+  if (!hit || hit.count == null) return hit?.count_note || 'количество не задано'
+  const value = Number(hit.count)
+  const text = Number.isInteger(value) ? value.toLocaleString('ru-RU') : value.toLocaleString('ru-RU', { maximumFractionDigits: 1 })
+  return `${text} шт.`
+}
+const pick = (group: Group, productId: string) => {
+  basket.value = { ...basket.value, [group.process_code]: productId }
+}
+
+const startClock = () => {
+  startedAt.value = Date.now()
+  now.value = startedAt.value
+  clock = setInterval(() => { now.value = Date.now() }, 100)
+}
+const stopClock = () => {
+  if (clock) clearInterval(clock)
+  clock = undefined
+}
+
+const ensureProject = async () => {
+  const code = project.value?.objectType ?? 'warehouse'
+  const key = `platform-project:${id.value}`
+  const saved = localStorage.getItem(key)
+    if (saved) {
+      try {
+        const current = await platformGet<PlatformProject>(`/projects/${saved}`)
+        if (current.object_code === code) return current.id
+      } catch {
+        localStorage.removeItem(key)
+      }
+    }
+  const created = await platformSend<PlatformProject>('/projects', 'POST', { name: shell.value?.name ?? code, object_code: code, site: {} })
+  localStorage.setItem(key, created.id)
+  return created.id
+}
+
+const runMatch = async () => {
+  if (!project.value || ranFor.value === project.value.id) return
+  ranFor.value = project.value.id
+  loadingMatch.value = true
+  matchError.value = ''
+  groups.value = []
+  startClock()
+  try {
+    const projectId = await ensureProject()
+    const result = await platformSend<{ groups: Group[] }>(`/projects/${projectId}/match`, 'POST', { site: detail.value?.site ?? {} })
+    groups.value = result.groups
+    const requested = typeof route.query.process === 'string' ? route.query.process : ''
+    const first = result.groups[0]?.process_code
+    if (first && !result.groups.some((group) => group.process_code === requested)) {
+      await router.replace({ query: { process: first } })
+    }
+    void calculate().catch(() => {})
+  } catch (err: unknown) {
+    matchError.value = fetchErrorMessage(err, 'Не удалось посчитать подбор')
+  } finally {
+    stopClock()
+    loadingMatch.value = false
+  }
+}
+
+const goNext = () => {
+  if (loadingMatch.value) return
+  if (!matchError.value && nextGroup.value) {
+    void router.push({ query: { process: nextGroup.value.process_code } })
+    return
+  }
+  void router.push(`/projects/${id.value}/compare`)
+}
+
+watch([activeCode, () => activeGroup.value?.hits.length ?? 0], () => {
+  if (statusTab.value === 'final') return
+  const hits = activeGroup.value?.hits ?? []
+  if (hits.some((hit) => hit.verdict === statusTab.value)) return
+  const next = statusOrder.find((id) => hits.some((hit) => hit.verdict === id))
+  statusTab.value = next || 'pass'
+})
+watch(() => project.value?.id, () => { void runMatch() }, { immediate: true })
+onMounted(() => {
+  try { basket.value = JSON.parse(localStorage.getItem(`platform-basket:${id.value}`) || '{}') } catch { basket.value = {} }
+})
+watch(basket, (value) => localStorage.setItem(`platform-basket:${id.value}`, JSON.stringify(value)), { deep: true })
+onBeforeUnmount(stopClock)
 </script>
 
 <template>
@@ -154,190 +195,86 @@ const loading = computed(() => pending.value || catalogPending.value)
     v-if="shell"
     :project="shell"
     current="match"
-    title="Подбор и объяснение"
-    lead="Три списка. Пустое поле не равно отказу: такие решения лежат отдельно, с перечнем недостающих данных и запросом вендору."
+    :substages="substages"
+    :current-sub="activeCode"
+    :title="activeGroup?.process_name || 'Подбор'"
+    :lead="loadingMatch ? 'Считаем решения по включённым процессам. Время на экране — сколько уже идёт расчёт.' : 'Роботы текущего процесса. Та же кнопка справа открывает следующий процесс.'"
   >
     <template #actions>
-      <UiButton v-if="live && (noRun || run)" :disabled="calculating" size="lg" @click="runCalc">
-        <template #icon><PhPlay :size="16" weight="bold" /></template>
-        {{ calculating ? 'Считаем…' : run ? 'Пересчитать' : 'Запустить подбор' }}
-      </UiButton>
-      <UiButton v-if="live && run" :to="`/projects/${shell.id}/compare`" size="lg" variant="secondary">
-        <template #icon><PhScales :size="16" weight="bold" /></template>Открыть сравнение
+      <UiButton v-if="live" size="lg" :disabled="loadingMatch" @click="goNext">
+        {{ buttonLabel }}<template v-if="!loadingMatch" #after><PhArrowRight :size="18" weight="bold" /></template>
       </UiButton>
     </template>
 
-    <UiCallout v-if="!live" tone="warn" title="Это демонстрационный макет">
+    <UiCallout v-if="!live && !pending" tone="warn" title="Это демонстрационный макет">
       Живой подбор работает с проектом, сохранённым на сервере. Создайте проект — площадка и задачи предзаполнятся из профиля объекта.
       <div class="call-actions">
         <UiButton to="/projects/new" size="sm">Создать проект</UiButton>
       </div>
     </UiCallout>
 
-    <UiCallout v-else-if="error" tone="danger" title="Не удалось загрузить расчёт">
+    <UiCallout v-else-if="error" tone="danger" title="Не удалось загрузить проект">
       {{ fetchErrorMessage(error, 'Сервер не ответил. Проверьте, что API запущен.') }}
     </UiCallout>
 
-    <div v-else-if="loading" class="summary" v-reveal>
-      <div v-for="i in 4" :key="i" class="sum glass"><UiSkeleton h="56px" /></div>
-    </div>
+    <section v-else-if="loadingMatch || pending" class="waiting glass">
+      <div class="wait-copy">
+        <div class="label">Подбор</div>
+        <div class="h3">Считаем решения</div>
+        <p class="body-sm muted">Когда расчёт закончится, откроются роботы первого процесса.</p>
+      </div>
+      <div class="timer">
+        <span class="display-3">{{ elapsed }}</span>
+        <span class="caption">идёт расчёт</span>
+      </div>
+    </section>
 
-    <template v-else-if="noRun">
-      <UiCallout tone="info" title="Расчёт ещё не запускался">
-        Параметры площадки сохранены, но конвейер подбора не запускали. Запуск запишет прогон: корзины, количество и трассировку каждого числа.
-        <div class="call-actions">
-          <UiButton :disabled="calculating" @click="runCalc">
-            <template #icon><PhPlay :size="16" weight="bold" /></template>
-            {{ calculating ? 'Считаем…' : 'Запустить подбор' }}
-          </UiButton>
-        </div>
-      </UiCallout>
-    </template>
+    <UiCallout v-else-if="matchError" tone="danger" title="Подбор не посчитался">{{ matchError }}</UiCallout>
 
-    <template v-else-if="run">
-      <UiCallout v-if="calcError" tone="danger" title="Расчёт не прошёл">{{ calcError }}</UiCallout>
+    <section v-else-if="!activeGroup" class="empty glass">
+      <div class="h3">Процессов для подбора нет</div>
+      <p class="body muted">Включите хотя бы один процесс на шаге параметров.</p>
+    </section>
 
-      <div class="summary" v-reveal>
-        <div class="sum glass ok"><span class="display-3">{{ fit.length }}</span><span><span class="h4">Подходит</span><span class="caption block">все жёсткие проверки пройдены</span></span></div>
-        <div class="sum glass warn"><span class="display-3">{{ check.length }}</span><span><span class="h4">Требует проверки</span><span class="caption block">нет отказа, но часть полей пустая</span></span></div>
-        <div class="sum glass danger"><span class="display-3">{{ excluded.length }}</span><span><span class="h4">Исключён</span><span class="caption block">хотя бы одна проверка не пройдена</span></span></div>
-        <div class="sum glass neutral"><span class="display-3">{{ notInAuto.length }}</span><span><span class="h4">Вне автоподбора</span><span class="caption block">УГТ ниже 7 или разработка</span></span></div>
+    <template v-else>
+      <div class="status-bar">
+        <UiTabs v-model="statusTab" :tabs="statusTabs" />
+        <UiButton v-if="!showFinal" size="sm" variant="secondary" @click="revealFinal">Итоговый выбор</UiButton>
       </div>
 
-      <div v-if="globalTrace.length" class="fold glass">
-        <button type="button" class="fold-btn" :aria-expanded="prepOpen" @click="prepOpen = !prepOpen">
-          <span class="h4">Как подготовлен вход</span>
-          <span class="caption">{{ globalTrace.length }} {{ globalTrace.length === 1 ? 'запись' : 'записей' }} трассировки</span>
-          <PhCaretDown :size="14" weight="bold" class="caret" :class="{ up: prepOpen }" />
+      <div v-if="statusTab === 'final'" class="baskets">
+        <button v-for="group in groups" :key="group.process_code" type="button" class="basket" :class="{ on: group.process_code === activeCode }" @click="router.push({ query: { process: group.process_code } })">
+          <img :src="photoFor(chosenOf(group)?.image_url, chosenOf(group)?.name || group.process_name, group.process_code)" alt="">
+          <span class="copy">
+            <span class="caption">{{ group.process_name }}</span>
+            <span class="body-sm strong">{{ chosenOf(group)?.name || 'нет подходящего' }}</span>
+            <span class="mono-sm">{{ chosenOf(group) ? countText(chosenOf(group)) : '—' }}</span>
+          </span>
         </button>
-        <div v-if="prepOpen" class="prep-body">
-          <div class="caption">Преобразования площадки и потока, общие для всех кандидатов.</div>
-          <div v-for="(t, i) in globalTrace" :key="`${t.step}-${i}`" class="prep-item">
-            <UiBadge :tone="verdictTone(t.verdict)" size="sm">{{ STEP_TITLE[t.step] ?? t.step }}</UiBadge>
-            <div>
-              <p class="body-sm">{{ t.message }}</p>
-              <code v-if="t.formula" class="formula">{{ t.formula }}</code>
-              <div v-if="t.value != null" class="caption">{{ t.value.toLocaleString('ru-RU') }}<template v-if="t.unit"> {{ t.unit }}</template></div>
-              <div v-if="t.source" class="ex-src"><UiSourceTag :text="t.source" /><span class="caption">{{ sourceRest(t.source) }}</span></div>
-            </div>
+      </div>
+
+      <section v-else-if="visibleHits.length" class="glass sheet">
+        <article v-for="hit in visibleHits" :key="hit.product_id" class="hit">
+          <NuxtLink :to="`/catalog/card/${hit.slug}`" class="thumb" :aria-label="hit.name">
+            <img :src="photoFor(hit.image_url, hit.name, activeGroup.process_code)" :alt="hit.name" loading="lazy">
+          </NuxtLink>
+          <div class="who">
+            <NuxtLink :to="`/catalog/card/${hit.slug}`" class="h4">{{ hit.name }}</NuxtLink>
+            <span class="mono-sm">{{ countText(hit) }}</span>
           </div>
-        </div>
-      </div>
-
-      <div class="tabs-row" v-reveal="1">
-        <UiTabs v-model="tab" :tabs="tabs" />
-      </div>
-
-      <div v-if="!list.length" class="empty glass" v-reveal="2">
-        <div class="h3">{{ tab === 'fit' ? 'Пока никто не прошёл' : tab === 'check' ? 'Пустых полей нет' : 'Отказов нет' }}</div>
-        <p class="body muted">{{ emptyWhy || (tab === 'fit' ? 'Либо кандидаты в других корзинах, либо подбор не нашёл подходящих решений.' : 'Переключите вкладку — состав корзин собран из вердиктов расчёта.') }}</p>
-      </div>
-
-      <TransitionGroup v-else name="rows" tag="div" class="rows" v-reveal="2">
-        <article v-for="r in list" :key="rowKey(r)" class="mrow glass" :class="[tab, { open: open === rowKey(r) }]">
-          <div class="mrow-main">
-            <img :src="productOf(r.productId)?.image ?? '/img/robot-amr-pallet.png'" alt="" class="thumb">
-            <div class="who">
-              <NuxtLink v-if="productOf(r.productId)" :to="`/catalog/${productOf(r.productId)!.slug}`" class="h4">{{ productOf(r.productId)!.name }}</NuxtLink>
-              <span v-else class="h4">{{ queriesOf(r.productId)[0]?.productName ?? 'Продукт не в текущем каталоге' }}</span>
-              <div class="caption">{{ productOf(r.productId)?.solutionType ?? queriesOf(r.productId)[0]?.manufacturer }} · {{ processName(r.processCode) }}</div>
-            </div>
-
-            <div v-if="tab === 'fit'" class="metric">
-              <span class="caption">Оценка</span>
-              <span class="score"><span class="bar"><span :style="{ width: `${(r.score ?? 0) * 100}%` }" /></span><span class="mono-md">{{ Math.round((r.score ?? 0) * 100) }}</span></span>
-            </div>
-            <div v-if="tab === 'fit'" class="metric">
-              <span class="caption">Расчётное количество</span>
-              <span class="display-4">{{ countOf(r) ?? '—' }} <span class="unit">шт.</span></span>
-            </div>
-
-            <div v-if="tab === 'check'" class="metric wide">
-              <span class="caption">Не хватает данных</span>
-              <span class="missing">
-                <span v-for="m in shownFields(rowKey(r), r.unknown)" :key="m" class="miss">{{ attrLabel(m) }}</span>
-                <button v-if="r.unknown.length > 3" type="button" class="miss more" @click="more[rowKey(r)] = !more[rowKey(r)]">{{ more[rowKey(r)] ? 'свернуть' : `ещё ${r.unknown.length - 3}` }}</button>
-              </span>
-            </div>
-            <div v-if="tab === 'check'" class="metric vendor">
-              <span class="caption">Запрос вендору</span>
-              <span class="body-sm">{{ vendorPreview(r.productId) }}</span>
-              <a
-                v-if="queriesOf(r.productId).find((q) => q.sourceUrl)"
-                class="src-link caption"
-                :href="queriesOf(r.productId).find((q) => q.sourceUrl)!.sourceUrl"
-                target="_blank"
-                rel="noreferrer"
-              >Источник <PhArrowSquareOut :size="12" /></a>
-            </div>
-
-            <div v-if="tab === 'excluded'" class="metric wide">
-              <span class="caption">Причина отказа</span>
-              <span class="missing">
-                <span v-for="m in shownFields('fail:' + rowKey(r), r.failed)" :key="m" class="miss fail">{{ attrLabel(m) }}</span>
-                <button v-if="r.failed.length > 3" type="button" class="miss more" @click="more['fail:' + rowKey(r)] = !more['fail:' + rowKey(r)]">{{ more['fail:' + rowKey(r)] ? 'свернуть' : `ещё ${r.failed.length - 3}` }}</button>
-                <span v-if="!r.failed.length" class="body-sm reason">жёсткое правило не пройдено</span>
-              </span>
-            </div>
-
-            <button type="button" class="expand" :aria-expanded="open === rowKey(r)" @click="toggleRow(rowKey(r))">
-              <PhFunction :size="16" weight="bold" /> Объяснение <PhCaretDown :size="14" weight="bold" class="caret" />
-            </button>
-          </div>
-
-          <Transition name="exp">
-            <div v-if="open === rowKey(r)" class="explain">
-              <div v-if="formulaOf(r)" class="ex">
-                <div class="ex-title h4">Формула количества</div>
-                <code class="formula">{{ formulaOf(r) }}</code>
-              </div>
-              <div v-for="g in groupedTrace(r.productId)" :key="g.step" class="step">
-                <button type="button" class="step-btn" :aria-expanded="stepOpen === stepKey(rowKey(r), g.step)" @click="toggleStep(stepKey(rowKey(r), g.step))">
-                  <span class="body-sm strong">{{ g.title }}</span>
-                  <span class="caption">{{ g.items.length }}</span>
-                  <PhCaretDown :size="14" weight="bold" class="caret" :class="{ up: stepOpen === stepKey(rowKey(r), g.step) }" />
-                </button>
-                <div v-if="stepOpen === stepKey(rowKey(r), g.step)" class="step-body">
-                  <div v-for="(e, i) in g.items" :key="`${g.step}-${i}`" class="ex-item">
-                    <div class="ex-head">
-                      <UiBadge v-if="e.verdict" :tone="verdictTone(e.verdict)" size="sm">{{ verdictLabel(e.verdict) }}</UiBadge>
-                      <p class="body-sm human">{{ e.message }}</p>
-                    </div>
-                    <code v-if="e.formula" class="formula">{{ e.formula }}</code>
-                    <div v-if="e.value != null" class="caption val">{{ e.value.toLocaleString('ru-RU') }}<template v-if="e.unit"> {{ e.unit }}</template></div>
-                    <div class="ex-src">
-                      <UiSourceTag v-if="e.source" :text="e.source" />
-                      <span v-if="e.source" class="caption">{{ sourceRest(e.source) }}</span>
-                      <span v-else class="caption">без источника: правило платформы</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div v-if="!groupedTrace(r.productId).length && !formulaOf(r)" class="ex">
-                <p class="body-sm human">Для этой строки трассировка пуста — числу в интерфейсе не на что опереться.</p>
-              </div>
-              <div class="ex-foot">
-                <span class="caption">Формула с подставленными числами. Подробности шага открываются отдельно.</span>
-                <button type="button" class="link body-sm" @click="toggle(r.productId)">{{ has(r.productId) ? 'Убрать из сравнения' : 'Добавить в сравнение' }}</button>
-              </div>
-            </div>
-          </Transition>
+          <UiBadge :tone="verdictTone[hit.verdict] || 'neutral'" size="sm">{{ verdictLabel[hit.verdict] || hit.verdict }}</UiBadge>
+          <span class="caption">{{ hit.notes.join(' · ') || 'замечаний нет' }}</span>
+          <UiButton v-if="hit.product_id !== chosen?.product_id && (hit.verdict === 'pass' || hit.verdict === 'conditional')" size="sm" variant="secondary" @click="pick(activeGroup, hit.product_id)">В корзину</UiButton>
+          <span v-else-if="hit.product_id === chosen?.product_id" class="caption in">в корзине</span>
         </article>
-      </TransitionGroup>
-
-      <div v-if="notInAuto.length" class="fold glass">
-        <button type="button" class="fold-btn" :aria-expanded="outOpen" @click="outOpen = !outOpen">
-          <span class="h4">Вне автоподбора</span>
-          <span class="caption">{{ notInAuto.length }} · УГТ ниже 7 или разработка</span>
-          <PhCaretDown :size="14" weight="bold" class="caret" :class="{ up: outOpen }" />
-        </button>
-        <div v-if="outOpen" class="out-body">
-          <p class="caption">В автоподбор не попадают. В сравнение их можно добавить вручную, с предупреждением.</p>
-          <div class="out-list">
-            <span v-for="x in notInAuto" :key="x.id" class="out-name">{{ x.name }}</span>
-          </div>
-        </div>
-      </div>
+      </section>
+      <section v-else-if="!activeGroup.hits.length" class="empty glass">
+        <div class="h3">На этот процесс роботов не назначено</div>
+        <p class="body muted">В списке подбора его нет. Следующий процесс открывается той же кнопкой справа.</p>
+      </section>
+      <section v-else class="empty glass">
+        <div class="h3">В этом статусе роботов нет</div>
+      </section>
     </template>
   </ProjectShell>
 
@@ -348,71 +285,36 @@ const loading = computed(() => pending.value || catalogPending.value)
 </template>
 
 <style scoped>
-.summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); }
-.sum { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center; padding: 16px 18px; }
-.sum > * { position: relative; z-index: 1; }
-.sum .display-3 { min-width: 44px; }
-.ok .display-3 { color: var(--state-ok); }
-.warn .display-3 { color: var(--state-warn); }
-.danger .display-3 { color: var(--state-danger); }
-.neutral .display-3 { color: var(--ink-muted); }
-.block { display: block; }
-.tabs-row { max-width: 560px; }
-.rows { display: grid; gap: 10px; }
-.mrow { overflow: hidden; }
-.mrow-main { position: relative; z-index: 1; display: grid; grid-template-columns: 64px minmax(200px, 1.4fr) 1fr 1fr auto; gap: var(--space-5); align-items: center; padding: 14px 16px; }
-.check .mrow-main { grid-template-columns: 64px minmax(200px, 1.2fr) 2fr 1fr auto; }
-.excluded .mrow-main { grid-template-columns: 64px minmax(200px, 1.2fr) 2fr auto; }
-.thumb { width: 64px; height: 64px; object-fit: cover; border-radius: 14px; }
-.who .h4 { color: var(--ink-strong); }
-.metric { display: grid; gap: 4px; }
-.score { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; min-width: 140px; }
-.bar { height: 6px; border-radius: 3px; background: rgba(15, 20, 19, 0.08); overflow: hidden; }
-.bar span { display: block; height: 100%; background: linear-gradient(90deg, var(--brand-400), var(--brand-600)); border-radius: 3px; }
-.unit { font-family: var(--font-sans); font-size: 14px; font-weight: 600; color: var(--ink-muted); }
-.missing { display: flex; gap: 6px; flex-wrap: wrap; }
-.miss { font-size: 12px; font-weight: 600; padding: 4px 8px; border-radius: 6px; background: var(--state-warn-tint); color: var(--state-warn); }
-.reason { color: var(--state-danger); font-weight: 600; }
-.vendor .src-link { display: inline-flex; align-items: center; gap: 4px; color: var(--link); font-weight: 600; }
-.expand { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 10px; font-size: 13px; font-weight: 700; color: var(--ink-strong); background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--border-hairline); transition: all var(--dur-fast) var(--ease); white-space: nowrap; }
-.expand:hover { background: #fff; }
-.caret { transition: transform var(--dur-fast) var(--ease); }
-.mrow.open > .mrow-main .caret,
-.caret.up { transform: rotate(180deg); }
-.explain { position: relative; z-index: 1; display: grid; gap: 8px; padding: 4px 16px 16px; }
-.ex { display: grid; gap: 10px; padding: 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.65); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); align-content: start; }
-.step { border-radius: 12px; background: rgba(255, 255, 255, 0.65); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); overflow: hidden; }
-.step-btn { width: 100%; display: flex; align-items: center; gap: 10px; padding: 12px 14px; text-align: left; }
-.step-btn .caption { margin-left: auto; }
-.step-body { display: grid; gap: 10px; padding: 0 14px 14px; }
-.fold { overflow: hidden; }
-.fold > * { position: relative; z-index: 1; }
-.fold-btn { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 16px; text-align: left; }
-.fold-btn .caption { margin-left: auto; }
-.prep-body, .out-body { display: grid; gap: 12px; padding: 0 16px 16px; }
-.out-list { display: flex; flex-wrap: wrap; gap: 6px; }
-.out-name { font-size: 13px; font-weight: 600; padding: 4px 8px; border-radius: 6px; background: rgba(15, 20, 19, 0.05); color: var(--ink-strong); }
-.miss.more { cursor: pointer; background: transparent; box-shadow: inset 0 0 0 1px rgba(138, 82, 0, 0.35); }
-.miss.fail { background: var(--state-danger-tint); color: var(--state-danger); }
-.ex-item { display: grid; gap: 8px; padding-top: 8px; border-top: 1px solid rgba(15, 20, 19, 0.06); }
-.ex-item:first-of-type { padding-top: 0; border-top: 0; }
-.ex-head { display: grid; gap: 6px; }
-.formula { display: block; padding: 10px 12px; border-radius: 10px; background: var(--surface-graphite); color: var(--brand-300); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; }
-.human { color: var(--ink-body); }
-.ex-src { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ex-foot { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-top: 4px; }
-.prep { padding: 16px 18px; display: grid; gap: 12px; }
-.prep > * { position: relative; z-index: 1; }
-.prep-item { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; }
-.prep-item .formula { margin-top: 8px; }
+.waiting { display: flex; justify-content: space-between; align-items: center; gap: var(--space-6); padding: var(--space-6); }
+.waiting > * { position: relative; z-index: 1; }
+.wait-copy { display: grid; gap: 6px; max-width: 52ch; }
+.timer { display: grid; justify-items: end; gap: 4px; }
+.timer .display-3 { font-variant-numeric: tabular-nums; }
+.status-bar { display: flex; align-items: center; gap: 12px; }
+.status-bar :deep(.tabs) { flex: 1; min-width: 0; }
+.sheet { padding: 8px; display: grid; gap: 8px; }
+.sheet > * { position: relative; z-index: 1; }
+.hit { display: grid; grid-template-columns: 132px minmax(180px, 1.4fr) auto minmax(140px, 1fr) auto; gap: 16px; align-items: center; min-height: 120px; padding: 14px 16px; border-radius: 14px; background: rgba(255, 255, 255, 0.65); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); }
+.who { display: grid; gap: 4px; min-width: 0; }
+.thumb { display: block; width: 132px; height: 96px; border-radius: 14px; overflow: hidden; background: #e9eeec; }
+.thumb img { width: 100%; height: 100%; object-fit: contain; }
+.hit .h4 { color: var(--ink-strong); }
+.in { color: var(--brand-ink); font-weight: 700; }
+.baskets { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.basket { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; align-items: center; text-align: left; padding: 10px; border-radius: 16px; background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); }
+.basket.on { background: #fff; box-shadow: inset 0 0 0 1px var(--brand-400); }
+.basket img { width: 72px; height: 56px; object-fit: contain; border-radius: 12px; background: #e9eeec; }
+.copy { display: grid; gap: 2px; min-width: 0; }
+.copy .body-sm { color: var(--ink-strong); }
 .empty { padding: var(--space-10); text-align: center; display: grid; gap: 8px; justify-items: center; }
 .empty > * { position: relative; z-index: 1; }
 .call-actions { margin-top: 10px; }
 .gone { padding-top: var(--space-12); display: grid; gap: var(--space-4); justify-items: start; }
-.rows-enter-active, .rows-leave-active { transition: opacity var(--dur-mid) var(--ease), transform var(--dur-mid) var(--ease); }
-.rows-enter-from, .rows-leave-to { opacity: 0; transform: translateY(8px); }
-.rows-leave-active { position: absolute; width: 100%; }
-.exp-enter-active, .exp-leave-active { transition: opacity var(--dur-mid) var(--ease), transform var(--dur-mid) var(--ease); }
-.exp-enter-from, .exp-leave-to { opacity: 0; transform: translateY(-6px); }
-@media (max-width: 1100px) { .summary { grid-template-columns: 1fr 1fr; } .mrow-main, .check .mrow-main, .excluded .mrow-main { grid-template-columns: 64px 1fr; } }
+@media (max-width: 1100px) {
+  .waiting { display: grid; }
+  .status-bar { display: grid; }
+  .hit { grid-template-columns: 96px minmax(0, 1fr); min-height: 108px; }
+  .thumb { width: 96px; height: 72px; }
+  .timer { justify-items: start; }
+}
 </style>

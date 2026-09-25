@@ -158,7 +158,7 @@ const reset = () => { buildRows(); result.value = null }
           <label class="field"><span class="field-label">Юрлицо</span><input class="input" :value="product.legalEntity" disabled><span class="field-hint">Из справочника вендоров, нормализованное</span></label>
           <label class="field"><span class="field-label">Регион</span><input class="input" :value="product.city" disabled></label>
           <label class="field"><span class="field-label">Статус</span><select class="select" disabled><option v-for="(l, k) in availabilityLabel" :key="k" :selected="product.availability === k">{{ l }}</option></select></label>
-          <label class="field"><span class="field-label">УГТ</span><input class="input input-mono" :value="product.trl" disabled><span class="field-hint">1–9. Ниже 7 не участвует в автоподборе</span></label>
+          <label class="field"><span class="field-label">УГТ</span><input class="input input-mono" :value="product.trl" disabled><span class="field-hint">1–9. Ниже 5 не участвует в автоподборе</span></label>
           <label class="field"><span class="field-label">Рыночный потенциал</span><input class="input input-mono" :value="product.marketPotential" disabled><span class="field-hint">1–5 по каталогу организатора</span></label>
           <label class="field"><span class="field-label">Тип решения</span><input class="input" :value="product.solutionType" disabled><span class="field-hint">Определяет семейство формул расчёта количества</span></label>
         </div>
@@ -219,7 +219,7 @@ const reset = () => { buildRows(); result.value = null }
         <div class="g-head"><span class="mono-sm n">{{ groups.length + 3 }}</span><div><div class="h3">Качество данных</div><div class="caption">Выводится автоматически, не редактируется</div></div></div>
         <div class="dq">
           <UiStat label="Заполнено" :value="`${Math.round(product.completeness * 100)}%`" />
-          <UiStat label="Автоподбор" :value="product.autoMatch ? 'Да' : 'Нет'" :note="product.autoMatch ? 'УГТ ≥ 7, не разработка' : 'УГТ < 7 или разработка'" />
+          <UiStat label="Автоподбор" :value="product.autoMatch ? 'Да' : 'Нет'" :note="product.autoMatch ? 'УГТ ≥ 5, не разработка' : 'УГТ < 5 или разработка'" />
           <UiStat label="Источников" :value="String(sources.length)" />
           <div class="dq-link"><PhLinkSimple :size="16" /> <span class="body-sm">Достоверность каждого значения считается из типа источника в разделе <NuxtLink to="/admin/sources" class="link">Источники</NuxtLink>.</span></div>
         </div>

@@ -146,6 +146,36 @@ class SiteProfile(BaseModel):
     power_kw: float | None = None  # кВт
     noise_limit_dba: float | None = None  # дБА
     has_wms: bool | None = None
+    # Лист «Склад» датасета. На аэропорте и больнице остаются пустыми.
+    floors_count: int | None = None
+    main_aisle_width_m: float | None = None
+    floor_type: str | None = None
+    inbound_pallets_per_day: float | None = None
+    outbound_pallets_per_day: float | None = None
+    pick_lines_per_day: float | None = None
+    pick_units_per_day: float | None = None
+    piece_pick_share_pct: float | None = None
+    sku_count: int | None = None
+    sku_a_share_pct: float | None = None
+    staff_total: int | None = None
+    pickers_count: int | None = None
+    forklift_operators: int | None = None
+    pack_operators: int | None = None
+    picker_salary_month_rub: float | None = None
+    forklift_salary_month_rub: float | None = None
+    payroll_burden: float | None = None
+    picker_lines_per_hour: float | None = None
+    time_loss_pct: float | None = None
+    picker_route_m: float | None = None
+    conveyor_length_m: float | None = None
+    rack_type: str | None = None
+    pallet_mass_kg: float | None = None
+    unit_mass_kg: float | None = None
+    pallet_dims_mm: str | None = None
+    unit_dims_mm: str | None = None
+    oversized_share_pct: float | None = None
+    erp_name: str | None = None
+    payback_years: float | None = None
 
 
 class Task(BaseModel):

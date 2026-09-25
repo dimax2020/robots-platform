@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { PhPlus, PhTrash, PhPencilSimple, PhArrowRight, PhArrowLeft, PhFloppyDisk, PhUploadSimple } from '@phosphor-icons/vue'
+import { PhPencilSimple, PhArrowRight } from '@phosphor-icons/vue'
 import { objectTypeLabel, projects, type ObjectType } from '~/data/projects'
-import { fieldSources, labelProcess, processesByObject, siteFieldMeta } from '~/data/siteFields'
+import { fieldSources, labelProcess, processesByObject, siteFieldMeta, warehouseDatasetGroups } from '~/data/siteFields'
 import { asObjectType, fetchErrorMessage } from '~/composables/useCalc'
 import type { ApiSiteProfile, ApiTask } from '~/types/api'
 
 const route = useRoute()
 const router = useRouter()
 const id = computed(() => route.params.id as string)
-const { project, detail, pending, error, refresh, update, calculate } = useCalc(id)
+const { project, detail, pending, error, refresh, update } = useCalc(id)
 const demoProject = computed(() => projects.find((p) => p.id === id.value))
 const shell = computed(() => project.value ?? demoProject.value)
 useHead({ title: () => `Параметры · ${shell.value?.name ?? 'проект'}` })
@@ -42,6 +42,35 @@ const emptySite = (code: string): ApiSiteProfile => ({
   power_kw: null,
   noise_limit_dba: null,
   has_wms: null,
+  floors_count: null,
+  main_aisle_width_m: null,
+  floor_type: null,
+  inbound_pallets_per_day: null,
+  outbound_pallets_per_day: null,
+  pick_lines_per_day: null,
+  pick_units_per_day: null,
+  piece_pick_share_pct: null,
+  sku_count: null,
+  sku_a_share_pct: null,
+  staff_total: null,
+  pickers_count: null,
+  forklift_operators: null,
+  pack_operators: null,
+  picker_salary_month_rub: null,
+  forklift_salary_month_rub: null,
+  payroll_burden: null,
+  picker_lines_per_hour: null,
+  time_loss_pct: null,
+  picker_route_m: null,
+  conveyor_length_m: null,
+  rack_type: null,
+  pallet_mass_kg: null,
+  unit_mass_kg: null,
+  pallet_dims_mm: null,
+  unit_dims_mm: null,
+  oversized_share_pct: null,
+  erp_name: null,
+  payback_years: null,
 })
 
 const emptyTask = (code: string): ApiTask => ({
@@ -108,6 +137,10 @@ const parseNum = (raw: string, asInt = false): number | null => {
 const setSiteNum = (key: keyof ApiSiteProfile, raw: string, asInt = false) => {
   ;(site as Record<string, unknown>)[key] = parseNum(raw, asInt)
 }
+const setSiteText = (key: keyof ApiSiteProfile, raw: string) => {
+  const t = raw.trim()
+  ;(site as Record<string, unknown>)[key] = t || null
+}
 const setTaskNum = (t: ApiTask, key: keyof ApiTask, raw: string, asInt = false) => {
   ;(t as unknown as Record<string, unknown>)[key] = parseNum(raw, asInt)
 }
@@ -119,8 +152,6 @@ const addTask = () => {
     ?? processesByObject[objectType.value]?.[0]
     ?? 'warehouse_logistics'
   tasks.value.push(emptyTask(next))
-  activeTask.value = tasks.value.length - 1
-  pane.value = 'tasks'
 }
 const removeTask = (i: number) => { tasks.value.splice(i, 1) }
 const onProcess = (t: ApiTask, code: string) => {
@@ -129,7 +160,6 @@ const onProcess = (t: ApiTask, code: string) => {
 }
 
 const saving = ref(false)
-const calculating = ref(false)
 const notice = ref<{ ok: boolean; text: string } | null>(null)
 const siteErrors = reactive<Record<string, string>>({})
 const taskErrors = reactive<Record<number, Record<string, string>>>({})
@@ -186,7 +216,7 @@ const payload = (): { site: ApiSiteProfile; tasks: ApiTask[] } => ({
   })),
 })
 
-const save = async () => {
+const save = async (quiet = false) => {
   if (!project.value || saving.value) return false
   saving.value = true
   notice.value = null
@@ -195,7 +225,7 @@ const save = async () => {
     await refresh()
     applyDetail()
     clearFieldErrors()
-    notice.value = { ok: true, text: 'Параметры сохранены' }
+    if (!quiet) notice.value = { ok: true, text: 'Параметры сохранены' }
     return true
   } catch (e: unknown) {
     if (applyFieldErrors(e)) {
@@ -212,24 +242,44 @@ const save = async () => {
   }
 }
 
-const runCalc = async () => {
-  if (!project.value || calculating.value) return
-  calculating.value = true
-  const ok = await save()
-  if (!ok) { calculating.value = false; return }
-  try {
-    await calculate()
-    await router.push(`/projects/${id.value}/match`)
-  } catch (e: unknown) {
-    notice.value = { ok: false, text: fetchErrorMessage(e, 'Не удалось запустить подбор') }
-  } finally {
-    calculating.value = false
+const live = computed(() => Boolean(project.value))
+const part = computed<'object' | 'processes'>(() => route.query.part === 'processes' ? 'processes' : 'object')
+const setupRef = ref<{ save: () => Promise<void> } | null>(null)
+const substages = computed(() => [
+  { id: 'object', label: 'Параметры объекта', to: `/projects/${id.value}/params` },
+  { id: 'processes', label: 'Процессы объекта', to: `/projects/${id.value}/params?part=processes` },
+])
+const advanceLabel = computed(() => part.value === 'object' ? 'К процессам' : 'К подбору')
+
+const advance = async () => {
+  if (!project.value || saving.value) return
+  if (part.value === 'object') {
+    const ok = await save(true)
+    if (!ok) return
+    await router.push({ path: `/projects/${id.value}/params`, query: { part: 'processes' } })
+    return
   }
+  const ok = await save(true)
+  if (!ok) return
+  try {
+    await setupRef.value?.save()
+  } catch (e: unknown) {
+    notice.value = { ok: false, text: fetchErrorMessage(e, 'Не удалось сохранить процессы') }
+    return
+  }
+  await router.push(`/projects/${id.value}/match`)
 }
 
-const live = computed(() => Boolean(project.value))
+watch(part, async (next, prev) => {
+  if (prev === 'processes' && next !== 'processes') {
+    try { await setupRef.value?.save() } catch { /* кнопка «К подбору» покажет ошибку, если сохранить не вышло */ }
+  }
+})
 
-const pane = ref<'site' | 'tasks'>('site')
+onBeforeRouteLeave(async () => {
+  if (part.value !== 'processes') return
+  try { await setupRef.value?.save() } catch { return false }
+})
 const activeTask = ref(0)
 
 const fieldGroups: { title: string; hint: string; keys: (keyof ApiSiteProfile)[] }[] = [
@@ -255,24 +305,46 @@ const fieldGroups: { title: string; hint: string; keys: (keyof ApiSiteProfile)[]
   },
 ]
 
+const sharedKeys = new Set(fieldGroups.flatMap((g) => g.keys))
+
 const groups = computed(() => {
-  const used = new Set<string>()
-  const out = fieldGroups.map((g) => {
-    const items = g.keys
+  const pick = (keys: (keyof ApiSiteProfile)[]) =>
+    keys
       .map((k) => siteFieldMeta.find((f) => f.key === k))
       .filter((f): f is (typeof siteFieldMeta)[number] => Boolean(f))
+
+  if (objectType.value === 'warehouse') {
+    const out = warehouseDatasetGroups.map((g) => ({
+      title: g.title,
+      hint: g.hint,
+      fields: pick(g.keys),
+      extra: false,
+    }))
+    const extra = siteFieldMeta.filter((f) => f.tier === 'extra')
+    if (extra.length) {
+      out.push({
+        title: 'Дополнительно',
+        hint: 'Этих параметров нет в листе «Склад». Они остаются для расчёта и других типов объектов.',
+        fields: extra,
+        extra: true,
+      })
+    }
+    return out
+  }
+
+  const used = new Set<string>()
+  const out = fieldGroups.map((g) => {
+    const items = pick(g.keys)
     items.forEach((f) => used.add(f.key))
-    return { title: g.title, hint: g.hint, fields: items }
+    return { title: g.title, hint: g.hint, fields: items, extra: false }
   })
-  const rest = siteFieldMeta.filter((f) => !used.has(f.key))
-  if (rest.length) out.push({ title: 'Прочее', hint: '', fields: rest })
+  const rest = siteFieldMeta.filter((f) => !used.has(f.key) && sharedKeys.has(f.key))
+  if (rest.length) out.push({ title: 'Прочее', hint: '', fields: rest, extra: false })
   return out
 })
 
-const panes = computed(() => [
-  { id: 'site', label: 'Предприятие' },
-  { id: 'tasks', label: 'Процессы', count: tasks.value.length },
-])
+const fieldLabel = (f: (typeof siteFieldMeta)[number]) =>
+  objectType.value === 'warehouse' ? f.label : (f.plain ?? f.label)
 
 const siteErrorCount = computed(() => Object.keys(siteErrors).length)
 const currentTask = computed(() => tasks.value[activeTask.value] ?? null)
@@ -285,14 +357,8 @@ const taskSummary = (t: ApiTask) => {
 }
 
 const focusErrorPane = () => {
-  if (siteErrorCount.value) {
-    pane.value = 'site'
-    return
-  }
-  const first = Number(Object.keys(taskErrors).find((k) => taskHasError(Number(k))))
-  if (Number.isInteger(first)) {
-    pane.value = 'tasks'
-    activeTask.value = first
+  if (siteErrorCount.value && part.value !== 'object') {
+    void router.replace({ path: `/projects/${id.value}/params` })
   }
 }
 
@@ -306,20 +372,14 @@ watch(() => tasks.value.length, (n) => {
     v-if="shell"
     :project="shell"
     current="params"
-    title="Параметры предприятия"
-    lead="Сначала общие данные предприятия. Процессы — следующим шагом: внутрискладская логистика, сборка и остальные не делят с ними один экран."
+    :substages="substages"
+    :current-sub="part"
+    :title="part === 'object' ? 'Параметры объекта' : 'Процессы объекта'"
+    :lead="part === 'object' ? 'Общие данные площадки. Дальше — какие процессы объекта включать в подбор.' : 'Снимите процесс, если его не нужно включать в подбор.'"
   >
     <template #actions>
-      <UiButton v-if="live" variant="secondary" disabled title="Заглушка: пока принимается только ручной ввод">
-        <template #icon><PhUploadSimple :size="16" weight="bold" /></template>
-        Загрузить Excel или CSV
-      </UiButton>
-      <UiButton v-if="live" variant="secondary" :disabled="saving || calculating" @click="save">
-        <template #icon><PhFloppyDisk :size="16" weight="bold" /></template>
-        {{ saving ? 'Сохранение…' : 'Сохранить' }}
-      </UiButton>
-      <UiButton v-if="live" size="lg" :disabled="saving || calculating" @click="runCalc">
-        {{ calculating ? 'Считаем…' : 'Запустить подбор' }}<template #after><PhArrowRight :size="18" weight="bold" /></template>
+      <UiButton v-if="live" size="lg" :disabled="saving" @click="advance">
+        {{ saving ? 'Сохраняем…' : advanceLabel }}<template #after><PhArrowRight :size="18" weight="bold" /></template>
       </UiButton>
     </template>
 
@@ -341,24 +401,19 @@ watch(() => tasks.value.length, (n) => {
 
     <template v-else-if="live">
       <UiCallout v-if="notice" :tone="notice.ok ? 'ok' : 'danger'" :title="!notice.ok && fieldErrorCount ? `${fieldErrorCount} ${fieldErrorCount === 1 ? 'проблема' : fieldErrorCount < 5 ? 'проблемы' : 'проблем'} на форме` : undefined">{{ notice.text }}</UiCallout>
-      <p class="caption upload-note">Загрузка Excel или CSV — заглушка: пока принимается только ручной ввод.</p>
 
-      <div class="pane-switch">
-        <UiTabs v-model="pane" :tabs="panes" />
-      </div>
-
-      <div v-if="pane === 'site'" class="groups">
-        <section v-for="g in groups" :key="g.title" class="group glass">
+      <div v-if="part === 'object'" class="groups">
+        <section v-for="g in groups" :key="g.title" class="group" :class="g.extra ? 'extra' : 'glass'">
           <div class="sec-head">
             <div>
               <div class="h3">{{ g.title }}</div>
               <div v-if="g.hint" class="caption">{{ g.hint }}</div>
             </div>
-            <UiBadge v-if="g.title === 'Площадь и геометрия'" tone="info" size="sm">{{ objectTypeLabel[objectType] }}</UiBadge>
+            <UiBadge v-if="g.title === 'Общие параметры объекта' || g.title === 'Площадь и геометрия'" tone="info" size="sm">{{ objectTypeLabel[objectType] }}</UiBadge>
           </div>
           <div class="fields">
             <label v-for="f in g.fields" :key="f.key" class="fld" :class="{ edited: siteEdited(f.key), err: !!siteError(f.key) }">
-              <span class="fld-label body-sm">{{ f.label }}<span v-if="f.unit" class="muted"> · {{ f.unit }}</span></span>
+              <span class="fld-label body-sm">{{ fieldLabel(f) }}<span v-if="f.unit" class="muted"> · {{ f.unit }}</span></span>
               <span class="fld-in">
                 <select
                   v-if="f.kind === 'bool'"
@@ -370,6 +425,13 @@ watch(() => tasks.value.length, (n) => {
                   <option value="true">Да</option>
                   <option value="false">Нет</option>
                 </select>
+                <input
+                  v-else-if="f.kind === 'text'"
+                  class="input"
+                  :value="typeof site[f.key] === 'string' ? site[f.key] : ''"
+                  placeholder="не задано"
+                  @input="setSiteText(f.key, ($event.target as HTMLInputElement).value)"
+                >
                 <input
                   v-else
                   class="input input-mono"
@@ -385,102 +447,9 @@ watch(() => tasks.value.length, (n) => {
             </label>
           </div>
         </section>
-        <div class="pane-foot">
-          <UiButton @click="pane = 'tasks'">Дальше: процессы<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
-        </div>
       </div>
 
-      <div v-else class="proc-layout">
-        <aside class="proc-nav">
-          <button
-            v-for="(t, i) in tasks"
-            :key="`${t.process_code}-${i}`"
-            type="button"
-            class="proc"
-            :class="{ on: i === activeTask, err: taskHasError(i) }"
-            :aria-current="i === activeTask ? 'true' : undefined"
-            @click="activeTask = i"
-          >
-            <span class="mono-sm tn">{{ i + 1 }}</span>
-            <span class="proc-copy">
-              <span class="body-sm strong">{{ labelProcess(t.process_code, t.name) }}</span>
-              <span class="caption">{{ taskHasError(i) ? 'есть замечание' : taskSummary(t) }}</span>
-            </span>
-          </button>
-          <UiButton variant="secondary" size="sm" @click="addTask"><template #icon><PhPlus :size="14" weight="bold" /></template>Добавить процесс</UiButton>
-        </aside>
-
-        <div v-if="!currentTask" class="task glass empty-proc">
-          <div class="h3">Процессов пока нет</div>
-          <p class="body-sm muted">Добавьте внутрискладскую логистику, сборку или другой процесс — у каждого свои поля.</p>
-        </div>
-
-        <div v-else class="task glass">
-          <div class="task-top">
-            <span class="mono-sm tn">{{ activeTask + 1 }}</span>
-            <select class="select task-proc" :value="currentTask.process_code" @change="onProcess(currentTask, ($event.target as HTMLSelectElement).value)">
-              <option v-for="code in processesByObject[objectType]" :key="code" :value="code">{{ labelProcess(code) }}</option>
-            </select>
-            <button type="button" class="ic" aria-label="Удалить процесс" @click="removeTask(activeTask)"><PhTrash :size="16" /></button>
-          </div>
-          <div class="task-grid">
-            <label class="tf" :class="{ edited: taskEdited(currentTask, 'flow_per_day'), err: !!taskError(activeTask, 'flow_per_day') }">
-              <span class="caption">Поток · опер./сутки</span>
-              <input class="input input-mono" :value="fmt(currentTask.flow_per_day)" placeholder="не задано" @input="setTaskNum(currentTask, 'flow_per_day', ($event.target as HTMLInputElement).value)">
-              <span v-if="taskError(activeTask, 'flow_per_day')" class="caption err-note">{{ taskError(activeTask, 'flow_per_day') }}</span>
-              <span v-else-if="!taskEdited(currentTask, 'flow_per_day') && taskSource(currentTask.process_code, 'flow_per_day')" class="caption src-note">{{ taskSource(currentTask.process_code, 'flow_per_day') }}</span>
-            </label>
-            <label class="tf" :class="{ edited: taskEdited(currentTask, 'flow_per_hour'), err: !!taskError(activeTask, 'flow_per_hour') }">
-              <span class="caption">Поток · опер./час</span>
-              <input class="input input-mono" :value="fmt(currentTask.flow_per_hour)" placeholder="пересчитает движок" @input="setTaskNum(currentTask, 'flow_per_hour', ($event.target as HTMLInputElement).value)">
-              <span v-if="taskError(activeTask, 'flow_per_hour')" class="caption err-note">{{ taskError(activeTask, 'flow_per_hour') }}</span>
-            </label>
-            <label class="tf" :class="{ edited: taskEdited(currentTask, 'route_len_m'), err: !!taskError(activeTask, 'route_len_m') }">
-              <span class="caption">Длина маршрута · м</span>
-              <input class="input input-mono" :value="fmt(currentTask.route_len_m)" placeholder="не применимо" @input="setTaskNum(currentTask, 'route_len_m', ($event.target as HTMLInputElement).value)">
-              <span v-if="taskError(activeTask, 'route_len_m')" class="caption err-note">{{ taskError(activeTask, 'route_len_m') }}</span>
-              <span v-else-if="!taskEdited(currentTask, 'route_len_m') && taskSource(currentTask.process_code, 'route_len_m')" class="caption src-note">{{ taskSource(currentTask.process_code, 'route_len_m') }}</span>
-            </label>
-            <label class="tf" :class="{ edited: taskEdited(currentTask, 'max_load_kg'), err: !!taskError(activeTask, 'max_load_kg') }">
-              <span class="caption">Макс. груз · кг</span>
-              <input class="input input-mono" :value="fmt(currentTask.max_load_kg)" placeholder="не задано" @input="setTaskNum(currentTask, 'max_load_kg', ($event.target as HTMLInputElement).value)">
-              <span v-if="taskError(activeTask, 'max_load_kg')" class="caption err-note">{{ taskError(activeTask, 'max_load_kg') }}</span>
-              <span v-else-if="!taskEdited(currentTask, 'max_load_kg') && taskSource(currentTask.process_code, 'max_load_kg')" class="caption src-note">{{ taskSource(currentTask.process_code, 'max_load_kg') }}</span>
-            </label>
-            <label class="tf" :class="{ edited: taskEdited(currentTask, 'peak_factor'), err: !!taskError(activeTask, 'peak_factor') }">
-              <span class="caption">Пиковая нагрузка · коэф.</span>
-              <input class="input input-mono" :value="fmt(currentTask.peak_factor)" placeholder="как у площадки" @input="setTaskNum(currentTask, 'peak_factor', ($event.target as HTMLInputElement).value)">
-              <span v-if="taskError(activeTask, 'peak_factor')" class="caption err-note">{{ taskError(activeTask, 'peak_factor') }}</span>
-            </label>
-            <label class="tf" :class="{ err: !!taskError(activeTask, 'container_types') }">
-              <span class="caption">Тара</span>
-              <input class="input" :value="(currentTask.container_types ?? []).join(', ')" placeholder="pallet, piece" @input="currentTask.container_types = ($event.target as HTMLInputElement).value.split(',').map((s) => s.trim()).filter(Boolean)">
-              <span v-if="taskError(activeTask, 'container_types')" class="caption err-note">{{ taskError(activeTask, 'container_types') }}</span>
-            </label>
-            <label class="tf" :class="{ err: !!taskError(activeTask, 't_load_s') }">
-              <span class="caption">Погрузка · с</span>
-              <input class="input input-mono" :value="fmt(currentTask.t_load_s)" placeholder="из норматива" @input="setTaskNum(currentTask, 't_load_s', ($event.target as HTMLInputElement).value)">
-              <span v-if="taskError(activeTask, 't_load_s')" class="caption err-note">{{ taskError(activeTask, 't_load_s') }}</span>
-            </label>
-            <label class="tf" :class="{ err: !!taskError(activeTask, 't_unload_s') }">
-              <span class="caption">Разгрузка · с</span>
-              <input class="input input-mono" :value="fmt(currentTask.t_unload_s)" placeholder="из норматива" @input="setTaskNum(currentTask, 't_unload_s', ($event.target as HTMLInputElement).value)">
-              <span v-if="taskError(activeTask, 't_unload_s')" class="caption err-note">{{ taskError(activeTask, 't_unload_s') }}</span>
-            </label>
-            <label class="tf" :class="{ edited: taskEdited(currentTask, 'staff_fte_now'), err: !!taskError(activeTask, 'staff_fte_now') }">
-              <span class="caption">Персонал сейчас · чел.</span>
-              <input class="input input-mono" :value="fmt(currentTask.staff_fte_now)" placeholder="не задано" @input="setTaskNum(currentTask, 'staff_fte_now', ($event.target as HTMLInputElement).value)">
-              <span v-if="taskError(activeTask, 'staff_fte_now')" class="caption err-note">{{ taskError(activeTask, 'staff_fte_now') }}</span>
-              <span v-else-if="!taskEdited(currentTask, 'staff_fte_now') && taskSource(currentTask.process_code, 'staff_fte_now')" class="caption src-note">{{ taskSource(currentTask.process_code, 'staff_fte_now') }}</span>
-            </label>
-          </div>
-          <div v-if="!taskEdited(currentTask, 'flow_per_day') && taskSource(currentTask.process_code) && !taskSource(currentTask.process_code, 'flow_per_day')" class="caption src-note">{{ taskSource(currentTask.process_code) }}</div>
-          <div class="pane-foot">
-            <UiButton variant="secondary" @click="pane = 'site'"><template #icon><PhArrowLeft :size="16" weight="bold" /></template>К предприятию</UiButton>
-            <UiButton v-if="activeTask < tasks.length - 1" @click="activeTask += 1">Следующий процесс<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
-          </div>
-        </div>
-      </div>
+      <PlatformSetup v-else ref="setupRef" :object-code="objectType" />
     </template>
   </ProjectShell>
 
@@ -496,6 +465,16 @@ watch(() => tasks.value.length, (n) => {
 .groups { display: grid; gap: var(--space-4); }
 .group { padding: var(--space-6); display: grid; gap: var(--space-5); }
 .group > * { position: relative; z-index: 1; }
+.group.extra {
+  padding: var(--space-4) 4px var(--space-2);
+  gap: var(--space-3);
+  background: transparent;
+  box-shadow: none;
+}
+.group.extra .h3,
+.group.extra .fld-label { font-weight: 500; color: var(--ink-muted); font-size: 13px; }
+.group.extra .input,
+.group.extra .select { background: transparent; color: var(--ink-muted); }
 .sec-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); }
 .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 24px; }
 .fld { display: grid; gap: 6px; align-content: start; }
@@ -509,6 +488,7 @@ watch(() => tasks.value.length, (n) => {
 .src-note { color: var(--ink-muted); }
 .upload-note { margin: 0; }
 .pane-foot { display: flex; flex-wrap: wrap; gap: 10px; }
+.proc-col { display: grid; gap: var(--space-5); }
 .proc-layout { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: var(--space-5); align-items: start; }
 .proc-nav { display: grid; gap: 8px; position: sticky; top: 96px; }
 .proc { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; text-align: left; padding: 10px 12px; border-radius: 14px; background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); }

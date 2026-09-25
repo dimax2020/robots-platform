@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   PhArrowRight, PhArrowUpRight, PhX, PhScales, PhPlus, PhPlay, PhLockSimple,
-  PhSquaresFour, PhPackage, PhTray, PhBookOpenText, PhCalculator, PhLinkSimple, PhUploadSimple, PhRocketLaunch,
+  PhSquaresFour, PhPackage, PhTray, PhBookOpenText, PhCalculator, PhLinkSimple, PhUploadSimple, PhRocketLaunch, PhSlidersHorizontal,
 } from '@phosphor-icons/vue'
 import { countNode, availabilityLabel, availabilityTone, formatRub } from '~/data/catalog'
 import { projects, objectTypeLabel, objectTypeImage, steps, isFullPath, proposals, fullPathSteps, shortPathSteps, type ObjectType } from '~/data/projects'
@@ -64,12 +64,15 @@ const compareItems = computed(() => ids.value.map(byId).filter(Boolean) as NonNu
 const pending = proposals.filter((p) => p.status === 'pending').length
 const adminItems = computed(() => [
   { to: '/admin', label: 'Обзор', icon: PhSquaresFour, note: 'Состояние каталога' },
-  { to: '/admin/products', label: 'Продукты', icon: PhPackage, note: `${products.value.length} карточек` },
+  { to: '/admin/products', label: 'Продукты', icon: PhPackage, note: 'Новая база каталога' },
   { to: '/admin/proposals', label: 'Очередь правок', icon: PhTray, note: `${pending} ждут решения`, hot: pending > 0 },
   { to: '/admin/refs', label: 'Справочники', icon: PhBookOpenText, note: 'Отрасли, объекты, процессы' },
   { to: '/admin/norms', label: 'Нормативы', icon: PhCalculator, note: 'Коэффициенты расчёта' },
   { to: '/admin/sources', label: 'Источники', icon: PhLinkSimple, note: `${sources.value.length} в реестре` },
-  { to: '/admin/import', label: 'Импорт', icon: PhUploadSimple, note: 'XLS и парсер по URL' },
+  { to: '/admin/platform', label: 'Импорт таблиц', icon: PhUploadSimple, note: 'CSV каталога и ручные ТТХ' },
+  { to: '/admin/processes', label: 'Процессы', icon: PhSlidersHorizontal, note: 'Фильтры, формулы и лучший робот' },
+  { to: '/admin/parsers', label: 'Парсеры', icon: PhRocketLaunch, note: 'Расписание обхода сайтов' },
+  { to: '/admin/import', label: 'Импорт', icon: PhUploadSimple, note: 'Прежний импорт каталога' },
   { to: '/admin/publish', label: 'Публикация', icon: PhRocketLaunch, note: 'v2026.09.3 · черновик' },
 ])
 </script>
@@ -111,7 +114,7 @@ const adminItems = computed(() => [
         <NuxtLink to="/catalog" class="cta glass-graphite glass-graphite-solid">
           <span class="cta-in">
             <span class="cta-n display-4">{{ products.length }}</span>
-            <span class="cta-t">решений в каталоге<span class="cta-s">{{ autoCount }} готовы к автоподбору · УГТ ≥ 7</span></span>
+            <span class="cta-t">решений в каталоге<span class="cta-s">{{ autoCount }} готовы к автоподбору · УГТ ≥ 5</span></span>
             <PhArrowRight :size="18" weight="bold" />
           </span>
         </NuxtLink>

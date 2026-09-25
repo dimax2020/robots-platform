@@ -2,25 +2,27 @@
 import { PhScales, PhCheck, PhMapPin } from '@phosphor-icons/vue'
 import { type Product, availabilityLabel, availabilityTone, formatRub } from '~/data/catalog'
 
-const props = defineProps<{ product: Product; compact?: boolean }>()
+const props = withDefaults(defineProps<{ product: Product; compact?: boolean; to?: string; showGate?: boolean }>(), { showGate: true })
 const { has, toggle } = useCompare()
 const inCompare = computed(() => has(props.product.id))
+const href = computed(() => props.to ?? `/catalog/${props.product.slug}`)
+const statusKnown = computed(() => (props.product as Product & { statusKnown?: boolean }).statusKnown !== false)
 </script>
 
 <template>
   <article class="card-r glass" :class="{ compact }">
-    <NuxtLink :to="`/catalog/${product.slug}`" class="media" :aria-label="product.name">
-      <img :src="product.image" :alt="product.name" loading="lazy">
+    <NuxtLink :to="href" class="media" :aria-label="product.name">
+      <img v-if="product.image" :src="product.image" :alt="product.name" loading="lazy">
       <span class="badges">
-        <UiBadge :tone="availabilityTone[product.availability]" :pulse="product.availability === 'operation'">{{ availabilityLabel[product.availability] }}</UiBadge>
-        <UiBadge tone="neutral" mono size="sm">УГТ {{ product.trl }}</UiBadge>
+        <UiBadge v-if="statusKnown" :tone="availabilityTone[product.availability]" :pulse="product.availability === 'operation'">{{ availabilityLabel[product.availability] }}</UiBadge>
+        <UiBadge v-if="product.trl > 0" tone="neutral" mono size="sm">УГТ {{ product.trl }}</UiBadge>
       </span>
     </NuxtLink>
     <div class="body">
-      <div class="label">{{ product.solutionType }}</div>
-      <NuxtLink :to="`/catalog/${product.slug}`" class="h3 name truncate-2">{{ product.name }}</NuxtLink>
-      <div class="vendor body-sm muted"><span class="strong">{{ product.manufacturer }}</span> <PhMapPin :size="12" /> {{ product.city }}</div>
-      <dl class="specs">
+      <div v-if="product.solutionType" class="label">{{ product.solutionType }}</div>
+      <NuxtLink :to="href" class="h3 name truncate-2">{{ product.name }}</NuxtLink>
+      <div class="vendor body-sm muted"><span class="strong">{{ product.manufacturer }}</span><template v-if="product.city"> <PhMapPin :size="12" /> {{ product.city }}</template></div>
+      <dl v-if="product.highlights.length" class="specs">
         <div v-for="h in product.highlights.slice(0, 4)" :key="h.label">
           <dt>{{ h.label }}</dt>
           <dd class="mono-md" :class="{ dim: h.value.startsWith('нет') }">{{ h.value }}</dd>
@@ -31,12 +33,12 @@ const inCompare = computed(() => has(props.product.id))
           <span class="mono-lg">{{ formatRub(product.priceRub) }}</span>
           <span v-if="product.priceNote" class="caption">{{ product.priceNote }}</span>
         </div>
-        <button type="button" class="cmp" :class="{ on: inCompare }" :aria-pressed="inCompare" @click="toggle(product.id)">
+        <button v-if="!to" type="button" class="cmp" :class="{ on: inCompare }" :aria-pressed="inCompare" @click="toggle(product.id)">
           <PhCheck v-if="inCompare" :size="16" weight="bold" /><PhScales v-else :size="16" weight="bold" />
           {{ inCompare ? 'В сравнении' : 'Сравнить' }}
         </button>
       </div>
-      <div v-if="!product.autoMatch" class="noauto caption">Не участвует в автоподборе: УГТ ниже 7 или стадия разработки</div>
+      <div v-if="showGate && !product.autoMatch" class="noauto caption">Не участвует в автоподборе: УГТ ниже 5 или стадия разработки</div>
     </div>
   </article>
 </template>

@@ -1,20 +1,29 @@
 <script setup lang="ts">
 import { PhPackage, PhTray, PhBookOpenText, PhCalculator, PhLinkSimple, PhUploadSimple, PhRocketLaunch, PhArrowRight, PhWarningCircle } from '@phosphor-icons/vue'
 import { proposals, norms } from '~/data/projects'
+import { platformGet, type PlatformPage } from '~/composables/usePlatform'
 
 definePageMeta({ layout: 'admin' })
 useHead({ title: 'Админка · Обзор' })
 
 const { products, sources, attributeDefs } = useCatalog()
+const platformTotal = ref<number | null>(null)
+onMounted(() => {
+  platformGet<PlatformPage>('/catalog/products?limit=1')
+    .then((page) => { platformTotal.value = page.total })
+    .catch(() => { platformTotal.value = null })
+})
 const pending = proposals.filter((p) => p.status === 'pending').length
 // Карточка, которую стоит проверить первой: меньше всех заполнена
 const leastComplete = computed(() => [...products.value].sort((a, b) => a.completeness - b.completeness)[0])
 const tiles = computed(() => [
-  { to: '/admin/products', icon: PhPackage, title: 'Продукты', value: String(products.value.length), note: `${products.value.filter(p => p.autoMatch).length} готовы к автоподбору` },
+  { to: '/admin/products', icon: PhPackage, title: 'Продукты', value: platformTotal.value == null ? '…' : String(platformTotal.value), note: 'новая база: каталог и парсеры' },
   { to: '/admin/proposals', icon: PhTray, title: 'Очередь правок', value: String(pending), note: 'ждут решения', tone: 'brand' },
   { to: '/admin/refs', icon: PhBookOpenText, title: 'Справочники', value: String(attributeDefs.value.length), note: 'характеристик в справочнике' },
   { to: '/admin/norms', icon: PhCalculator, title: 'Нормативы', value: String(norms.length), note: 'все с обоснованием' },
   { to: '/admin/sources', icon: PhLinkSimple, title: 'Источники', value: String(sources.value.length), note: 'плановая проверка ещё не запускалась' },
+  { to: '/admin/platform', icon: PhUploadSimple, title: 'Импорт таблиц', value: 'CSV', note: 'каталог ФЦ БАС и ручные характеристики' },
+  { to: '/admin/parsers', icon: PhRocketLaunch, title: 'Парсеры', value: '3', note: 'расписание и ручной запуск сайтов' },
   { to: '/admin/import', icon: PhUploadSimple, title: 'Импорт', value: '1', note: 'файл организатора загружен' },
   { to: '/admin/publish', icon: PhRocketLaunch, title: 'Публикация', value: 'v2026.09.3', note: '6 изменений к выпуску', mono: true },
 ])

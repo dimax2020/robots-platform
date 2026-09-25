@@ -12,11 +12,13 @@ export default defineNuxtConfig({
       // Браузер ходит на тот же origin: в compose путь /api отдаёт traefik,
       // в dev-режиме — прокси из routeRules ниже
       apiBase: process.env.NUXT_PUBLIC_API_BASE || '/api/v1',
+      platformApiBase: process.env.NUXT_PUBLIC_PLATFORM_API_BASE || '/platform/api/v1',
     },
   },
   // В режиме `bun run dev` Nuxt слушает 3000, а API внутри compose: прокидываем /api через traefik
   routeRules: {
     '/api/**': { proxy: `${process.env.NUXT_DEV_API_ORIGIN || 'http://localhost'}/api/**` },
+    '/platform/**': { proxy: `${process.env.NUXT_DEV_API_ORIGIN || 'http://localhost'}/platform/**` },
   },
   app: {
     head: {

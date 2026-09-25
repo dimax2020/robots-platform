@@ -157,7 +157,7 @@ const applicabilityText = computed(() => product.value?.attrs.filter((a) => a.gr
               <UiStat label="Заполнено" :value="`${Math.round(product.completeness * 100)}%`" :note="`${filled} полей с данными`" />
               <UiStat label="Нет данных" :value="String(unknown)" note="запрос вендору" />
               <UiStat label="Не применимо" :value="String(na)" note="поле не относится к типу" />
-              <UiStat label="Автоподбор" :value="product.autoMatch ? 'Да' : 'Нет'" :note="product.autoMatch ? 'УГТ ≥ 7, не разработка' : 'УГТ < 7 или разработка'" />
+              <UiStat label="Автоподбор" :value="product.autoMatch ? 'Да' : 'Нет'" :note="product.autoMatch ? 'УГТ ≥ 5, не разработка' : 'УГТ < 5 или разработка'" />
             </div>
             <table class="table">
               <thead><tr><th>Источник</th><th>Тип</th><th>Достоверность</th><th>Получено</th><th>Проверено</th></tr></thead>

@@ -17,6 +17,7 @@ services:
     build: ./frontend
     environment:
       NUXT_PUBLIC_API_BASE: /api/v1
+      NUXT_PUBLIC_PLATFORM_API_BASE: /platform/api/v1
       # SSR внутри сети compose идёт к контейнеру api напрямую, минуя traefik
       NUXT_API_BASE_SERVER: http://api:8000/api/v1
     labels:
@@ -78,6 +79,40 @@ services:
       - ./data:/app/data
     restart: unless-stopped
 
+  platform-api:
+    build: ./platform
+    environment:
+      DATABASE_URL: postgresql+psycopg://robots:robots@db:5432/platform
+      POSTGRES_ADMIN_URL: postgresql+psycopg://robots:robots@db:5432/postgres
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - platform_uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.platform.rule=PathPrefix(`/platform`)
+      - traefik.http.routers.platform.priority=20
+      - traefik.http.routers.platform.entrypoints=web
+      - traefik.http.middlewares.platform-strip.stripprefix.prefixes=/platform
+      - traefik.http.routers.platform.middlewares=platform-strip
+      - traefik.http.services.platform.loadbalancer.server.port=8000
+
+  platform-worker:
+    build: ./platform
+    command: ["sh", "-c", "python -m app.bootstrap && python -m app.worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://robots:robots@db:5432/platform
+      POSTGRES_ADMIN_URL: postgresql+psycopg://robots:robots@db:5432/postgres
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - platform_uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
   cache:
     image: redis:7-alpine
     healthcheck:
@@ -88,3 +123,4 @@ services:
 
 volumes:
   pgdata:
+  platform_uploads:

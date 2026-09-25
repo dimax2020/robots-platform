@@ -145,10 +145,15 @@ def calculate_project(
     project_id: UUID, request: Request, db: DbSession, user: CurrentUser
 ) -> CalculateOut:
     project, _object_type = _owned_project(db, project_id, user)
+    site = SiteProfile.model_validate(project.site)
+    horizon = 5
+    if site.payback_years is not None:
+        horizon = int(round(site.payback_years))
     req = CalcRequest(
-        site=SiteProfile.model_validate(project.site),
+        site=site,
         tasks=[Task.model_validate(item) for item in project.tasks],
         overrides=project.overrides or {},
+        horizon_years=horizon,
     )
     res = execute_calc(req, request)
 

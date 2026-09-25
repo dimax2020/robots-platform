@@ -65,7 +65,7 @@ class ProductCard(BaseModel):
     availability: Availability
     trl: int | None = None
     market_potential: int | None = None
-    auto_match: bool  # считается: УГТ ≥ 7 и статус не «разработка» (ТЗ 3.4.4)
+    auto_match: bool  # считается: УГТ ≥ 5 и статус не «разработка»
     solution_type: RefOut
     family: str
     processes: list[RefOut] = []

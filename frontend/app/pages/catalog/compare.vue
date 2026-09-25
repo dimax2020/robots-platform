@@ -44,7 +44,7 @@ const manual = (p: Product) => !p.autoMatch
       <div v-if="adding" class="picker glass">
         <div class="picker-head between">
           <span class="h4">Добавить в сравнение</span>
-          <span class="caption">Можно вручную добавить продукт с УГТ ниже 7 или со статусом «разработка». Он не участвовал в автоподборе.</span>
+          <span class="caption">Можно вручную добавить продукт с УГТ ниже 5 или со статусом «разработка». Он не участвовал в автоподборе.</span>
         </div>
         <div class="picker-grid">
           <button v-for="p in candidates" :key="p.id" type="button" class="pick" @click="toggle(p.id)">

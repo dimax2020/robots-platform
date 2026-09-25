@@ -56,8 +56,8 @@ def current_version_id(db: Session) -> int:
 
 
 def auto_match(trl: int | None, availability: str) -> bool:
-    """ТЗ 3.4.4: продукт со статусом rnd или УГТ < 7 в автоподбор не попадает."""
-    return availability != "rnd" and (trl or 0) >= 7
+    """Продукт со статусом rnd или УГТ ниже 5 в автоподбор не попадает."""
+    return availability != "rnd" and (trl or 0) >= 5
 
 
 class Hierarchy:
