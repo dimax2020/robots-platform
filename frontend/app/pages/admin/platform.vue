@@ -20,10 +20,6 @@ const kind = ref<'catalog' | 'manual'>('catalog')
 const file = ref<File | null>(null)
 const slug = ref('')
 const processCodes = ref('')
-const objectCode = ref('warehouse')
-const objectName = ref('Склад')
-const objectIndustries = ref('logistics')
-const objectProcesses = ref('')
 
 const usageLabel: Record<string, string> = { active: 'В фильтрах', unused: 'Не используется', pending: 'Новая' }
 const usageTone: Record<string, 'ok' | 'neutral' | 'warn'> = { active: 'ok', unused: 'neutral', pending: 'warn' }
@@ -42,8 +38,6 @@ const onDrop = (event: DragEvent) => {
 const load = async () => {
   tree.value = await platformGet<Tree>('/catalog/tree')
   attrs.value = await platformGet<Attr[]>('/admin/attributes')
-  const warehouse = tree.value.objects.find((item) => item.code === 'warehouse')
-  if (warehouse) objectProcesses.value = warehouse.processes.join(', ')
 }
 
 const upload = async () => {
@@ -72,17 +66,6 @@ const watchJob = async (id: string) => {
     }
     await new Promise((resolve) => setTimeout(resolve, 2000))
   }
-}
-
-const saveObject = async () => {
-  await platformSend('/admin/objects', 'POST', {
-    code: objectCode.value.trim(),
-    name: objectName.value.trim(),
-    industries: objectIndustries.value.split(',').map((item) => item.trim()).filter(Boolean),
-    processes: objectProcesses.value.split(',').map((item) => item.trim()).filter(Boolean),
-  })
-  notice.value = 'Объект сохранён'
-  await load()
 }
 
 const assign = async () => {
@@ -125,31 +108,7 @@ onMounted(() => { void load().catch((err) => { notice.value = String(err) }) })
       </div>
     </div>
 
-    <section class="glass glass-xl panel">
-      <div class="in">
-        <div class="h3">Объекты</div>
-        <div class="caption">Отрасли и процессы объекта. Один объект может относиться к нескольким отраслям.</div>
-        <div class="tbl">
-          <table class="table">
-            <thead><tr><th>Объект</th><th>Отрасли</th><th>Процессы</th></tr></thead>
-            <tbody>
-              <tr v-for="item in tree?.objects ?? []" :key="item.code">
-                <td><span class="strong">{{ item.name }}</span><span class="caption block mono-sm">{{ item.code }}</span></td>
-                <td class="body-sm">{{ item.industries.join(', ') || 'нет' }}</td>
-                <td class="body-sm">{{ item.processes.join(', ') || 'нет' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div class="fields">
-          <label class="fld"><span class="caption">Код</span><input v-model="objectCode" class="input"></label>
-          <label class="fld"><span class="caption">Название</span><input v-model="objectName" class="input"></label>
-          <label class="fld"><span class="caption">Отрасли через запятую</span><input v-model="objectIndustries" class="input"></label>
-          <label class="fld"><span class="caption">Процессы через запятую</span><input v-model="objectProcesses" class="input"></label>
-        </div>
-        <div class="actions"><UiButton size="sm" variant="secondary" @click="saveObject">Сохранить объект</UiButton></div>
-      </div>
-    </section>
+    <p class="caption">Процессы объекта и поля площадки для фильтров настраиваются на вкладке <NuxtLink to="/admin/objects">Объекты</NuxtLink>.</p>
 
     <section class="glass glass-xl panel">
       <div class="in">

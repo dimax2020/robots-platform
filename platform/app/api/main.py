@@ -19,7 +19,9 @@ from app.infrastructure.db.taxonomy_repo import (
     replace_filters,
     robot_attributes,
     run_match,
+    object_setup,
     save_object,
+    save_object_setup,
     save_process_setup,
     tree,
     update_project,
@@ -69,6 +71,17 @@ class BindingIn(BaseModel):
     object_code: str
     input_key: str
     site_key: str
+
+
+class ObjectBindingIn(BaseModel):
+    process_code: str
+    input_key: str
+    site_key: str
+
+
+class ObjectSetupIn(BaseModel):
+    processes: list[str] = Field(default_factory=list)
+    bindings: list[ObjectBindingIn] = Field(default_factory=list)
 
 
 class ProcessSetupIn(BaseModel):
@@ -222,6 +235,24 @@ def admin_parser_schedule(code: str, body: ScheduleIn) -> dict:
             return set_schedule(db, code, enabled=body.enabled, hour=body.hour, minute=body.minute)
         except KeyError:
             raise HTTPException(404, "Парсер не найден") from None
+
+
+@app.get("/api/v1/admin/objects/{code}")
+def admin_object_read(code: str) -> dict:
+    with session_factory()() as db:
+        try:
+            return object_setup(db, code)
+        except KeyError:
+            raise HTTPException(404, "Объект не найден") from None
+
+
+@app.put("/api/v1/admin/objects/{code}/setup")
+def admin_object_setup(code: str, body: ObjectSetupIn) -> dict:
+    with session_factory()() as db:
+        try:
+            return save_object_setup(db, code, body.model_dump())
+        except KeyError:
+            raise HTTPException(404, "Объект не найден") from None
 
 
 @app.post("/api/v1/admin/objects")

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   PhArrowRight, PhArrowUpRight, PhX, PhScales, PhPlus, PhPlay, PhLockSimple,
-  PhSquaresFour, PhPackage, PhTray, PhBookOpenText, PhCalculator, PhLinkSimple, PhUploadSimple, PhRocketLaunch, PhSlidersHorizontal,
+  PhSquaresFour, PhPackage, PhTray, PhBookOpenText, PhCalculator, PhLinkSimple, PhUploadSimple, PhRocketLaunch, PhSlidersHorizontal, PhBuildings,
 } from '@phosphor-icons/vue'
 import { countNode, availabilityLabel, availabilityTone, formatRub } from '~/data/catalog'
 import { projects, objectTypeLabel, objectTypeImage, steps, isFullPath, proposals, fullPathSteps, shortPathSteps, type ObjectType } from '~/data/projects'
@@ -70,6 +70,7 @@ const adminItems = computed(() => [
   { to: '/admin/norms', label: 'Нормативы', icon: PhCalculator, note: 'Коэффициенты расчёта' },
   { to: '/admin/sources', label: 'Источники', icon: PhLinkSimple, note: `${sources.value.length} в реестре` },
   { to: '/admin/platform', label: 'Импорт таблиц', icon: PhUploadSimple, note: 'CSV каталога и ручные ТТХ' },
+  { to: '/admin/objects', label: 'Объекты', icon: PhBuildings, note: 'Процессы объекта и поля для фильтров' },
   { to: '/admin/processes', label: 'Процессы', icon: PhSlidersHorizontal, note: 'Фильтры, формулы и лучший робот' },
   { to: '/admin/parsers', label: 'Парсеры', icon: PhRocketLaunch, note: 'Расписание обхода сайтов' },
   { to: '/admin/import', label: 'Импорт', icon: PhUploadSimple, note: 'Прежний импорт каталога' },

@@ -107,21 +107,6 @@ const countSentence = computed(() => {
   return text
 })
 
-const inputKeys = computed(() => {
-  const list: { key: string; label: string }[] = []
-  draft.value?.filters.forEach((filter, index) => {
-    if (!filter.robot_key) return
-    list.push({ key: filter.input_key || `v${index}`, label: filter.name || attrLabel(filter.robot_key) })
-  })
-  for (const piece of pieces.value) {
-    if (piece.kind === 'site' && piece.key) list.push({ key: piece.key, label: piece.label || attrLabel(piece.key) })
-  }
-  if (countLocked.value) {
-    for (const input of draft.value?.count_inputs ?? []) list.push(input)
-  }
-  return list
-})
-
 const parseFilter = (formula: string, inputs: Input[]) => {
   const match = formula.trim().match(/^(?:robot\.)?([A-Za-z_][\w]*)\s*(<=|>=|==|!=|<|>)\s*([A-Za-z_][\w]*)$/)
   return {
@@ -197,11 +182,6 @@ const open = async (code: string) => {
   draft.value.filters = draft.value.filters.map((filter) => ({ ...filter, ...parseFilter(filter.formula, filter.inputs) }))
   applyCount(draft.value.count_formula, draft.value.count_inputs)
   for (const piece of pieces.value) if (piece.kind === 'site' && piece.key) onSiteKey(piece)
-  for (const object of draft.value.objects) {
-    for (const filter of draft.value.filters) {
-      if (filter.input_key && object.bindings[filter.input_key] == null) object.bindings[filter.input_key] = ''
-    }
-  }
   notice.value = ''
 }
 
@@ -228,22 +208,12 @@ const removePiece = (index: number) => {
 const onSiteKey = (piece: Piece) => {
   const field = fields.find((item) => item.key === piece.key)
   piece.label = field?.label || piece.key
-  for (const object of draft.value?.objects ?? []) {
-    if (!object.bindings[piece.key]) object.bindings[piece.key] = piece.key
-  }
 }
 
 const save = async () => {
   if (!draft.value) return
   saving.value = true
   notice.value = ''
-  const bindings = []
-  for (const object of draft.value.objects) {
-    for (const input of inputKeys.value) {
-      const siteKey = object.bindings[input.key]
-      if (siteKey) bindings.push({ object_code: object.code, input_key: input.key, site_key: siteKey })
-    }
-  }
   try {
     draft.value = await platformSend<Setup>(`/admin/processes/${draft.value.code}/setup`, 'PUT', {
       filters: draft.value.filters.filter((item) => item.name.trim() && item.robot_key).map((item, index) => {
@@ -254,7 +224,6 @@ const save = async () => {
       count_formula: countLocked.value || compileCount(),
       rank_key: draft.value.rank_key,
       rank_order: draft.value.rank_order,
-      bindings,
     })
     draft.value.filters = draft.value.filters.map((filter) => ({ ...filter, ...parseFilter(filter.formula, filter.inputs) }))
     applyCount(draft.value.count_formula, draft.value.count_inputs)
@@ -271,7 +240,7 @@ onMounted(() => { void loadList().catch((err) => { notice.value = String(err) })
 
 <template>
   <div class="admin-page">
-    <AdminHead label="Процессы" title="Настройка процессов" lead="Фильтр называет величины и формулу сравнения с характеристикой робота. У объекта для этого процесса выбирается, из какого параметра брать величину. Формула количества считает, сколько роботов нужно." />
+    <AdminHead label="Процессы" title="Настройка процессов" lead="Фильтр сравнивает характеристику робота с величиной. Какое поле объекта в неё подставлять, задаётся на вкладке объектов. Формула количества считает, сколько роботов нужно." />
     <UiCallout v-if="notice" :tone="notice === 'Настройка сохранена' ? 'ok' : 'danger'">{{ notice }}</UiCallout>
 
     <div class="split">
@@ -296,10 +265,7 @@ onMounted(() => { void loadList().catch((err) => { notice.value = String(err) })
             <UiTabs v-model="tab" :tabs="paneTabs" />
 
             <div v-if="tab === 'filters'" class="pane">
-              <div class="row">
-                <label class="fld"><span class="caption">Характеристика робота</span><input v-model="attrQuery" class="input" placeholder="проезд, шум, производительность"></label>
-                <label class="fld"><span class="caption">Параметр объекта</span><input v-model="siteQuery" class="input" placeholder="смена, площадь, шум"></label>
-              </div>
+              <label class="fld"><span class="caption">Характеристика робота</span><input v-model="attrQuery" class="input" placeholder="проезд, шум, производительность"></label>
               <p class="caption">В списке — самые частые характеристики роботов этого процесса. Введите слово, чтобы открыть остальные и весь каталог.</p>
               <div v-for="(filter, index) in draft.filters" :key="filter.input_key || index" class="block">
                 <div class="row">
@@ -334,14 +300,6 @@ onMounted(() => { void loadList().catch((err) => { notice.value = String(err) })
                     </select>
                   </label>
                 </div>
-                <div v-for="object in draft.objects" :key="object.code" class="row">
-                  <span class="body-sm strong bind-name">{{ object.name }}</span>
-                  <select v-model="object.bindings[filter.input_key]" class="select">
-                    <option value="">параметр не задан</option>
-                    <option v-for="field in shownFields" :key="field.key" :value="field.key">{{ fieldText(field) }}</option>
-                  </select>
-                </div>
-                <p v-if="!draft.objects.length" class="caption">Этот процесс ещё не привязан ни к одному объекту, параметр площадки выбрать негде.</p>
               </div>
               <UiButton size="sm" variant="secondary" @click="addFilter">Фильтр</UiButton>
             </div>
@@ -454,7 +412,6 @@ onMounted(() => { void loadList().catch((err) => { notice.value = String(err) })
 .inputs { display: grid; gap: 8px; }
 .fld { display: grid; gap: 6px; flex: 1; min-width: 180px; }
 .pane { display: grid; gap: var(--space-4); }
-.bind-name { min-width: 140px; }
 .kind { width: 180px; }
 .chain { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .chip { display: flex; gap: 8px; align-items: center; padding: 8px; border-radius: 14px; background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--border-hairline); }

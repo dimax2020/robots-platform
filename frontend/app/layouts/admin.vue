@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhSquaresFour, PhPackage, PhTray, PhBookOpenText, PhCalculator, PhLinkSimple, PhUploadSimple, PhRocketLaunch, PhSlidersHorizontal } from '@phosphor-icons/vue'
+import { PhSquaresFour, PhPackage, PhTray, PhBookOpenText, PhCalculator, PhLinkSimple, PhUploadSimple, PhRocketLaunch, PhSlidersHorizontal, PhBuildings } from '@phosphor-icons/vue'
 import { proposals } from '~/data/projects'
 
 const route = useRoute()
@@ -12,6 +12,7 @@ const items = [
   { to: '/admin/norms', label: 'Нормативы', icon: PhCalculator },
   { to: '/admin/sources', label: 'Источники', icon: PhLinkSimple, count: 1, tone: 'warn' },
   { to: '/admin/platform', label: 'Импорт таблиц', icon: PhUploadSimple },
+  { to: '/admin/objects', label: 'Объекты', icon: PhBuildings },
   { to: '/admin/processes', label: 'Процессы', icon: PhSlidersHorizontal },
   { to: '/admin/parsers', label: 'Парсеры', icon: PhRocketLaunch },
   { to: '/admin/import', label: 'Импорт', icon: PhUploadSimple },

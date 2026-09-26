@@ -175,10 +175,69 @@ def save_process_setup(db: Session, process_code: str, payload: dict) -> dict:
             inputs=item.get("inputs") or [],
             formula=item.get("formula") or "",
         ))
-    db.execute(delete(ObjectInputBindingRow).where(ObjectInputBindingRow.process_id == process.id))
+    db.flush()
+    recompute_usage(db)
+    db.commit()
+    return process_setup(db, process_code)
+
+
+def object_setup(db: Session, object_code: str) -> dict:
+    obj = db.scalar(select(ObjectTypeRow).where(ObjectTypeRow.code == object_code))
+    if obj is None:
+        raise KeyError(object_code)
+    enabled_ids = set(db.scalars(select(ObjectProcessRow.process_id).where(ObjectProcessRow.object_type_id == obj.id)))
+    counts = dict(db.execute(
+        select(ProductProcessRow.process_id, func.count()).group_by(ProductProcessRow.process_id)
+    ).all())
+    bindings_by_process: dict[int, dict[str, str]] = {}
+    for row in db.scalars(select(ObjectInputBindingRow).where(ObjectInputBindingRow.object_type_id == obj.id)):
+        bindings_by_process.setdefault(row.process_id, {})[row.input_key] = row.site_key
+    processes = []
+    for process in db.scalars(select(ProcessRow).order_by(ProcessRow.name)):
+        filters = list(db.scalars(select(ProcessFilterRow).where(ProcessFilterRow.process_id == process.id).order_by(ProcessFilterRow.id)))
+        inputs: list[dict] = []
+        seen: set[str] = set()
+        for item in filters:
+            for row in item.inputs or []:
+                if not isinstance(row, dict):
+                    continue
+                key = str(row.get("key") or "")
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                inputs.append({"key": key, "label": item.name or row.get("label") or key, "kind": "filter"})
+        for row in process.count_inputs or []:
+            if not isinstance(row, dict):
+                continue
+            key = str(row.get("key") or "")
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            inputs.append({"key": key, "label": row.get("label") or key, "kind": "count"})
+        processes.append({
+            "code": process.code,
+            "name": process.name,
+            "product_count": int(counts.get(process.id, 0)),
+            "enabled": process.id in enabled_ids,
+            "inputs": inputs,
+            "bindings": bindings_by_process.get(process.id, {}),
+        })
+    return {"code": obj.code, "name": obj.name, "processes": processes}
+
+
+def save_object_setup(db: Session, object_code: str, payload: dict) -> dict:
+    obj = db.scalar(select(ObjectTypeRow).where(ObjectTypeRow.code == object_code))
+    if obj is None:
+        raise KeyError(object_code)
+    db.execute(delete(ObjectProcessRow).where(ObjectProcessRow.object_type_id == obj.id))
+    for code in payload.get("processes") or []:
+        process = db.scalar(select(ProcessRow).where(ProcessRow.code == code))
+        if process is not None:
+            db.add(ObjectProcessRow(object_type_id=obj.id, process_id=process.id))
+    db.execute(delete(ObjectInputBindingRow).where(ObjectInputBindingRow.object_type_id == obj.id))
     for item in payload.get("bindings") or []:
-        obj = db.scalar(select(ObjectTypeRow).where(ObjectTypeRow.code == item.get("object_code")))
-        if obj is None or not item.get("input_key") or not item.get("site_key"):
+        process = db.scalar(select(ProcessRow).where(ProcessRow.code == item.get("process_code")))
+        if process is None or not item.get("input_key") or not item.get("site_key"):
             continue
         db.add(ObjectInputBindingRow(
             object_type_id=obj.id,
@@ -186,10 +245,8 @@ def save_process_setup(db: Session, process_code: str, payload: dict) -> dict:
             input_key=item["input_key"],
             site_key=item["site_key"],
         ))
-    db.flush()
-    recompute_usage(db)
     db.commit()
-    return process_setup(db, process_code)
+    return object_setup(db, object_code)
 
 
 def assign_processes(db: Session, slug: str, process_codes: list[str]) -> None:
