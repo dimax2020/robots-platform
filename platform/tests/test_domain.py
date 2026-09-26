@@ -114,7 +114,7 @@ def _scenario(result, key):
 
 
 def test_economy_skips_missing_price_and_uses_one_robot_without_count():
-    from app.domain.economy import NO_COUNT, NO_PRICE, calculate
+    from app.domain.economy import DISCLAIMER, NO_COUNT, NO_PRICE, calculate
 
     result = calculate(
         [
@@ -125,6 +125,7 @@ def test_economy_skips_missing_price_and_uses_one_robot_without_count():
         {"pickers_count": 2, "picker_salary_month_rub": 10_000, "payroll_burden": 1},
         standard=_BARE,
     )
+    assert result["disclaimer"] == DISCLAIMER
     by_name = {row["name"]: row for row in result["fleet"]}
     assert by_name["Без цены"]["included"] is False
     assert by_name["Без цены"]["note"] == NO_PRICE
@@ -220,6 +221,27 @@ def test_economy_load_scales_only_daily_flows():
 
     site = scale_load({"inbound_pallets_per_day": 1000, "pick_lines_per_day": 10, "area_m2": 500}, 150)
     assert site == {"inbound_pallets_per_day": 1500, "pick_lines_per_day": 15, "area_m2": 500}
+
+
+def test_layout_items_defaults_and_cleanup():
+    from app.domain.layout_items import DEFAULT_ITEMS, clean_items, default_items
+
+    pallets = default_items("pallet_transport")
+    assert [row["role"] for row in pallets] == ["pickup", "dropoff", "charge"]
+    assert pallets[0]["label"] == "Приёмка"
+    assert default_items("unknown_process") == []
+    assert all(rows for rows in DEFAULT_ITEMS.values())
+
+    cleaned = clean_items([
+        {"key": "a", "label": "Точка", "role": "pickup", "min_count": "3"},
+        {"key": "a", "label": "Дубль", "role": "pickup"},
+        {"key": "b", "label": "Зона", "role": "work_zone"},
+        {"key": "c", "label": "Плохая роль", "role": "teleport"},
+        {"key": "", "label": "Без ключа", "role": "charge"},
+    ])
+    assert [row["key"] for row in cleaned] == ["a", "b"]
+    assert cleaned[0]["min_count"] == 3
+    assert cleaned[1]["shape"] == "area"
 
 
 def test_pallet_fleet_uses_speed_and_daily_flow():

@@ -5,6 +5,7 @@ import {
   figValue,
   millions,
   PARAM_GROUPS,
+  PRELIMINARY,
   rubles,
   SOURCE_TONE,
   usePlatformEconomy,
@@ -65,6 +66,8 @@ const skipped = computed(() => report.value?.fleet.filter((row) => !row.included
       <UiButton :to="`/projects/${project.id}/what-if`" size="lg">К what-if<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
     </template>
 
+    <UiCallout tone="warn" title="Предварительная оценка">{{ report?.disclaimer ?? PRELIMINARY }}</UiCallout>
+
     <UiCallout v-if="isDemo" tone="info" title="Демо-проект считается тем же движком">
       Параметры площадки взяты из датасета объекта, коэффициенты — стандартные из админки. Свои значения задаются на шаге what-if.
     </UiCallout>
@@ -118,6 +121,7 @@ const skipped = computed(() => report.value?.fleet.filter((row) => !row.included
               <span><span class="caption">TCO за {{ report.horizon_years }} лет</span><span class="mono-md">{{ millions(item.tco.value) }}</span></span>
             </span>
             <span v-if="item.note" class="caption sc-note">{{ item.note }}</span>
+            <span class="caption sc-note">Предварительная оценка</span>
           </span>
         </button>
       </div>
@@ -132,6 +136,7 @@ const skipped = computed(() => report.value?.fleet.filter((row) => !row.included
               <PhCaretDown :size="14" weight="bold" class="caret" :class="{ up: open === 'payback' }" />
             </button>
             <p v-if="scenario.verdict" class="body-sm verdict">{{ scenario.verdict }}</p>
+            <p class="caption prelim">{{ report.disclaimer }}</p>
             <EconFormula v-if="open === 'payback'" :fig="scenario.payback" dark />
             <div class="kpis">
               <button v-for="fig in kpis" :key="fig.key" type="button" class="kpi" :class="{ on: open === `kpi:${fig.key}` }" @click="toggle(`kpi:${fig.key}`)">
@@ -182,7 +187,7 @@ const skipped = computed(() => report.value?.fleet.filter((row) => !row.included
           <div class="c-head">
             <div>
               <div class="h3">Затраты нарастающим итогом</div>
-              <div class="caption">CAPEX + (OPEX + оставшийся ФОТ) × год, млн ₽. Без роботизации: ФОТ × год.</div>
+              <div class="caption">CAPEX + (OPEX + оставшийся ФОТ) × год, млн ₽. Без роботизации: ФОТ × год. Предварительная оценка.</div>
             </div>
           </div>
           <div class="tco-rows">
@@ -270,6 +275,7 @@ const skipped = computed(() => report.value?.fleet.filter((row) => !row.included
 .payback-n { font-family: var(--font-mono); font-size: 64px; line-height: 0.9; letter-spacing: -0.04em; color: #fff; }
 .payback .caption { color: var(--ink-muted-graphite); }
 .verdict { color: var(--brand-300); margin: 0; }
+.prelim { color: #f0ad45; margin: 0; }
 .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid rgba(255, 255, 255, 0.1); }
 .kpi { display: grid; gap: 4px; text-align: left; padding: 8px 10px; border-radius: 12px; }
 .kpi:hover, .kpi.on { background: rgba(255, 255, 255, 0.06); }

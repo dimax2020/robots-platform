@@ -17,6 +17,7 @@ interface Filter {
 }
 interface Piece { id: number; kind: 'attr' | 'site' | 'num'; key: string; label: string; value: string }
 interface RobotAttr { key: string; label: string; products: number; on_process: number }
+interface LayoutItem { key: string; label: string; role: string; shape: string; min_count: number; count_rule: string; hint: string }
 interface Setup {
   code: string
   name: string
@@ -25,8 +26,11 @@ interface Setup {
   count_formula: string
   rank_key: string
   rank_order: string
+  layout_items: LayoutItem[]
+  layout_items_default: boolean
   objects: { code: string; name: string; bindings: Record<string, string> }[]
 }
+interface Dictionary { roles: Record<string, string>; shapes: Record<string, string>; count_rules: Record<string, string> }
 interface Proc { code: string; name: string; product_count: number }
 
 const processes = ref<Proc[]>([])
@@ -52,7 +56,30 @@ const paneTabs = computed(() => [
   { id: 'filters', label: 'Фильтры', count: draft.value?.filters.length ?? 0 },
   { id: 'count', label: 'Количество роботов' },
   { id: 'best', label: 'Лучший робот' },
+  { id: 'layout', label: 'Объекты на схеме', count: draft.value?.layout_items.length ?? 0 },
 ])
+const dictionary = ref<Dictionary>({ roles: {}, shapes: {}, count_rules: {} })
+const areaRole = (role: string) => role === 'work_zone' || role === 'obstacle'
+const addItem = () => {
+  if (!draft.value) return
+  draft.value.layout_items.push({ key: `item${pieceSeq++}`, label: 'Новый объект', role: 'pickup', shape: 'point', min_count: 1, count_rule: 'fixed', hint: '' })
+  draft.value.layout_items_default = false
+}
+const onRole = (row: LayoutItem) => {
+  row.shape = areaRole(row.role) ? 'area' : 'point'
+  if (row.role === 'charge') row.count_rule = 'by_charge'
+  else if (row.role === 'pickup' || row.role === 'dropoff') row.count_rule = 'by_flow'
+  else row.count_rule = 'fixed'
+  if (row.role === 'waypoint' && row.min_count < 2) row.min_count = 2
+}
+const moveItem = (index: number, step: number) => {
+  const rows = draft.value?.layout_items
+  if (!rows) return
+  const target = index + step
+  if (target < 0 || target >= rows.length) return
+  const [row] = rows.splice(index, 1)
+  rows.splice(target, 0, row!)
+}
 const shownProcesses = computed(() => {
   const query = listQuery.value.trim().toLowerCase()
   if (!query) return processes.value
@@ -168,8 +195,9 @@ const compileCount = () => {
 }
 
 const loadList = async () => {
-  const tree = await platformGet<{ processes: Proc[] }>('/catalog/tree')
+  const [tree, dict] = await Promise.all([platformGet<{ processes: Proc[] }>('/catalog/tree'), platformGet<Dictionary>('/layout-items/dictionary')])
   processes.value = tree.processes
+  dictionary.value = dict
   if (!selected.value && processes.value[0]) await open(processes.value[0].code)
 }
 
@@ -224,6 +252,7 @@ const save = async () => {
       count_formula: countLocked.value || compileCount(),
       rank_key: draft.value.rank_key,
       rank_order: draft.value.rank_order,
+      layout_items: draft.value.layout_items.filter((row) => row.label.trim()).map((row) => ({ ...row, key: row.key.trim() || `item${pieceSeq++}` })),
     })
     draft.value.filters = draft.value.filters.map((filter) => ({ ...filter, ...parseFilter(filter.formula, filter.inputs) }))
     applyCount(draft.value.count_formula, draft.value.count_inputs)
@@ -366,6 +395,48 @@ onMounted(() => { void loadList().catch((err) => { notice.value = String(err) })
               </template>
             </div>
 
+            <div v-else-if="tab === 'layout'" class="pane">
+              <p class="caption">Что нужно процессу на схеме объекта. Эти объекты станут задачами стадии в визуализации, а роли читает модель движения: откуда робот берёт груз, куда везёт, где заряжается.</p>
+              <UiCallout v-if="draft.layout_items_default" tone="info">Показан набор по умолчанию. После сохранения он станет настройкой этого процесса.</UiCallout>
+              <div v-for="(row, index) in draft.layout_items" :key="row.key" class="block">
+                <div class="row">
+                  <label class="fld"><span class="caption">Название на схеме</span><input v-model="row.label" class="input"></label>
+                  <label class="fld"><span class="caption">Роль в модели</span>
+                    <select v-model="row.role" class="select" @change="onRole(row)">
+                      <option v-for="(label, role) in dictionary.roles" :key="role" :value="role">{{ label }}</option>
+                    </select>
+                  </label>
+                  <label class="fld narrow"><span class="caption">Вид</span>
+                    <select v-model="row.shape" class="select">
+                      <option v-for="(label, shape) in dictionary.shapes" :key="shape" :value="shape">{{ label }}</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="row">
+                  <label class="fld narrow"><span class="caption">Минимум, шт.</span><input v-model.number="row.min_count" class="input input-mono" type="number" min="0"></label>
+                  <label class="fld"><span class="caption">Сколько ставить автоматически</span>
+                    <select v-model="row.count_rule" class="select">
+                      <option v-for="(label, rule) in dictionary.count_rules" :key="rule" :value="rule">{{ label }}</option>
+                    </select>
+                  </label>
+                  <label class="fld narrow"><span class="caption">Ключ</span><input v-model="row.key" class="input input-mono"></label>
+                </div>
+                <label class="fld"><span class="caption">Подсказка пользователю</span><input v-model="row.hint" class="input" placeholder="Что это и куда ставить"></label>
+                <div class="row">
+                  <span class="caption">{{ index + 1 }} из {{ draft.layout_items.length }}</span>
+                  <span class="chain">
+                    <UiButton size="sm" variant="secondary" :disabled="index === 0" @click="moveItem(index, -1)">Выше</UiButton>
+                    <UiButton size="sm" variant="secondary" :disabled="index === draft.layout_items.length - 1" @click="moveItem(index, 1)">Ниже</UiButton>
+                    <UiButton size="sm" variant="secondary" @click="draft.layout_items.splice(index, 1)">Убрать</UiButton>
+                  </span>
+                </div>
+              </div>
+              <div class="row">
+                <UiButton size="sm" variant="secondary" @click="addItem">Добавить объект</UiButton>
+                <span class="caption">Без объектов процесс на схеме показывается, но роботы по нему не ездят.</span>
+              </div>
+            </div>
+
             <div v-else class="pane">
               <label class="fld"><span class="caption">Характеристика робота</span><input v-model="attrQuery" class="input" placeholder="производительность, цена"></label>
               <p class="caption">В корзину попадает первый среди прошедших фильтр. Пустая характеристика значит: меньше цена, затем название. Если у робота в тексте есть единица измерения, сравнивается первое число.</p>
@@ -411,6 +482,7 @@ onMounted(() => { void loadList().catch((err) => { notice.value = String(err) })
 .block { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border-hairline); }
 .inputs { display: grid; gap: 8px; }
 .fld { display: grid; gap: 6px; flex: 1; min-width: 180px; }
+.fld.narrow { flex: 0 0 160px; min-width: 120px; }
 .pane { display: grid; gap: var(--space-4); }
 .kind { width: 180px; }
 .chain { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }

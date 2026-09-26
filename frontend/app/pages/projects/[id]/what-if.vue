@@ -4,6 +4,7 @@ import {
   figValue,
   millions,
   PARAM_GROUPS,
+  PRELIMINARY,
   usePlatformEconomy,
   type EconParam,
   type EconReport,
@@ -129,6 +130,8 @@ const purchase = computed(() => report.value?.scenarios.find((item) => item.key 
       <UiButton :to="`/projects/${project.id}/economics`" size="lg">К экономике<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
     </template>
 
+    <UiCallout tone="warn" title="Предварительная оценка">{{ report?.disclaimer ?? PRELIMINARY }}</UiCallout>
+
     <UiCallout v-if="isDemo" tone="info" title="Демо-проект">Площадка из датасета объекта, коэффициенты стандартные. Изменения сохраняются только для этого демо-проекта.</UiCallout>
 
     <section v-if="(pending || loading) && !report" class="waiting glass"><div class="h3">Считаем сценарии</div></section>
@@ -200,6 +203,7 @@ const purchase = computed(() => report.value?.scenarios.find((item) => item.key 
           <div v-if="purchase" class="interp">
             <div class="h4">{{ purchase.verdict }}</div>
             <p class="body-sm">Пороги из ТЗ: до 3 лет — целесообразно, 3–5 лет — анализ рисков, больше 5 лет — отдельное обоснование.</p>
+            <p class="caption prelim">{{ report.disclaimer }}</p>
           </div>
         </section>
 
@@ -260,6 +264,7 @@ const purchase = computed(() => report.value?.scenarios.find((item) => item.key 
 .interp { display: grid; gap: 6px; padding-top: var(--space-4); border-top: 1px solid rgba(255, 255, 255, 0.1); }
 .interp .h4 { color: var(--brand-300); }
 .interp p { margin: 0; }
+.interp .prelim { color: #f0ad45; }
 .sens-list { display: grid; gap: 12px; }
 .sens-row { display: grid; grid-template-columns: 190px 1fr 220px; gap: 14px; align-items: center; }
 .sens-bar { height: 8px; border-radius: 4px; background: rgba(15, 20, 19, 0.06); overflow: hidden; }

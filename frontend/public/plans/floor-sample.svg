@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+  <rect width="1200" height="760" fill="#f4f7f6"/>
+  <g fill="none" stroke="#1d2624" stroke-width="8">
+    <rect x="40" y="40" width="1120" height="680"/>
+    <path d="M340 40 V720"/>
+    <path d="M40 470 H1160"/>
+    <path d="M860 40 V470"/>
+  </g>
+  <g fill="none" stroke="#8d9894" stroke-width="3">
+    <path d="M380 90 H820 M380 150 H820 M380 210 H820 M380 270 H820 M380 330 H820 M380 390 H820"/>
+  </g>
+  <g font-family="Manrope, sans-serif" fill="#3b4643" font-size="28" font-weight="700">
+    <text x="190" y="250" text-anchor="middle">@8Q<:0</text>
+    <text x="600" y="250" text-anchor="middle">!B5;;068</text>
+    <text x="1010" y="250" text-anchor="middle">B3@C7:0</text>
+    <text x="600" y="580" text-anchor="middle">>@84>@</text>
+    <text x="220" y="600" text-anchor="middle">0@O4:0</text>
+  </g>
+  <g font-family="Manrope, sans-serif" fill="#6b7571" font-size="18">
+    <text x="600" y="300" text-anchor="middle">B5AB>20O AE5<0 MB060</text>
+    <text x="600" y="720" text-anchor="middle">0AHB01 7040QBAO ;8=59:>9: :;8:=8B5 420 :>=F0 8725AB=>3> >B@57:0</text>
+  </g>
+</svg>

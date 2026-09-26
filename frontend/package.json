@@ -8,18 +8,24 @@
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "typecheck": "nuxi typecheck",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "test:sim": "tsx app/sim/engine.check.ts"
   },
   "dependencies": {
     "@phosphor-icons/vue": "^2.2.1",
     "katex": "^0.18.9",
+    "konva": "^10.7.0",
     "nuxt": "^4.5.2",
+    "pathfinding": "^0.4.18",
+    "polygon-clipping": "^0.15.7",
     "vue": "^3.5.42",
     "vue-router": "^5.3.1"
   },
   "devDependencies": {
     "@types/katex": "^0.16.8",
     "@types/node": "^22.20.4",
+    "@types/pathfinding": "^0.1.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vue-tsc": "^3.3.11"
   }

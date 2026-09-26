@@ -1,10 +1,13 @@
+import re
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
+from app.domain.layout_items import COUNT_RULES, ROLES, SHAPES
 from app.infrastructure.db.job_repo import enqueue, get_job, parser_settings, set_schedule
 from app.infrastructure.db.product_repo import get_product, list_products
 from app.infrastructure.db.session import session_factory
@@ -16,6 +19,8 @@ from app.infrastructure.db.taxonomy_repo import (
     economy_norm_log,
     economy_norms,
     mark_unused,
+    project_layout,
+    save_project_layout,
     process_setup,
     project_economy,
     project_view,
@@ -89,6 +94,16 @@ class ObjectSetupIn(BaseModel):
     bindings: list[ObjectBindingIn] = Field(default_factory=list)
 
 
+class LayoutItemIn(BaseModel):
+    key: str
+    label: str
+    role: str
+    shape: str = "point"
+    min_count: int = 1
+    count_rule: str = "fixed"
+    hint: str = ""
+
+
 class ProcessSetupIn(BaseModel):
     filters: list[FormulaFilterIn] = Field(default_factory=list)
     count_inputs: list[InputIn] = Field(default_factory=list)
@@ -96,6 +111,7 @@ class ProcessSetupIn(BaseModel):
     rank_key: str = ""
     rank_order: str = "asc"
     bindings: list[BindingIn] = Field(default_factory=list)
+    layout_items: list[LayoutItemIn] | None = None
 
 
 class MatchIn(BaseModel):
@@ -107,6 +123,10 @@ class EconomyIn(BaseModel):
     choices: dict[str, str] = Field(default_factory=dict)
     tasks: list[dict] = Field(default_factory=list)
     preview: dict[str, float] | None = None
+
+
+class LayoutIn(BaseModel):
+    layout: dict
 
 
 class OverridesIn(BaseModel):
@@ -197,8 +217,6 @@ def admin_usage(key: str, body: UsageIn) -> dict:
 async def admin_import(kind: str = Form(...), file: UploadFile = File(...)) -> dict:
     if kind not in {"catalog", "manual"}:
         raise HTTPException(422, "Вид файла: catalog или manual")
-    from uuid import uuid4
-
     settings = get_settings()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     payload = await file.read()
@@ -299,6 +317,11 @@ def admin_process_read(code: str) -> dict:
             raise HTTPException(404, "Процесс не найден") from None
 
 
+@app.get("/api/v1/layout-items/dictionary")
+def layout_items_dictionary() -> dict:
+    return {"roles": ROLES, "shapes": SHAPES, "count_rules": COUNT_RULES}
+
+
 @app.put("/api/v1/admin/processes/{code}/setup")
 def admin_process_setup(code: str, body: ProcessSetupIn) -> dict:
     with session_factory()() as db:
@@ -372,6 +395,58 @@ def economy_project(project_id: UUID, body: EconomyIn | None = None) -> dict:
             return project_economy(db, project_id, body.site, body.choices, body.tasks, body.preview)
         except KeyError:
             raise HTTPException(404, "Проект не найден") from None
+
+
+@app.get("/api/v1/projects/{project_id}/layout")
+def layout_read(project_id: UUID) -> dict:
+    with session_factory()() as db:
+        try:
+            return {"layout": project_layout(db, project_id)}
+        except KeyError:
+            raise HTTPException(404, "Проект не найден") from None
+
+
+@app.put("/api/v1/projects/{project_id}/layout")
+def layout_save(project_id: UUID, body: LayoutIn) -> dict:
+    with session_factory()() as db:
+        try:
+            return {"layout": save_project_layout(db, project_id, body.layout)}
+        except KeyError:
+            raise HTTPException(404, "Проект не найден") from None
+
+
+_IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
+_LAYOUT_FILE = re.compile(r"^[0-9a-f-]{36}\.(png|jpg|webp)$")
+
+
+@app.post("/api/v1/projects/{project_id}/layout/background")
+async def layout_background(project_id: UUID, file: UploadFile = File(...)) -> dict:
+    extension = _IMAGE_TYPES.get(file.content_type or "")
+    if extension is None:
+        raise HTTPException(422, "Нужна картинка PNG, JPG или WebP")
+    payload = await file.read()
+    if len(payload) > 20 * 1024 * 1024:
+        raise HTTPException(413, "Картинка больше 20 МБ")
+    with session_factory()() as db:
+        try:
+            project_layout(db, project_id)
+        except KeyError:
+            raise HTTPException(404, "Проект не найден") from None
+    folder = Path(get_settings().upload_dir) / "layouts"
+    folder.mkdir(parents=True, exist_ok=True)
+    name = f"{uuid4()}.{extension}"
+    (folder / name).write_bytes(payload)
+    return {"name": name, "url": f"/api/v1/layout-files/{name}"}
+
+
+@app.get("/api/v1/layout-files/{name}")
+def layout_file(name: str) -> FileResponse:
+    if not _LAYOUT_FILE.match(name):
+        raise HTTPException(404, "Файл не найден")
+    path = Path(get_settings().upload_dir) / "layouts" / name
+    if not path.is_file():
+        raise HTTPException(404, "Файл не найден")
+    return FileResponse(path)
 
 
 @app.put("/api/v1/projects/{project_id}/economy/overrides")

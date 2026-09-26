@@ -76,6 +76,7 @@ class ProcessRow(Base):
     count_inputs: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     rank_key: Mapped[str] = mapped_column(Text, nullable=False, default="")
     rank_order: Mapped[str] = mapped_column(Text, nullable=False, default="asc")
+    layout_items: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
 
 
 class ObjectIndustryRow(Base):
@@ -124,6 +125,7 @@ class ProjectRow(Base):
     object_type_id: Mapped[int] = mapped_column(ForeignKey("object_type.id"), nullable=False)
     site: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     economy_overrides: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    layout: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
 
 
 class EconomyNormRow(Base):

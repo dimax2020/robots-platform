@@ -100,8 +100,11 @@ export interface EconSensitivity {
   swing: number | null
 }
 
+export const PRELIMINARY = 'Результат является предварительной оценкой и требует верификации при обследовании объекта.'
+
 export interface EconReport {
   project_id: string
+  disclaimer: string
   fleet: EconFleet[]
   horizon_years: number
   robots: number
@@ -226,9 +229,10 @@ export function usePlatformEconomy(id: Ref<string>) {
     loading,
     failure,
     pending: computed(() => livePending.value || profilePending.value),
-    error: liveError,
+    error: computed(() => (demoProject.value ? null : liveError.value)),
     source,
     choices,
+    ensureProject,
     load,
     request,
     saveOverrides,

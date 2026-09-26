@@ -4,6 +4,7 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 
 from app.domain.economy import NORM_BY_KEY, NORMS, calculate, scale_load
+from app.domain.layout_items import clean_items, default_items
 from app.domain.formula import _number, identifiers
 from app.domain.specs import CANON_LABELS
 from app.domain.match import FilterRule, RobotView, match_robots, robot_count, usage_for
@@ -154,6 +155,8 @@ def process_setup(db: Session, process_code: str) -> dict:
         "count_formula": process.count_formula or "",
         "rank_key": process.rank_key or "",
         "rank_order": process.rank_order or "asc",
+        "layout_items": process.layout_items or default_items(process.code),
+        "layout_items_default": not process.layout_items,
         "objects": objects,
     }
 
@@ -166,6 +169,8 @@ def save_process_setup(db: Session, process_code: str, payload: dict) -> dict:
     process.count_inputs = payload.get("count_inputs") or []
     process.rank_key = payload.get("rank_key") or ""
     process.rank_order = payload.get("rank_order") or "asc"
+    if "layout_items" in payload and payload["layout_items"] is not None:
+        process.layout_items = clean_items(payload["layout_items"])
     db.execute(delete(ProcessFilterRow).where(ProcessFilterRow.process_id == process.id))
     for item in payload.get("filters") or []:
         db.add(ProcessFilterRow(
@@ -450,6 +455,7 @@ def run_match(db: Session, project_id: UUID, site: dict | None = None) -> dict:
             "process_code": process.code,
             "process_name": process.name,
             "best_product_id": best,
+            "layout_items": process.layout_items or default_items(process.code),
             "hits": [
                 {
                     "product_id": hit.product_id,
@@ -531,6 +537,22 @@ def economy_norm_log(db: Session, limit: int = 50) -> list[dict]:
     ]
 
 
+def project_layout(db: Session, project_id: UUID) -> dict:
+    project = db.get(ProjectRow, project_id)
+    if project is None:
+        raise KeyError(str(project_id))
+    return project.layout or {}
+
+
+def save_project_layout(db: Session, project_id: UUID, layout: dict) -> dict:
+    project = db.get(ProjectRow, project_id)
+    if project is None:
+        raise KeyError(str(project_id))
+    project.layout = layout
+    db.commit()
+    return project.layout
+
+
 def save_economy_overrides(db: Session, project_id: UUID, values: dict) -> dict:
     project = db.get(ProjectRow, project_id)
     if project is None:
@@ -604,6 +626,7 @@ _COMPARE_SPECS = (
     ("work_time_h", "Время работы", "ч", "high"),
     ("charge_time_h", "Время зарядки", "ч", "low"),
     ("proizvoditelnost", "Производительность", "", "high"),
+    ("throughput", "Пропускная способность", "", "high"),
     ("min_aisle_width_m", "Проезд", "м", "low"),
     ("lift_height_mm", "Высота подъёма", "мм", "high"),
     ("price_rub", "Цена", "₽", "low"),

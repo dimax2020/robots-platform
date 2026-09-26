@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 NO_PRICE = "Не будет использоваться в расчётах, не хватает цены."
 NO_COUNT = "Количество посчитать не удалось, поэтому в расчёте экономики участвует только один робот."
+DISCLAIMER = "Результат является предварительной оценкой и требует верификации при обследовании объекта."
 
 SOURCES = {
     "card": "карточка робота",
@@ -178,6 +179,7 @@ def _compute(rows: list[dict], site: dict, tasks: list[dict], params: dict[str, 
     }
     scenarios = [_asis(shared), _purchase(shared), _raas(shared)]
     return {
+        "disclaimer": DISCLAIMER,
         "fleet": fleet,
         "horizon_years": horizon,
         "robots": robots,

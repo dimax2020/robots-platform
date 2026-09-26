@@ -2,6 +2,7 @@
 import { PhPrinter, PhFileXls, PhFileCsv, PhImage, PhEnvelopeSimple, PhWarning } from '@phosphor-icons/vue'
 import { projectById, scenarios, objectTypeLabel } from '~/data/projects'
 import { demoProducts as products } from '~/data/demo'
+import { PRELIMINARY } from '~/composables/usePlatformEconomy'
 
 const route = useRoute()
 const project = computed(() => projectById(route.params.id as string))
@@ -41,7 +42,7 @@ const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'l
       <div class="r-in">
         <header class="r-head">
           <div>
-            <div class="label">Экспресс-прединвестиционная оценка</div>
+            <div class="label">Предварительная экспресс-оценка</div>
             <h2 class="h1">{{ project.name }}</h2>
             <div class="body-sm muted">{{ objectTypeLabel[project.objectType] }} · {{ project.industry }} · {{ today }}</div>
           </div>
@@ -54,7 +55,7 @@ const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'l
 
         <div class="disclaimer">
           <PhWarning :size="18" weight="fill" />
-          <p class="body-sm"><span class="strong">Это гипотеза для перехода к полноценному ТЭО, не акт обследования.</span> Числа опираются на каталог вендоров и параметры, введённые пользователем. Перед инвестиционным решением требуется обследование объекта.</p>
+          <p class="body-sm"><span class="strong">{{ PRELIMINARY }}</span> Числа опираются на каталог вендоров, параметры площадки и стандартные коэффициенты. Это гипотеза для перехода к полноценному ТЭО, не акт обследования.</p>
         </div>
 
         <section class="r-sec">
@@ -72,7 +73,7 @@ const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'l
               </tr>
             </tbody>
           </table>
-          <div class="caption">Окупаемость: нижняя · центральная · верхняя оценка. Выделен рекомендуемый сценарий.</div>
+          <div class="caption">Окупаемость: нижняя · центральная · верхняя оценка. Выделен рекомендуемый сценарий. Все значения предварительные и требуют верификации при обследовании объекта.</div>
         </section>
 
         <section class="r-sec two">
@@ -101,6 +102,7 @@ const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'l
         </section>
 
         <footer class="r-foot caption">
+          <span class="strong block">{{ PRELIMINARY }}</span>
           Отчёт сформирован платформой подбора роботизированных решений. Кейс ФЦ БАС, хакатон «Лидеры цифровой трансформации», 2026. Версия каталога {{ project.catalogVersion }}, версия расчётной модели {{ project.modelVersion }}.
         </footer>
       </div>
