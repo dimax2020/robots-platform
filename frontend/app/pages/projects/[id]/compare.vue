@@ -1,124 +1,151 @@
 <script setup lang="ts">
-import {
-  PhCaretLeft,
-  PhCaretRight,
-  PhPushPin,
-  PhPushPinSlash,
-  PhScales,
-  PhArrowLeft,
-} from '@phosphor-icons/vue'
+import { PhCaretLeft, PhCaretRight, PhArrowLeft, PhScales } from '@phosphor-icons/vue'
 import { projects } from '~/data/projects'
 import { fetchErrorMessage } from '~/composables/useCalc'
-import type {
-  CompareCarouselItem,
-  CompareDeltaRow,
-  CompareParamValue,
-  CompareSubrow,
-} from '~/composables/useCompareGrid'
+import { platformGet, platformSend } from '~/composables/usePlatform'
+import { photoFor } from '~/data/placeholders'
+import { usePlatformCompare, type MatchGroup, type MatchHit, type RobotSpec } from '~/composables/usePlatformCompare'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
-const {
-  products,
-  compareSpec,
-  pending: catalogPending,
-  attrsPending,
-  attrsError,
-  ensureCompareData,
-} = useCatalog()
-void ensureCompareData()
-const { project, detail, run, pending, error } = useCalc(id)
+const { project, detail, pending, error } = useCalc(id)
 const demoProject = computed(() => projects.find((p) => p.id === id.value))
 const shell = computed(() => project.value ?? demoProject.value)
 useHead({ title: () => `Сравнение · ${shell.value?.name ?? 'проект'}` })
 
-const { groups, summary, pinBaseline, clearPin, setActive } = useCompareGrid({
-  detail,
-  run,
-  products,
-  compareSpec,
-})
+interface PlatformProject { id: string; object_code: string }
+
+const groups = ref<MatchGroup[]>([])
+const loadingMatch = ref(true)
+const matchError = ref('')
+const viewIndex = ref(0)
+const { includedHits, chosenId, choose, isConfirmed } = usePlatformCompare(id)
 
 const live = computed(() => Boolean(project.value))
-const loading = computed(() => pending.value || catalogPending.value || attrsPending.value)
-const noRun = computed(() => live.value && !loading.value && !error.value && !attrsError.value && !run.value)
-const loadError = computed(() => error.value || attrsError.value)
+const activeCode = computed(() => {
+  const query = typeof route.query.process === 'string' ? route.query.process : ''
+  if (groups.value.some((group) => group.process_code === query)) return query
+  return groups.value[0]?.process_code ?? ''
+})
+const activeGroup = computed(() => groups.value.find((group) => group.process_code === activeCode.value) ?? null)
+const pool = computed(() => (activeGroup.value ? includedHits(activeGroup.value) : []))
+const chosen = computed(() => pool.value.find((hit) => hit.product_id === (activeGroup.value ? chosenId(activeGroup.value) : '')) ?? null)
+const viewed = computed(() => pool.value[viewIndex.value] ?? null)
+const substages = computed(() => groups.value.map((group) => ({
+  id: group.process_code,
+  label: group.process_name,
+  to: `/projects/${id.value}/compare?process=${group.process_code}`,
+})))
+const readyGroups = computed(() => groups.value.filter((group) => includedHits(group).length > 0))
+const confirmedCount = computed(() => readyGroups.value.filter((group) => isConfirmed(group.process_code)).length)
+const allConfirmed = computed(() => readyGroups.value.length > 0 && confirmedCount.value === readyGroups.value.length)
 
-/** Есть прогон, но ни в одной группе нет кандидатов со вердиктом «подходит». */
-const nothingToCompare = computed(() => {
-  if (!run.value || loading.value || loadError.value) return false
-  return groups.value.every((g) => !g.subrows.some((s) => s.carousel.length > 0))
+const specsOf = (hit: MatchHit | null) => {
+  const rows = [...(hit?.specs ?? [])]
+  if (hit?.count != null) rows.push({ key: 'count', label: 'Роботов нужно', unit: 'шт', direction: 'low', value: hit.count })
+  return rows
+}
+
+const formatValue = (value: number, unit: string) => {
+  const digits = unit === '₽' || unit === 'шт' ? 0 : 1
+  const text = value.toLocaleString('ru-RU', { maximumFractionDigits: digits })
+  return unit ? `${text} ${unit}` : text
+}
+
+const bars = computed(() => {
+  const base = chosen.value
+  const current = viewed.value
+  if (!base || !current) return []
+  const keys = new Map<string, RobotSpec>()
+  for (const row of [...specsOf(base), ...specsOf(current)]) keys.set(row.key, row)
+  return [...keys.values()].map((meta) => {
+    const baseRow = specsOf(base).find((row) => row.key === meta.key)
+    const viewRow = specsOf(current).find((row) => row.key === meta.key)
+    const sameRobot = base.product_id === current.product_id
+    if (!baseRow || !viewRow || baseRow.value === 0) {
+      return { ...meta, fill: sameRobot ? 50 : 8, text: viewRow ? formatValue(viewRow.value, meta.unit) : 'нет данных', delta: 'нет базы', tone: 'missing' as const }
+    }
+    if (sameRobot) {
+      return { ...meta, fill: 50, text: formatValue(baseRow.value, meta.unit), delta: 'база', tone: 'same' as const }
+    }
+    const ratio = viewRow.value / baseRow.value
+    const fill = Math.min(100, Math.max(8, 50 * ratio))
+    const pct = Math.round((ratio - 1) * 100)
+    const better = meta.direction === 'high' ? viewRow.value > baseRow.value : viewRow.value < baseRow.value
+    const worse = meta.direction === 'high' ? viewRow.value < baseRow.value : viewRow.value > baseRow.value
+    const sign = pct > 0 ? '+' : '−'
+    return {
+      ...meta,
+      fill,
+      text: formatValue(viewRow.value, meta.unit),
+      delta: pct === 0 ? 'как у базы' : `${sign}${Math.abs(pct)}%`,
+      tone: better ? 'better' as const : worse ? 'worse' as const : 'same' as const,
+    }
+  })
 })
 
-const formatMoney = (n: number) =>
-  n.toLocaleString('ru-RU', { maximumFractionDigits: 0 }) + ' ₽'
-
-const scorePct = (score: number | null) =>
-  score == null ? '—' : String(Math.round(score * 100))
-
-const subrowDomId = (s: CompareSubrow) =>
-  `carousel-${s.processCode}-${s.solutionTypeCode}`
-
-const activeIndex = (s: CompareSubrow) =>
-  Math.max(0, s.carousel.findIndex((c) => c.productId === s.activeProductId))
-
-const scrollActiveIntoView = (s: CompareSubrow) => {
-  if (!import.meta.client) return
-  const root = document.getElementById(subrowDomId(s))
-  const card = root?.querySelector<HTMLElement>('.card.active')
-  card?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' })
+const step = (dir: -1 | 1) => {
+  if (pool.value.length < 2) return
+  viewIndex.value = (viewIndex.value + dir + pool.value.length) % pool.value.length
 }
 
-const selectCard = (s: CompareSubrow, productId: string) => {
-  setActive(s.processCode, s.solutionTypeCode, productId)
-  nextTick(() => scrollActiveIntoView(s))
-}
-
-const stepCarousel = (s: CompareSubrow, dir: -1 | 1) => {
-  if (!s.carousel.length) return
-  const i = activeIndex(s)
-  const next = s.carousel[(i + dir + s.carousel.length) % s.carousel.length]
-  if (next) selectCard(s, next.productId)
-}
-
-const onCarouselKey = (e: KeyboardEvent, s: CompareSubrow) => {
-  if (e.key === 'ArrowLeft') {
-    e.preventDefault()
-    stepCarousel(s, -1)
-  } else if (e.key === 'ArrowRight') {
-    e.preventDefault()
-    stepCarousel(s, 1)
+const onKeys = (event: KeyboardEvent) => {
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    step(-1)
+  } else if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    step(1)
   }
 }
 
-const onPin = (s: CompareSubrow, item: CompareCarouselItem) => {
-  if (s.isPinned && s.baselineProductId === item.productId) {
-    void clearPin(s.processCode, s.solutionTypeCode)
-  } else {
-    void pinBaseline(s.processCode, s.solutionTypeCode, item.productId)
-    setActive(s.processCode, s.solutionTypeCode, item.productId)
+const takeViewed = () => {
+  if (!activeGroup.value || !viewed.value) return
+  choose(activeGroup.value.process_code, viewed.value.product_id)
+}
+
+const ensureProject = async () => {
+  const code = project.value?.objectType ?? 'warehouse'
+  const key = `platform-project:${id.value}`
+  const saved = localStorage.getItem(key)
+  if (saved) {
+    try {
+      const current = await platformGet<PlatformProject>(`/projects/${saved}`)
+      if (current.object_code === code) return current.id
+    } catch {
+      localStorage.removeItem(key)
+    }
+  }
+  const created = await platformSend<PlatformProject>('/projects', 'POST', { name: shell.value?.name ?? code, object_code: code, site: {} })
+  localStorage.setItem(key, created.id)
+  return created.id
+}
+
+const load = async () => {
+  if (!project.value) return
+  loadingMatch.value = true
+  matchError.value = ''
+  try {
+    const projectId = await ensureProject()
+    const result = await platformSend<{ groups: MatchGroup[] }>(`/projects/${projectId}/match`, 'POST', { site: detail.value?.site ?? {} })
+    groups.value = result.groups
+    const requested = typeof route.query.process === 'string' ? route.query.process : ''
+    if (result.groups[0] && !result.groups.some((group) => group.process_code === requested)) {
+      await navigateTo({ query: { process: result.groups[0].process_code } })
+    }
+  } catch (err: unknown) {
+    matchError.value = fetchErrorMessage(err, 'Не удалось открыть сравнение')
+  } finally {
+    loadingMatch.value = false
   }
 }
 
-const toneClass = (tone: CompareDeltaRow['tone']) => {
-  if (tone === 'better') return 'tone-better'
-  if (tone === 'worse') return 'tone-worse'
-  if (tone === 'neutral') return 'tone-neutral'
-  return ''
-}
-
-const provenanceLabel = (v: CompareParamValue) => {
-  const p = v.provenance
-  if (!p) return ''
-  if (p.kind === 'engine') return p.note ? `расчёт движка · ${p.note}` : 'расчёт движка'
-  if (p.kind === 'derived') return p.note ?? 'производное значение'
-  return p.note ?? ''
-}
-
-const valueUnit = (v: CompareParamValue) => {
-  if (!v.known) return ''
-  return v.unit ? ` ${v.unit}` : ''
-}
+watch(() => project.value?.id, () => { void load() }, { immediate: true })
+watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () => {
+  const current = chosen.value?.product_id
+  const index = pool.value.findIndex((hit) => hit.product_id === current)
+  viewIndex.value = index >= 0 ? index : 0
+})
 </script>
 
 <template>
@@ -126,466 +153,118 @@ const valueUnit = (v: CompareParamValue) => {
     v-if="shell"
     :project="shell"
     current="compare"
-    title="Сравнение кандидатов"
-    lead="По каждому направлению — карусель подходящих решений и панель прироста к эталону. Эталон по умолчанию — лучший счёт; его можно закрепить, и ссылка сохранит выбор."
+    :substages="substages"
+    :current-sub="activeCode"
+    :title="activeGroup?.process_name || 'Сравнение'"
+    lead="Слева база процесса. Полоски смотрящего робота стоят на 50%, пока это он сам. Стрелки показывают, насколько другой робот отличается от базы."
   >
     <template #actions>
       <UiButton v-if="live" :to="`/projects/${shell.id}/match`" size="lg" variant="secondary">
         <template #icon><PhArrowLeft :size="16" weight="bold" /></template>
         К подбору
       </UiButton>
-      <UiButton v-if="live && run && !nothingToCompare" :to="`/projects/${shell.id}/economics`" size="lg">
+      <UiButton v-if="live" :to="`/projects/${shell.id}/economics`" size="lg" :disabled="!allConfirmed">
         <template #icon><PhScales :size="16" weight="bold" /></template>
         К экономике
       </UiButton>
     </template>
 
-    <UiCallout v-if="!live" tone="warn" title="Это демонстрационный макет">
-      Живое сравнение строится из прогона подбора на сервере. Создайте проект и запустите подбор — тогда здесь появятся кандидаты и дельты.
-      <div class="call-actions">
-        <UiButton to="/projects/new" size="sm">Создать проект</UiButton>
-      </div>
+    <UiCallout v-if="!live && !pending" tone="warn" title="Это демонстрационный макет">
+      Сравнение строится из подбора сохранённого проекта.
+      <div class="call-actions"><UiButton to="/projects/new" size="sm">Создать проект</UiButton></div>
     </UiCallout>
-
-    <UiCallout v-else-if="loadError" tone="danger" title="Не удалось загрузить данные сравнения">
-      {{ fetchErrorMessage(loadError, 'Сервер не ответил. Проверьте, что API запущен.') }}
+    <UiCallout v-else-if="error" tone="danger" title="Не удалось загрузить проект">
+      {{ fetchErrorMessage(error, 'Сервер не ответил.') }}
     </UiCallout>
+    <section v-else-if="loadingMatch || pending" class="waiting glass">
+      <div class="h3">Собираем сравнение</div>
+    </section>
+    <UiCallout v-else-if="matchError" tone="danger" title="Сравнение не открылось">{{ matchError }}</UiCallout>
+    <section v-else-if="!activeGroup" class="empty glass">
+      <div class="h3">Процессов для сравнения нет</div>
+    </section>
+    <section v-else-if="!pool.length" class="empty glass">
+      <div class="h3">В сравнение никто не попал</div>
+      <p class="body muted">На подборе включите роботов этого процесса. Прошедшие все фильтры уже включены.</p>
+      <UiButton :to="`/projects/${shell.id}/match?process=${activeGroup.process_code}`" size="sm" variant="secondary">К подбору</UiButton>
+    </section>
 
-    <div v-else-if="loading" class="summary" v-reveal>
-      <div v-for="i in 4" :key="i" class="sum glass"><UiSkeleton h="56px" /></div>
-    </div>
-
-    <template v-else-if="noRun">
-      <UiCallout tone="info" title="Расчёт ещё не запускался">
-        Сравнивать нечего: сначала нужен прогон на шаге подбора — корзины, количество и счёт. Вернитесь туда и запустите подбор.
-        <div class="call-actions">
-          <UiButton :to="`/projects/${shell.id}/match`">
-            <template #icon><PhArrowLeft :size="16" weight="bold" /></template>
-            Вернуться к подбору
-          </UiButton>
-        </div>
-      </UiCallout>
-    </template>
-
-    <template v-else-if="nothingToCompare">
-      <UiCallout tone="warn" title="Сравнивать нечего">
-        Прогон есть, но ни одно направление не дало кандидатов со вердиктом «подходит».
-        <template v-if="summary.openLabels.length">
-          Не закрыты: {{ summary.openLabels.join(', ') }}.
-        </template>
-        Откройте подбор: там видно, кто в «требует проверки» и кто исключён.
-        <div class="call-actions">
-          <UiButton :to="`/projects/${shell.id}/match`" variant="secondary" size="sm">Открыть подбор</UiButton>
-        </div>
-      </UiCallout>
-      <div v-if="groups.length" class="grid">
-        <section v-for="g in groups" :key="g.processCode" class="group glass">
-          <header class="group-head">
-            <h2 class="h3">{{ g.label }}</h2>
-            <p v-if="g.emptyMessage" class="body-sm muted">{{ g.emptyMessage }}</p>
-          </header>
-        </section>
-      </div>
-    </template>
-
-    <template v-else-if="run">
-      <div class="grid">
-        <section v-for="g in groups" :key="g.processCode" class="group glass">
-          <header class="group-head">
-            <h2 class="h3">{{ g.label }}</h2>
-            <p v-if="g.emptyMessage && !g.subrows.length" class="body-sm muted">{{ g.emptyMessage }}</p>
-            <UiChip v-else-if="g.subrows.length" :count="g.subrows.length">типов решений</UiChip>
-          </header>
-
-          <div v-if="!g.subrows.length && g.emptyMessage" class="empty-row">
-            <p class="body-sm">{{ g.emptyMessage }}</p>
+    <template v-else>
+      <p class="caption progress">Закреплено {{ confirmedCount }} из {{ readyGroups.length }}</p>
+      <section class="arena" tabindex="0" @keydown="onKeys">
+        <article class="base glass">
+          <div class="in">
+            <div class="caption">{{ isConfirmed(activeGroup.process_code) ? 'Закреплённый робот' : 'Оптимальный робот' }}</div>
+            <img :src="photoFor(chosen?.image_url, chosen?.name || '', activeGroup.process_code)" :alt="chosen?.name || ''">
+            <div class="h3">{{ chosen?.name }}</div>
+            <div class="mono-sm">{{ chosen?.count != null ? `${chosen.count.toLocaleString('ru-RU')} шт.` : (chosen?.count_note || 'количество не задано') }}</div>
           </div>
+        </article>
 
-          <div
-            v-for="s in g.subrows"
-            :key="`${s.processCode}:${s.solutionTypeCode}`"
-            class="subrow"
-          >
-            <aside class="stype">
-              <div class="h4">{{ s.solutionTypeLabel }}</div>
-              <div v-if="s.carousel.length" class="caption">лучший счёт {{ scorePct(s.bestScore) }}</div>
-              <div v-else class="caption">подходящих решений нет — все кандидаты требуют проверки</div>
-              <UiBadge v-if="s.isPinned" tone="ok" size="sm">эталон закреплён</UiBadge>
-            </aside>
-
-            <div class="mid">
-              <div
-                :id="subrowDomId(s)"
-                class="carousel"
-                tabindex="0"
-                role="listbox"
-                :aria-label="`Кандидаты: ${s.solutionTypeLabel}`"
-                @keydown="onCarouselKey($event, s)"
-              >
-                <button
-                  type="button"
-                  class="nav prev"
-                  :disabled="s.carousel.length < 2"
-                  aria-label="Предыдущий кандидат"
-                  @click="stepCarousel(s, -1)"
-                >
-                  <PhCaretLeft :size="18" weight="bold" />
-                </button>
-
-                <div class="track">
-                  <article
-                    v-for="item in s.carousel"
-                    :key="item.productId"
-                    class="card"
-                    :class="{
-                      active: item.productId === s.activeProductId,
-                      baseline: item.productId === s.baselineProductId,
-                    }"
-                    role="option"
-                    :aria-selected="item.productId === s.activeProductId"
-                    @click="selectCard(s, item.productId)"
-                  >
-                    <div class="card-who">
-                      <NuxtLink
-                        v-if="item.product"
-                        :to="`/catalog/${item.product.slug}`"
-                        class="h4"
-                        @click.stop
-                      >{{ item.product.name }}</NuxtLink>
-                      <span v-else class="h4">{{ item.productId }}</span>
-                      <div class="caption">{{ item.product?.manufacturer ?? 'производитель не указан' }}</div>
-                    </div>
-                    <dl class="card-nums">
-                      <div>
-                        <dt class="caption">Счёт</dt>
-                        <dd class="mono-md">{{ scorePct(item.score) }}</dd>
-                      </div>
-                      <div>
-                        <dt class="caption">Количество</dt>
-                        <dd class="mono-md">
-                          <template v-if="item.count != null">{{ item.count.toLocaleString('ru-RU') }} шт.</template>
-                          <template v-else>нет данных</template>
-                        </dd>
-                      </div>
-                    </dl>
-                    <code v-if="item.formula" class="formula">{{ item.formula }}</code>
-                    <div class="card-actions">
-                      <button
-                        v-if="s.isPinned && item.productId === s.baselineProductId"
-                        type="button"
-                        class="pin-btn unpin"
-                        @click.stop="onPin(s, item)"
-                      >
-                        <PhPushPinSlash :size="14" weight="bold" /> Снять закрепление
-                      </button>
-                      <button
-                        v-else-if="item.productId !== s.activeProductId"
-                        type="button"
-                        class="pin-btn"
-                        @click.stop="onPin(s, item)"
-                      >
-                        <PhPushPin :size="14" weight="bold" /> Закрепить эталоном
-                      </button>
-                      <span v-else-if="item.productId === s.baselineProductId" class="caption pin-hint">это эталон</span>
-                    </div>
-                  </article>
-                </div>
-
-                <button
-                  type="button"
-                  class="nav next"
-                  :disabled="s.carousel.length < 2"
-                  aria-label="Следующий кандидат"
-                  @click="stepCarousel(s, 1)"
-                >
-                  <PhCaretRight :size="18" weight="bold" />
-                </button>
+        <article class="stats glass">
+          <div class="in">
+            <div class="stat-head">
+              <button type="button" class="arrow" aria-label="Предыдущий робот" :disabled="pool.length < 2" @click="step(-1)"><PhCaretLeft :size="18" weight="bold" /></button>
+              <div class="who">
+                <div class="caption">{{ viewIndex + 1 }} из {{ pool.length }}</div>
+                <div class="h4">{{ viewed?.name }}</div>
               </div>
+              <button type="button" class="arrow" aria-label="Следующий робот" :disabled="pool.length < 2" @click="step(1)"><PhCaretRight :size="18" weight="bold" /></button>
+            </div>
 
-              <div v-if="s.needsReview.length" class="review">
-                <div class="h4">Требуют проверки</div>
-                <p class="caption">
-                  В сравнение не входят: часть жёстких условий не проверена, сравнивать позицию с неизвестными полями нельзя.
-                </p>
-                <ul class="review-list">
-                  <li v-for="r in s.needsReview" :key="r.productId" class="review-item">
-                    <span class="body-sm">{{ r.product?.name ?? r.productId }}</span>
-                    <span class="caption">{{ r.product?.manufacturer }}</span>
-                  </li>
-                </ul>
+            <div v-if="!bars.length" class="caption">У этих роботов нет числовых характеристик для полосок.</div>
+            <div v-for="bar in bars" :key="bar.key" class="meter">
+              <div class="meter-top">
+                <span class="body-sm strong">{{ bar.label }}</span>
+                <span class="mono-sm" :class="bar.tone">{{ bar.text }} · {{ bar.delta }}</span>
+              </div>
+              <div class="track">
+                <span class="fill" :class="bar.tone" :style="{ width: `${bar.fill}%` }" />
+                <span class="mid" aria-hidden="true" />
               </div>
             </div>
 
-            <aside class="panel">
-              <div class="panel-title h4">Прирост и падение</div>
-              <p v-if="s.panel.isBaseline || s.panel.message" class="panel-msg body-sm">
-                {{ s.panel.message }}
-              </p>
-              <template v-else>
-                <div v-for="pg in s.panel.groups" :key="pg.group" class="pgroup">
-                  <div class="label">{{ pg.label }}</div>
-                  <div v-for="row in pg.rows" :key="row.key" class="prow" :class="toneClass(row.tone)">
-                    <div class="prow-head">
-                      <span class="body-sm strong" :title="row.rationale">{{ row.label }}</span>
-                      <span class="caption why" :title="row.rationale">{{ row.rationale }}</span>
-                    </div>
-                    <div class="prow-vals">
-                      <div class="pval">
-                        <span class="caption">активная</span>
-                        <span class="mono-md">
-                          <template v-if="row.active.known">{{ row.active.display }}{{ valueUnit(row.active) }}</template>
-                          <template v-else>нет данных</template>
-                        </span>
-                        <span v-if="row.active.approximate" class="approx caption">приблизительно: середина диапазона</span>
-                        <span v-if="row.active.provenance?.kind === 'catalog'" class="prov">
-                          <UiSourceTag
-                            :source-id="row.active.provenance.sourceId"
-                            :quote="row.active.provenance.quote"
-                          />
-                        </span>
-                        <span v-else-if="row.active.known && row.active.provenance" class="caption eng">
-                          {{ provenanceLabel(row.active) }}
-                        </span>
-                      </div>
-                      <div class="pval">
-                        <span class="caption">эталон</span>
-                        <span class="mono-md">
-                          <template v-if="row.baseline.known">{{ row.baseline.display }}{{ valueUnit(row.baseline) }}</template>
-                          <template v-else>нет данных</template>
-                        </span>
-                        <span v-if="row.baseline.approximate" class="approx caption">приблизительно: середина диапазона</span>
-                        <span v-if="row.baseline.provenance?.kind === 'catalog'" class="prov">
-                          <UiSourceTag
-                            :source-id="row.baseline.provenance.sourceId"
-                            :quote="row.baseline.provenance.quote"
-                          />
-                        </span>
-                        <span v-else-if="row.baseline.known && row.baseline.provenance" class="caption eng">
-                          {{ provenanceLabel(row.baseline) }}
-                        </span>
-                      </div>
-                      <div class="pdelta">
-                        <span class="caption">дельта</span>
-                        <span v-if="row.kind === 'no_data'" class="no-data body-sm">{{ row.message }}</span>
-                        <span v-else class="delta-msg mono-md">{{ row.message }}</span>
-                        <span v-if="row.approximate && row.kind === 'numeric'" class="approx caption">приблизительно</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </template>
-            </aside>
+            <UiButton size="sm" :disabled="viewed?.product_id === chosen?.product_id && isConfirmed(activeGroup.process_code)" @click="takeViewed">
+              {{ viewed?.product_id === chosen?.product_id ? (isConfirmed(activeGroup.process_code) ? 'Закреплено' : 'Закрепить для процесса') : 'Взять этого робота' }}
+            </UiButton>
           </div>
-        </section>
-      </div>
-
-      <section class="summary-block glass" v-reveal="1">
-        <div class="h3">Сводка по эталонам</div>
-        <p class="caption">Считается по закреплённым эталонам всех подстрок. Окупаемость здесь не считается.</p>
-
-        <div class="summary">
-          <UiStat
-            label="Закрыто направлений"
-            :value="String(summary.closedCount)"
-            :note="summary.openCount ? `не закрыто: ${summary.openCount}` : 'все направления закрыты'"
-          />
-          <UiStat
-            label="Суммарный парк"
-            :value="String(summary.totalPark)"
-            note="единиц по эталонам"
-          />
-          <UiStat
-            label="Стоимость оборудования"
-            :value="summary.equipmentCost == null ? 'нет данных' : formatMoney(summary.equipmentCost)"
-            :note="summary.equipmentCostPartial
-              ? `неполная сумма · цена известна у ${summary.priceKnown} из ${summary.priceTotal}`
-              : summary.equipmentCost == null
-                ? 'ни у одной позиции нет цены'
-                : `цена известна у ${summary.priceKnown} из ${summary.priceTotal}`"
-          />
-          <UiStat
-            label="Худшая достоверность"
-            :value="summary.worstReliability ?? '—'"
-            :note="summary.worstReliabilityLabel
-              ? `у решения «${summary.worstReliabilityLabel}»`
-              : 'по эталонам буквы нет'"
-          />
-        </div>
-
-        <div v-if="summary.openLabels.length" class="open-list">
-          <span class="caption">Не закрыты:</span>
-          <UiChip v-for="label in summary.openLabels" :key="label">{{ label }}</UiChip>
-        </div>
-
-        <div v-if="summary.parkByProcess.length" class="park-break">
-          <div class="caption">Парк по направлениям</div>
-          <ul>
-            <li v-for="p in summary.parkByProcess" :key="p.processCode" class="body-sm">
-              {{ p.label }} — <span class="mono-md">{{ p.count.toLocaleString('ru-RU') }}</span> шт.
-            </li>
-          </ul>
-        </div>
-
-        <p class="body-sm vendor">
-          Полей ждут ответа вендора:
-          <strong>{{ summary.vendorFieldsWaiting }}</strong>.
-          <NuxtLink :to="`/projects/${shell.id}/match`" class="link">Открыть корзину «требует проверки» на шаге подбора</NuxtLink>
-        </p>
-
-        <UiCallout tone="info" title="Экономика ещё впереди">
-          {{ summary.economicsStub }}
-        </UiCallout>
+        </article>
       </section>
     </template>
   </ProjectShell>
 
-  <section v-else class="container missing">
+  <section v-else class="container gone">
     <UiCallout tone="danger" title="Проект не найден">Нет ни сохранённого расчёта, ни демо-макета с таким адресом.</UiCallout>
     <UiButton to="/projects">К списку проектов</UiButton>
   </section>
 </template>
 
 <style scoped>
+.waiting, .empty { padding: var(--space-10); display: grid; gap: 8px; justify-items: center; text-align: center; }
+.waiting > *, .empty > * { position: relative; z-index: 1; }
+.progress { margin: 0; }
+.arena { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: var(--space-4); align-items: start; outline: none; }
+.arena:focus-visible { box-shadow: 0 0 0 2px var(--brand-400); border-radius: 18px; }
+.in { position: relative; z-index: 1; padding: var(--space-5); display: grid; gap: 12px; }
+.base img { width: 100%; height: 180px; object-fit: contain; border-radius: 16px; background: #e9eeec; }
+.base .h3 { margin: 0; }
+.stat-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.who { display: grid; gap: 2px; min-width: 0; }
+.who .h4 { margin: 0; }
+.arrow { width: 40px; height: 40px; border-radius: 12px; background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--border-hairline); }
+.arrow:disabled { opacity: 0.4; }
+.meter { display: grid; gap: 6px; }
+.meter-top { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.track { position: relative; height: 12px; border-radius: 99px; background: rgba(15, 20, 19, 0.08); overflow: hidden; }
+.fill { display: block; height: 100%; border-radius: inherit; background: var(--ink-muted); }
+.fill.better { background: var(--state-ok); }
+.fill.worse { background: var(--state-danger); }
+.fill.same { background: var(--brand-400); }
+.mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: var(--ink-strong); }
+.better { color: var(--state-ok); }
+.worse { color: var(--state-danger); }
+.missing, .same { color: var(--ink-muted); }
 .call-actions { margin-top: 10px; }
-.missing { padding-top: var(--space-12); display: grid; gap: var(--space-4); justify-items: start; }
-
-.grid { display: grid; gap: var(--space-5); }
-.group { padding: 18px 20px; display: grid; gap: var(--space-5); }
-.group > * { position: relative; z-index: 1; }
-.group-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; justify-content: space-between; }
-.empty-row { padding: 14px 16px; border-radius: 12px; background: rgba(15, 20, 19, 0.04); }
-
-.subrow {
-  display: grid;
-  grid-template-columns: minmax(140px, 180px) minmax(280px, 1.2fr) minmax(260px, 1fr);
-  gap: var(--space-4);
-  align-items: start;
-  padding-top: var(--space-4);
-  border-top: 1px solid rgba(15, 20, 19, 0.08);
-}
-.stype { display: grid; gap: 8px; align-content: start; }
-
-.mid { display: grid; gap: 12px; min-width: 0; }
-.carousel {
-  display: grid;
-  grid-template-columns: 36px 1fr 36px;
-  gap: 8px;
-  align-items: center;
-  outline: none;
-  border-radius: 14px;
-}
-.carousel:focus-visible { box-shadow: 0 0 0 2px var(--brand-400); }
-.nav {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 36px; height: 36px; border-radius: 10px;
-  background: rgba(255, 255, 255, 0.75);
-  box-shadow: inset 0 0 0 1px var(--border-hairline);
-  color: var(--ink-strong);
-  transition: background var(--dur-fast) var(--ease);
-}
-.nav:hover:not(:disabled) { background: #fff; }
-.nav:disabled { opacity: 0.35; cursor: default; }
-
-.track {
-  display: flex;
-  gap: 10px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  padding: 4px 2px 10px;
-  scrollbar-width: thin;
-}
-.card {
-  flex: 0 0 min(260px, 78%);
-  scroll-snap-align: start;
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.7);
-  box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.08);
-  cursor: pointer;
-  transition: box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
-}
-.card:hover { transform: translateY(-1px); }
-.card.active {
-  box-shadow: inset 0 0 0 2px var(--brand-500), 0 8px 24px rgba(15, 20, 19, 0.08);
-  background: #fff;
-}
-.card.baseline:not(.active) { box-shadow: inset 0 0 0 1px rgba(10, 107, 69, 0.35); }
-.card-who .h4 { color: var(--ink-strong); }
-.card-nums { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
-.card-nums dd { margin: 0; color: var(--ink-strong); }
-.formula {
-  display: block; padding: 8px 10px; border-radius: 10px;
-  background: var(--surface-graphite); color: var(--brand-300);
-  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.45;
-  white-space: pre-wrap; word-break: break-word;
-}
-.card-actions { min-height: 28px; }
-.pin-btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 32px; padding: 0 10px; border-radius: 8px;
-  font-size: 12.5px; font-weight: 700; color: var(--brand-ink);
-  background: var(--surface-brand-tint);
-  box-shadow: inset 0 0 0 1px rgba(10, 107, 69, 0.16);
-}
-.pin-btn.unpin { background: rgba(15, 20, 19, 0.06); color: var(--ink-strong); box-shadow: none; }
-.pin-hint { color: var(--ink-muted); }
-
-.review {
-  padding: 12px 14px; border-radius: 12px;
-  background: var(--state-warn-tint); display: grid; gap: 8px;
-}
-.review-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.review-item { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-
-.panel {
-  display: grid; gap: 12px; align-content: start;
-  padding: 14px; border-radius: 14px;
-  background: rgba(255, 255, 255, 0.55);
-  box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06);
-  max-height: 520px; overflow-y: auto; overflow-x: hidden;
-}
-.panel-msg { padding: 10px 12px; border-radius: 10px; background: var(--surface-brand-tint); color: var(--brand-ink); font-weight: 600; }
-.pgroup { display: grid; gap: 8px; }
-.prow {
-  display: grid; gap: 8px; padding: 10px 12px; border-radius: 10px;
-  background: rgba(255, 255, 255, 0.7);
-  box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.05);
-}
-.prow-head { display: grid; gap: 2px; }
-.why {
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden; cursor: help;
-}
-.prow-vals { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 8px; }
-.pval, .pdelta { display: grid; gap: 4px; align-content: start; min-width: 0; overflow-wrap: anywhere; }
-.approx { color: var(--state-warn); }
-.no-data {
-  font-weight: 600; padding: 4px 8px; border-radius: 6px;
-  background: var(--state-warn-tint); color: var(--state-warn);
-  min-width: 0; overflow-wrap: anywhere;
-}
-.eng { color: var(--ink-muted); }
-.prov { display: inline-flex; }
-.tone-better { box-shadow: inset 0 0 0 1px rgba(10, 107, 69, 0.28); }
-.tone-better .delta-msg { color: var(--state-ok); font-weight: 700; }
-.tone-worse { box-shadow: inset 0 0 0 1px rgba(180, 50, 45, 0.22); }
-.tone-worse .delta-msg { color: var(--state-danger); font-weight: 700; }
-.tone-neutral .delta-msg { color: var(--ink-muted); }
-
-.summary-block { padding: 18px 20px; display: grid; gap: var(--space-5); }
-.summary-block > * { position: relative; z-index: 1; }
-.summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); }
-.sum { display: grid; padding: 16px 18px; }
-.open-list { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.park-break ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; }
-.vendor .link { color: var(--link); font-weight: 600; margin-left: 4px; }
-.strong { font-weight: 700; color: var(--ink-strong); }
-
-@media (max-width: 1100px) {
-  .subrow { grid-template-columns: 1fr; }
-  .summary { grid-template-columns: 1fr 1fr; }
-  .prow-vals { grid-template-columns: 1fr; }
-}
+.gone { padding-top: var(--space-12); display: grid; gap: var(--space-4); justify-items: start; }
+@media (max-width: 900px) { .arena { grid-template-columns: 1fr; } }
 </style>

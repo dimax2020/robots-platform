@@ -4,6 +4,7 @@ import { projects } from '~/data/projects'
 import { fetchErrorMessage } from '~/composables/useCalc'
 import { platformGet, platformSend } from '~/composables/usePlatform'
 import { photoFor } from '~/data/placeholders'
+import { usePlatformCompare, type MatchGroup, type MatchHit } from '~/composables/usePlatformCompare'
 
 const route = useRoute()
 const router = useRouter()
@@ -13,19 +14,16 @@ const demoProject = computed(() => projects.find((p) => p.id === id.value))
 const shell = computed(() => project.value ?? demoProject.value)
 useHead({ title: () => `Подбор · ${shell.value?.name ?? 'проект'}` })
 
-interface Hit { product_id: string; name: string; slug: string; verdict: string; notes: string[]; image_url?: string | null; count?: number | null; count_note?: string }
-interface Group { process_code: string; process_name: string; best_product_id?: string | null; hits: Hit[] }
 interface PlatformProject {
   id: string
   object_code: string
   processes: { code: string; enabled: boolean }[]
 }
 
-const groups = ref<Group[]>([])
-const basket = ref<Record<string, string>>({})
+const groups = ref<MatchGroup[]>([])
 const statusTab = ref('pass')
-const showFinal = ref(false)
 const statusOrder = ['pass', 'conditional', 'unknown', 'fail'] as const
+const { inCompare, toggleCompare } = usePlatformCompare(id)
 const loadingMatch = ref(true)
 const matchError = ref('')
 const startedAt = ref(0)
@@ -75,45 +73,25 @@ const counts = computed(() => {
   }
   return tally
 })
-const statusTabs = computed(() => {
-  const tabs: { id: string; label: string; count: number }[] = [
-    { id: 'pass', label: 'Подходит', count: counts.value.pass },
-    { id: 'conditional', label: 'С условием', count: counts.value.conditional },
-    { id: 'unknown', label: 'Уточнить', count: counts.value.unknown },
-    { id: 'fail', label: 'Не подходит', count: counts.value.fail },
-  ]
-  if (showFinal.value) tabs.push({ id: 'final', label: 'Итоговый выбор', count: groups.value.length })
-  return tabs
-})
+const statusTabs = computed(() => [
+  { id: 'pass', label: 'Подходит', count: counts.value.pass },
+  { id: 'conditional', label: 'С условием', count: counts.value.conditional },
+  { id: 'unknown', label: 'Уточнить', count: counts.value.unknown },
+  { id: 'fail', label: 'Не подходит', count: counts.value.fail },
+])
 const visibleHits = computed(() => (activeGroup.value?.hits ?? []).filter((hit) => hit.verdict === statusTab.value))
-const revealFinal = () => {
-  showFinal.value = true
-  statusTab.value = 'final'
-}
 const buttonLabel = computed(() => {
   if (loadingMatch.value) return 'Считаем…'
   if (matchError.value || !nextGroup.value) return 'К сравнению'
   return 'Следующий процесс'
 })
 
-const acceptable = (hit: Hit) => hit.verdict === 'pass' || hit.verdict === 'conditional'
-const chosenOf = (group: Group) => {
-  const saved = basket.value[group.process_code]
-  const picked = group.hits.find((hit) => hit.product_id === saved && acceptable(hit))
-  if (picked) return picked
-  return group.hits.find((hit) => hit.product_id === group.best_product_id) ?? group.hits.find(acceptable) ?? null
-}
-const chosen = computed(() => (activeGroup.value ? chosenOf(activeGroup.value) : null))
-const countText = (hit: Hit | null) => {
+const countText = (hit: MatchHit | null) => {
   if (!hit || hit.count == null) return hit?.count_note || 'количество не задано'
   const value = Number(hit.count)
   const text = Number.isInteger(value) ? value.toLocaleString('ru-RU') : value.toLocaleString('ru-RU', { maximumFractionDigits: 1 })
   return `${text} шт.`
 }
-const pick = (group: Group, productId: string) => {
-  basket.value = { ...basket.value, [group.process_code]: productId }
-}
-
 const startClock = () => {
   startedAt.value = Date.now()
   now.value = startedAt.value
@@ -150,7 +128,7 @@ const runMatch = async () => {
   startClock()
   try {
     const projectId = await ensureProject()
-    const result = await platformSend<{ groups: Group[] }>(`/projects/${projectId}/match`, 'POST', { site: detail.value?.site ?? {} })
+    const result = await platformSend<{ groups: MatchGroup[] }>(`/projects/${projectId}/match`, 'POST', { site: detail.value?.site ?? {} })
     groups.value = result.groups
     const requested = typeof route.query.process === 'string' ? route.query.process : ''
     const first = result.groups[0]?.process_code
@@ -176,17 +154,12 @@ const goNext = () => {
 }
 
 watch([activeCode, () => activeGroup.value?.hits.length ?? 0], () => {
-  if (statusTab.value === 'final') return
   const hits = activeGroup.value?.hits ?? []
   if (hits.some((hit) => hit.verdict === statusTab.value)) return
-  const next = statusOrder.find((id) => hits.some((hit) => hit.verdict === id))
+  const next = statusOrder.find((code) => hits.some((hit) => hit.verdict === code))
   statusTab.value = next || 'pass'
 })
 watch(() => project.value?.id, () => { void runMatch() }, { immediate: true })
-onMounted(() => {
-  try { basket.value = JSON.parse(localStorage.getItem(`platform-basket:${id.value}`) || '{}') } catch { basket.value = {} }
-})
-watch(basket, (value) => localStorage.setItem(`platform-basket:${id.value}`, JSON.stringify(value)), { deep: true })
 onBeforeUnmount(stopClock)
 </script>
 
@@ -198,7 +171,7 @@ onBeforeUnmount(stopClock)
     :substages="substages"
     :current-sub="activeCode"
     :title="activeGroup?.process_name || 'Подбор'"
-    :lead="loadingMatch ? 'Считаем решения по включённым процессам. Время на экране — сколько уже идёт расчёт.' : 'Роботы текущего процесса. Та же кнопка справа открывает следующий процесс.'"
+    :lead="loadingMatch ? 'Считаем решения по включённым процессам. Время на экране — сколько уже идёт расчёт.' : 'Прошедшие все фильтры уже стоят в сравнении. Роботов с других вкладок можно добавить той же кнопкой.'"
   >
     <template #actions>
       <UiButton v-if="live" size="lg" :disabled="loadingMatch" @click="goNext">
@@ -239,21 +212,9 @@ onBeforeUnmount(stopClock)
     <template v-else>
       <div class="status-bar">
         <UiTabs v-model="statusTab" :tabs="statusTabs" />
-        <UiButton v-if="!showFinal" size="sm" variant="secondary" @click="revealFinal">Итоговый выбор</UiButton>
       </div>
 
-      <div v-if="statusTab === 'final'" class="baskets">
-        <button v-for="group in groups" :key="group.process_code" type="button" class="basket" :class="{ on: group.process_code === activeCode }" @click="router.push({ query: { process: group.process_code } })">
-          <img :src="photoFor(chosenOf(group)?.image_url, chosenOf(group)?.name || group.process_name, group.process_code)" alt="">
-          <span class="copy">
-            <span class="caption">{{ group.process_name }}</span>
-            <span class="body-sm strong">{{ chosenOf(group)?.name || 'нет подходящего' }}</span>
-            <span class="mono-sm">{{ chosenOf(group) ? countText(chosenOf(group)) : '—' }}</span>
-          </span>
-        </button>
-      </div>
-
-      <section v-else-if="visibleHits.length" class="glass sheet">
+      <section v-if="visibleHits.length" class="glass sheet">
         <article v-for="hit in visibleHits" :key="hit.product_id" class="hit">
           <NuxtLink :to="`/catalog/card/${hit.slug}`" class="thumb" :aria-label="hit.name">
             <img :src="photoFor(hit.image_url, hit.name, activeGroup.process_code)" :alt="hit.name" loading="lazy">
@@ -264,8 +225,9 @@ onBeforeUnmount(stopClock)
           </div>
           <UiBadge :tone="verdictTone[hit.verdict] || 'neutral'" size="sm">{{ verdictLabel[hit.verdict] || hit.verdict }}</UiBadge>
           <span class="caption">{{ hit.notes.join(' · ') || 'замечаний нет' }}</span>
-          <UiButton v-if="hit.product_id !== chosen?.product_id && (hit.verdict === 'pass' || hit.verdict === 'conditional')" size="sm" variant="secondary" @click="pick(activeGroup, hit.product_id)">В корзину</UiButton>
-          <span v-else-if="hit.product_id === chosen?.product_id" class="caption in">в корзине</span>
+          <UiButton size="sm" :variant="inCompare(activeGroup.process_code, hit) ? 'primary' : 'secondary'" @click="toggleCompare(activeGroup.process_code, hit)">
+            {{ inCompare(activeGroup.process_code, hit) ? 'В сравнении' : 'В сравнение' }}
+          </UiButton>
         </article>
       </section>
       <section v-else-if="!activeGroup.hits.length" class="empty glass">
@@ -299,13 +261,6 @@ onBeforeUnmount(stopClock)
 .thumb { display: block; width: 132px; height: 96px; border-radius: 14px; overflow: hidden; background: #e9eeec; }
 .thumb img { width: 100%; height: 100%; object-fit: contain; }
 .hit .h4 { color: var(--ink-strong); }
-.in { color: var(--brand-ink); font-weight: 700; }
-.baskets { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
-.basket { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; align-items: center; text-align: left; padding: 10px; border-radius: 16px; background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); }
-.basket.on { background: #fff; box-shadow: inset 0 0 0 1px var(--brand-400); }
-.basket img { width: 72px; height: 56px; object-fit: contain; border-radius: 12px; background: #e9eeec; }
-.copy { display: grid; gap: 2px; min-width: 0; }
-.copy .body-sm { color: var(--ink-strong); }
 .empty { padding: var(--space-10); text-align: center; display: grid; gap: 8px; justify-items: center; }
 .empty > * { position: relative; z-index: 1; }
 .call-actions { margin-top: 10px; }

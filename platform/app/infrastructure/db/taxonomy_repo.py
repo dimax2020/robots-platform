@@ -456,11 +456,34 @@ def run_match(db: Session, project_id: UUID, site: dict | None = None) -> dict:
                     "image_url": hit.image_url,
                     "count": amount,
                     "count_note": note,
+                    "specs": _compare_specs(by_id.get(hit.product_id, {})),
                 }
                 for hit, amount, note in counted
             ],
         })
     return {"project_id": str(project.id), "groups": groups}
+
+
+_COMPARE_SPECS = (
+    ("payload_kg", "Грузоподъёмность", "кг", "high"),
+    ("speed_loaded_ms", "Скорость", "м/с", "high"),
+    ("work_time_h", "Время работы", "ч", "high"),
+    ("charge_time_h", "Время зарядки", "ч", "low"),
+    ("proizvoditelnost", "Производительность", "", "high"),
+    ("min_aisle_width_m", "Проезд", "м", "low"),
+    ("lift_height_mm", "Высота подъёма", "мм", "high"),
+    ("price_rub", "Цена", "₽", "low"),
+)
+
+
+def _compare_specs(attrs: dict) -> list[dict]:
+    rows = []
+    for key, label, unit, direction in _COMPARE_SPECS:
+        number = _number(attrs.get(key))
+        if number is None:
+            continue
+        rows.append({"key": key, "label": label, "unit": unit, "direction": direction, "value": number})
+    return rows
 
 
 def _best(counted: list, attrs: dict[str, dict], rank_key: str, rank_order: str) -> str | None:
