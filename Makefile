@@ -1,16 +1,23 @@
 .PHONY: up down logs migrate seed reseed normalize ttx reset ps test parse
 
-# Поднять всё и привести БД в рабочее состояние: схема, каталог из CSV, ТТХ ручного поиска
+# Поднять платформу. Пустая база platform наполняется снимком каталога при старте контейнера.
+# Старый api остаётся: проекты, параметры площадки и прежний каталог всё ещё читаются оттуда.
 up:
 	docker compose up -d --build
 	docker compose exec -T api alembic upgrade head
 	docker compose exec -T api python -m scripts.seed
 	docker compose exec -T api python -m scripts.import_ttx
-	# Снимок каталога для движка грузится в lifespan, поэтому после сида api перезапускается
 	docker compose restart api
+	@echo "Ждём платформу…"
+	@i=0; until docker compose exec -T platform-api python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')" >/dev/null 2>&1; do \
+		i=$$((i+1)); \
+		if [ $$i -gt 60 ]; then echo "Платформа не ответила"; exit 1; fi; \
+		sleep 2; \
+	done
 	@echo
-	@echo "Платформа: http://localhost"
-	@echo "API:        http://localhost/api/v1/docs"
+	@echo "Сайт:      http://localhost"
+	@echo "Платформа: http://localhost/platform/api/v1/health"
+	@echo "Старый API: http://localhost/api/v1/docs"
 
 down:
 	docker compose down
