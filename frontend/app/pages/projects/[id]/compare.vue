@@ -19,7 +19,7 @@ const groups = ref<MatchGroup[]>([])
 const loadingMatch = ref(true)
 const matchError = ref('')
 const viewIndex = ref(0)
-const { includedHits, chosenId, choose, isConfirmed } = usePlatformCompare(id)
+const { includedHits, chosenId, remainingHit, choose, isConfirmed } = usePlatformCompare(id)
 
 const live = computed(() => Boolean(project.value))
 const activeCode = computed(() => {
@@ -30,15 +30,27 @@ const activeCode = computed(() => {
 const activeGroup = computed(() => groups.value.find((group) => group.process_code === activeCode.value) ?? null)
 const pool = computed(() => (activeGroup.value ? includedHits(activeGroup.value) : []))
 const chosen = computed(() => pool.value.find((hit) => hit.product_id === (activeGroup.value ? chosenId(activeGroup.value) : '')) ?? null)
+const optimal = computed(() => {
+  const best = activeGroup.value?.best_product_id
+  if (!best) return null
+  return activeGroup.value?.hits.find((hit) => hit.product_id === best) ?? null
+})
+const selectedIsOptimal = computed(() => Boolean(chosen.value && optimal.value && chosen.value.product_id === optimal.value.product_id))
 const viewed = computed(() => pool.value[viewIndex.value] ?? null)
 const substages = computed(() => groups.value.map((group) => ({
   id: group.process_code,
   label: group.process_name,
   to: `/projects/${id.value}/compare?process=${group.process_code}`,
 })))
-const readyGroups = computed(() => groups.value.filter((group) => includedHits(group).length > 0))
-const confirmedCount = computed(() => readyGroups.value.filter((group) => isConfirmed(group.process_code)).length)
-const allConfirmed = computed(() => readyGroups.value.length > 0 && confirmedCount.value === readyGroups.value.length)
+const lineup = computed(() => groups.value.map((group) => ({
+  code: group.process_code,
+  name: group.process_name,
+  robot: remainingHit(group),
+  open: group.hits.length > 0,
+})))
+const confirmedCount = computed(() => lineup.value.filter((row) => row.robot && isConfirmed(row.code)).length)
+const readyCount = computed(() => lineup.value.filter((row) => row.robot).length)
+const canEconomy = computed(() => lineup.value.some((row) => row.robot) && lineup.value.every((row) => row.robot || !row.open))
 
 const specsOf = (hit: MatchHit | null) => {
   const rows = [...(hit?.specs ?? [])]
@@ -63,10 +75,10 @@ const bars = computed(() => {
     const viewRow = specsOf(current).find((row) => row.key === meta.key)
     const sameRobot = base.product_id === current.product_id
     if (!baseRow || !viewRow || baseRow.value === 0) {
-      return { ...meta, fill: sameRobot ? 50 : 8, text: viewRow ? formatValue(viewRow.value, meta.unit) : 'нет данных', delta: 'нет базы', tone: 'missing' as const }
+      return { ...meta, fill: sameRobot ? 50 : 8, text: viewRow ? formatValue(viewRow.value, meta.unit) : 'нет данных', delta: 'нет у выбранного', tone: 'missing' as const }
     }
     if (sameRobot) {
-      return { ...meta, fill: 50, text: formatValue(baseRow.value, meta.unit), delta: 'база', tone: 'same' as const }
+      return { ...meta, fill: 50, text: formatValue(baseRow.value, meta.unit), delta: 'выбранный', tone: 'same' as const }
     }
     const ratio = viewRow.value / baseRow.value
     const fill = Math.min(100, Math.max(8, 50 * ratio))
@@ -78,7 +90,7 @@ const bars = computed(() => {
       ...meta,
       fill,
       text: formatValue(viewRow.value, meta.unit),
-      delta: pct === 0 ? 'как у базы' : `${sign}${Math.abs(pct)}%`,
+      delta: pct === 0 ? 'как у выбранного' : `${sign}${Math.abs(pct)}%`,
       tone: better ? 'better' as const : worse ? 'worse' as const : 'same' as const,
     }
   })
@@ -156,14 +168,14 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
     :substages="substages"
     :current-sub="activeCode"
     :title="activeGroup?.process_name || 'Сравнение'"
-    lead="Слева база процесса. Полоски смотрящего робота стоят на 50%, пока это он сам. Стрелки показывают, насколько другой робот отличается от базы."
+    lead="Слева выбранный робот. Его полоски стоят на 50%. Стрелки листают остальных из сравнения и показывают разницу уже от этого выбора."
   >
     <template #actions>
       <UiButton v-if="live" :to="`/projects/${shell.id}/match`" size="lg" variant="secondary">
         <template #icon><PhArrowLeft :size="16" weight="bold" /></template>
         К подбору
       </UiButton>
-      <UiButton v-if="live" :to="`/projects/${shell.id}/economics`" size="lg" :disabled="!allConfirmed">
+      <UiButton v-if="live" :to="`/projects/${shell.id}/economics`" size="lg" :disabled="!canEconomy">
         <template #icon><PhScales :size="16" weight="bold" /></template>
         К экономике
       </UiButton>
@@ -190,14 +202,36 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
     </section>
 
     <template v-else>
-      <p class="caption progress">Закреплено {{ confirmedCount }} из {{ readyGroups.length }}</p>
+      <section class="lineup glass">
+        <div class="line-in">
+          <div>
+            <div class="h3">По одному роботу на процесс</div>
+            <div class="caption">Этот состав уходит в экономику. Закреплено явно {{ confirmedCount }}, всего с выбором {{ readyCount }}.</div>
+          </div>
+          <ul>
+            <li v-for="row in lineup" :key="row.code">
+              <span class="body-sm">{{ row.name }}</span>
+              <span v-if="row.robot" class="strong">{{ row.robot.name }}<span class="caption"> · {{ row.robot.count != null ? `${row.robot.count.toLocaleString('ru-RU')} шт.` : 'количество не задано' }}</span></span>
+              <span v-else class="caption">нет робота в сравнении</span>
+            </li>
+          </ul>
+        </div>
+      </section>
       <section class="arena" tabindex="0" @keydown="onKeys">
         <article class="base glass">
           <div class="in">
-            <div class="caption">{{ isConfirmed(activeGroup.process_code) ? 'Закреплённый робот' : 'Оптимальный робот' }}</div>
-            <img :src="photoFor(chosen?.image_url, chosen?.name || '', activeGroup.process_code)" :alt="chosen?.name || ''">
+            <div class="caption">Выбранный вариант</div>
+            <img class="portrait" :src="photoFor(chosen?.image_url, chosen?.name || '', activeGroup.process_code)" :alt="chosen?.name || ''">
             <div class="h3">{{ chosen?.name }}</div>
+            <UiBadge v-if="selectedIsOptimal" tone="ok" size="sm">Оптимальный по версии платформы</UiBadge>
             <div class="mono-sm">{{ chosen?.count != null ? `${chosen.count.toLocaleString('ru-RU')} шт.` : (chosen?.count_note || 'количество не задано') }}</div>
+            <div v-if="optimal && !selectedIsOptimal" class="optimal">
+              <img :src="photoFor(optimal.image_url, optimal.name, activeGroup.process_code)" :alt="optimal.name">
+              <span>
+                <span class="caption">Оптимальный по версии платформы</span>
+                <span class="body-sm strong">{{ optimal.name }}</span>
+              </span>
+            </div>
           </div>
         </article>
 
@@ -205,11 +239,28 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
           <div class="in">
             <div class="stat-head">
               <button type="button" class="arrow" aria-label="Предыдущий робот" :disabled="pool.length < 2" @click="step(-1)"><PhCaretLeft :size="18" weight="bold" /></button>
-              <div class="who">
-                <div class="caption">{{ viewIndex + 1 }} из {{ pool.length }}</div>
-                <div class="h4">{{ viewed?.name }}</div>
+              <div class="stage">
+                <img class="portrait" :src="photoFor(viewed?.image_url, viewed?.name || '', activeGroup.process_code)" :alt="viewed?.name || ''">
+                <div class="who">
+                  <div class="caption">{{ viewIndex + 1 }} из {{ pool.length }}<template v-if="viewed?.product_id === optimal?.product_id"> · оптимальный</template></div>
+                  <div class="h4">{{ viewed?.name }}</div>
+                </div>
               </div>
               <button type="button" class="arrow" aria-label="Следующий робот" :disabled="pool.length < 2" @click="step(1)"><PhCaretRight :size="18" weight="bold" /></button>
+            </div>
+            <div class="film" role="listbox" aria-label="Роботы в сравнении">
+              <button
+                v-for="(hit, index) in pool"
+                :key="hit.product_id"
+                type="button"
+                class="frame"
+                :class="{ on: index === viewIndex, picked: hit.product_id === chosen?.product_id }"
+                role="option"
+                :aria-selected="index === viewIndex"
+                @click="viewIndex = index"
+              >
+                <img :src="photoFor(hit.image_url, hit.name, activeGroup.process_code)" :alt="hit.name">
+              </button>
             </div>
 
             <div v-if="!bars.length" class="caption">У этих роботов нет числовых характеристик для полосок.</div>
@@ -242,15 +293,33 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
 <style scoped>
 .waiting, .empty { padding: var(--space-10); display: grid; gap: 8px; justify-items: center; text-align: center; }
 .waiting > *, .empty > * { position: relative; z-index: 1; }
-.progress { margin: 0; }
+.lineup .line-in { position: relative; z-index: 1; padding: var(--space-5); display: grid; gap: 12px; }
+.lineup ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.lineup li { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; }
+.lineup .strong { color: var(--ink-strong); text-align: right; }
 .arena { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: var(--space-4); align-items: start; outline: none; }
 .arena:focus-visible { box-shadow: 0 0 0 2px var(--brand-400); border-radius: 18px; }
 .in { position: relative; z-index: 1; padding: var(--space-5); display: grid; gap: 12px; }
-.base img { width: 100%; height: 180px; object-fit: contain; border-radius: 16px; background: #e9eeec; }
+.portrait { width: 100%; height: 200px; object-fit: contain; border-radius: 18px; background:
+  radial-gradient(120% 80% at 50% 100%, rgba(255, 255, 255, 0.9), transparent 55%),
+  linear-gradient(180deg, #f4f7f5 0%, #e4ebe7 100%);
+  box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06);
+}
 .base .h3 { margin: 0; }
+.optimal { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center; padding-top: 8px; border-top: 1px solid var(--border-hairline); }
+.optimal img { width: 56px; height: 44px; object-fit: contain; border-radius: 10px; background: #e9eeec; }
+.optimal span { display: grid; gap: 2px; min-width: 0; }
+.optimal .body-sm { color: var(--ink-strong); }
 .stat-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.stage { display: grid; gap: 10px; min-width: 0; }
+.stage .portrait { height: 220px; }
 .who { display: grid; gap: 2px; min-width: 0; }
 .who .h4 { margin: 0; }
+.film { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
+.frame { flex: 0 0 auto; width: 84px; height: 64px; padding: 6px; border-radius: 14px; background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.08); }
+.frame img { width: 100%; height: 100%; object-fit: contain; }
+.frame.on { background: #fff; box-shadow: inset 0 0 0 2px var(--brand-400); }
+.frame.picked:not(.on) { box-shadow: inset 0 0 0 1px var(--brand-700); }
 .arrow { width: 40px; height: 40px; border-radius: 12px; background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--border-hairline); }
 .arrow:disabled { opacity: 0.4; }
 .meter { display: grid; gap: 6px; }

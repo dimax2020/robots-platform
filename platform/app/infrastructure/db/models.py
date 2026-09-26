@@ -123,6 +123,24 @@ class ProjectRow(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False)
     object_type_id: Mapped[int] = mapped_column(ForeignKey("object_type.id"), nullable=False)
     site: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    economy_overrides: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+class EconomyNormRow(Base):
+    __tablename__ = "economy_norm"
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[float] = mapped_column(Numeric, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class EconomyNormLogRow(Base):
+    __tablename__ = "economy_norm_log"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(Text, nullable=False)
+    old_value: Mapped[float | None] = mapped_column(Numeric)
+    new_value: Mapped[float] = mapped_column(Numeric, nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class ProjectProcessRow(Base):

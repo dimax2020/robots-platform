@@ -41,7 +41,7 @@ export function usePlatformCompare(projectId: Ref<string>) {
     }
   }
 
-  onMounted(read)
+  read()
   watch(projectId, read)
   watch(store, (value) => {
     if (!import.meta.client || !projectId.value) return
@@ -79,6 +79,14 @@ export function usePlatformCompare(projectId: Ref<string>) {
     return pool.find((hit) => hit.verdict === 'pass')?.product_id ?? pool[0]?.product_id ?? ''
   }
 
+  const remainingHit = (group: MatchGroup) => {
+    const pool = includedHits(group)
+    const picked = pool.find((hit) => hit.product_id === chosenId(group))
+    if (picked) return picked
+    if (!group.best_product_id) return null
+    return group.hits.find((hit) => hit.product_id === group.best_product_id) ?? null
+  }
+
   const choose = (process: string, productId: string) => {
     store.value = {
       ...store.value,
@@ -89,5 +97,7 @@ export function usePlatformCompare(projectId: Ref<string>) {
 
   const isConfirmed = (process: string) => Boolean(store.value.confirmed[process])
 
-  return { inCompare, toggleCompare, includedHits, chosenId, choose, isConfirmed }
+  const choices = computed(() => ({ ...store.value.chosen }))
+
+  return { inCompare, toggleCompare, includedHits, chosenId, remainingHit, choose, isConfirmed, choices }
 }

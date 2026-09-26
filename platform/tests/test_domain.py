@@ -1,3 +1,5 @@
+import pytest
+
 from app.application.assign_processes import classify
 from app.domain.csv_parse import parse_catalog_csv, parse_manual_csv, parse_price
 from app.domain.specs import expand_known_specs
@@ -99,6 +101,125 @@ def test_mode_count_in_a_sentence_is_not_productivity():
     )
     assert status == "bad"
     assert detail == "proizvoditelnost"
+
+
+_BARE = {
+    "infra_pct": 0, "software_pct": 0, "integration_pct": 0, "commissioning_pct": 0, "training_pct": 0, "reserve_pct": 0,
+    "service_pct": 0, "license_pct": 0, "energy_kwh": 0, "replacement_pct": 100, "raas_rate_pct": 2,
+}
+
+
+def _scenario(result, key):
+    return next(item for item in result["scenarios"] if item["key"] == key)
+
+
+def test_economy_skips_missing_price_and_uses_one_robot_without_count():
+    from app.domain.economy import NO_COUNT, NO_PRICE, calculate
+
+    result = calculate(
+        [
+            {"process_code": "a", "process_name": "Паллеты", "product_id": "1", "name": "С ценой", "price_rub": 100_000, "count": 2},
+            {"process_code": "b", "process_name": "Мойка", "product_id": "2", "name": "Без количества", "price_rub": 50_000, "count": None},
+            {"process_code": "c", "process_name": "Фасад", "product_id": "3", "name": "Без цены", "price_rub": None, "count": 4},
+        ],
+        {"pickers_count": 2, "picker_salary_month_rub": 10_000, "payroll_burden": 1},
+        standard=_BARE,
+    )
+    by_name = {row["name"]: row for row in result["fleet"]}
+    assert by_name["Без цены"]["included"] is False
+    assert by_name["Без цены"]["note"] == NO_PRICE
+    assert by_name["Без цены"]["cost_rub"] is None
+    assert by_name["Без количества"]["count_used"] == 1
+    assert by_name["Без количества"]["note"] == NO_COUNT
+    assert by_name["Без количества"]["cost_rub"] == 50_000
+
+    buy = _scenario(result, "purchase")
+    assert buy["capex"]["value"] == 250_000
+    assert buy["opex"]["value"] == pytest.approx(7_000)
+    assert result["payroll"]["value"] == 240_000
+    assert buy["effect"]["value"] == pytest.approx(233_000)
+    assert result["horizon_years"] == 5
+    assert buy["payback"]["value"] == pytest.approx(250_000 / 233_000)
+    assert buy["roi"]["value"] == pytest.approx(466)
+    assert buy["tco"]["value"] == pytest.approx(250_000 + 7_000 * 5)
+
+    base = _scenario(result, "asis")
+    assert base["tco"]["value"] == 240_000 * 5
+    assert base["years"][0]["cost_rub"] == 240_000
+
+    rent = _scenario(result, "raas")
+    assert rent["capex"]["value"] == 0
+    assert rent["opex"]["value"] == pytest.approx(250_000 * 0.02 * 12 + 250_000 * 0.003)
+    assert rent["payback"]["value"] is None
+
+
+def test_economy_standard_capex_extras_opex_and_rent():
+    from app.domain.economy import calculate
+
+    result = calculate(
+        [{"process_code": "a", "process_name": "A", "name": "A", "price_rub": 1_000_000, "count": 10}],
+        {
+            "pickers_count": 10, "picker_salary_month_rub": 100_000, "forklift_salary_month_rub": 100_000, "payroll_burden": 1,
+            "shift_hours": 8, "shifts_per_day": 2, "days_year": 250,
+        },
+    )
+    buy = _scenario(result, "purchase")
+    subtotal = 10_000_000 * (1 + 0.115 + 0.091 + 0.137 + 0.064 + 0.017)
+    capex = subtotal * 1.06
+    energy = 10 * 0.9 * 4_000 * 7.2
+    opex = 10_000_000 * (0.08 + 0.049 + 0.003 + 0.01 + 0.015) + energy + 1_200_000
+    saving = 12_000_000 * 0.63
+    assert buy["capex"]["value"] == pytest.approx(capex)
+    assert buy["opex"]["value"] == pytest.approx(opex)
+    assert buy["payroll_after"]["value"] == pytest.approx(12_000_000 * 0.37)
+    assert buy["effect"]["value"] == pytest.approx(saving - opex)
+    assert buy["payback"]["value"] == pytest.approx(capex / (saving - opex))
+
+    rent = _scenario(result, "raas")
+    rent_capex = 10_000_000 * (0.115 + 0.137 + 0.064 + 0.017) * 1.06
+    rent_opex = 10_000_000 * 0.022 * 12 + energy + 10_000_000 * 0.003 + 1_200_000
+    assert rent["capex"]["value"] == pytest.approx(rent_capex)
+    assert rent["opex"]["value"] == pytest.approx(rent_opex)
+    assert rent["payback"]["value"] == pytest.approx(rent_capex / (saving - rent_opex))
+    assert all(item["tex"] for item in buy["capex_lines"] + buy["opex_lines"])
+    assert result["sensitivity"]
+
+
+def test_economy_project_value_beats_standard_and_site_beats_norm():
+    from app.domain.economy import calculate
+
+    result = calculate(
+        [{"process_code": "a", "process_name": "A", "name": "A", "price_rub": 10, "count": 1}],
+        {"payback_years": 7, "energy_tariff_rub_kwh": 9},
+        standard={"service_pct": 5},
+        overrides={"service_pct": 12},
+    )
+    params = {item["key"]: item for item in result["params"]}
+    assert params["service_pct"]["value"] == 12
+    assert params["service_pct"]["standard"] == 5
+    assert params["service_pct"]["source"] == "project"
+    assert params["energy_tariff"]["value"] == 9
+    assert params["energy_tariff"]["source"] == "site"
+    assert result["horizon_years"] == 7
+    assert _scenario(result, "purchase")["payback"]["value"] is None
+
+
+def test_economy_payroll_falls_back_to_task_staff():
+    from app.domain.economy import calculate
+
+    result = calculate(
+        [{"process_code": "a", "process_name": "A", "name": "A", "price_rub": 10, "count": 1}],
+        {"staff_salary_year_rub": 1_000_000},
+        tasks=[{"staff_fte_now": 20}, {"staff_fte_now": None}],
+    )
+    assert result["payroll"]["value"] == 20_000_000
+
+
+def test_economy_load_scales_only_daily_flows():
+    from app.domain.economy import scale_load
+
+    site = scale_load({"inbound_pallets_per_day": 1000, "pick_lines_per_day": 10, "area_m2": 500}, 150)
+    assert site == {"inbound_pallets_per_day": 1500, "pick_lines_per_day": 15, "area_m2": 500}
 
 
 def test_pallet_fleet_uses_speed_and_daily_flow():

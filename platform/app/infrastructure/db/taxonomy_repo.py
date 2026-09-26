@@ -3,11 +3,14 @@ from uuid import UUID, uuid4
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 
+from app.domain.economy import NORM_BY_KEY, NORMS, calculate, scale_load
 from app.domain.formula import _number, identifiers
 from app.domain.specs import CANON_LABELS
 from app.domain.match import FilterRule, RobotView, match_robots, robot_count, usage_for
 from app.infrastructure.db.models import (
     AttributeDefRow,
+    EconomyNormLogRow,
+    EconomyNormRow,
     IndustryRow,
     ObjectIndustryRow,
     ObjectInputBindingRow,
@@ -384,6 +387,7 @@ def project_view(db: Session, project_id: UUID) -> dict:
         "name": project.name,
         "object_code": obj.code if obj else None,
         "site": project.site,
+        "economy_overrides": project.economy_overrides or {},
         "processes": processes,
     }
 
@@ -462,6 +466,136 @@ def run_match(db: Session, project_id: UUID, site: dict | None = None) -> dict:
             ],
         })
     return {"project_id": str(project.id), "groups": groups}
+
+
+def economy_standards(db: Session) -> dict[str, float]:
+    return {row.key: float(row.value) for row in db.scalars(select(EconomyNormRow))}
+
+
+def economy_norms(db: Session) -> list[dict]:
+    stored = economy_standards(db)
+    updated = {row.key: row.updated_at for row in db.scalars(select(EconomyNormRow))}
+    items = []
+    for norm in NORMS:
+        items.append({
+            "key": norm.key,
+            "group": norm.group,
+            "label": norm.label,
+            "symbol": norm.symbol,
+            "unit": norm.unit,
+            "value": stored.get(norm.key, norm.value),
+            "default": norm.value,
+            "rationale": norm.rationale,
+            "origin": norm.source,
+            "min": norm.min,
+            "max": norm.max,
+            "step": norm.step,
+            "updated_at": updated[norm.key].isoformat() if norm.key in updated and updated[norm.key] else None,
+        })
+    return items
+
+
+def save_economy_norms(db: Session, values: dict[str, float], note: str) -> list[dict]:
+    current = economy_standards(db)
+    for key, raw in values.items():
+        norm = NORM_BY_KEY.get(key)
+        if norm is None:
+            continue
+        value = float(raw)
+        old = current.get(key, norm.value)
+        if abs(old - value) < 1e-12:
+            continue
+        row = db.get(EconomyNormRow, key)
+        if row is None:
+            db.add(EconomyNormRow(key=key, value=value))
+        else:
+            row.value = value
+        db.add(EconomyNormLogRow(key=key, old_value=old, new_value=value, note=note))
+    db.commit()
+    return economy_norms(db)
+
+
+def economy_norm_log(db: Session, limit: int = 50) -> list[dict]:
+    rows = db.scalars(select(EconomyNormLogRow).order_by(EconomyNormLogRow.at.desc(), EconomyNormLogRow.id.desc()).limit(limit))
+    return [
+        {
+            "key": row.key,
+            "label": NORM_BY_KEY[row.key].label if row.key in NORM_BY_KEY else row.key,
+            "unit": NORM_BY_KEY[row.key].unit if row.key in NORM_BY_KEY else "",
+            "old_value": float(row.old_value) if row.old_value is not None else None,
+            "new_value": float(row.new_value),
+            "note": row.note,
+            "at": row.at.isoformat() if row.at else None,
+        }
+        for row in rows
+    ]
+
+
+def save_economy_overrides(db: Session, project_id: UUID, values: dict) -> dict:
+    project = db.get(ProjectRow, project_id)
+    if project is None:
+        raise KeyError(str(project_id))
+    clean = {key: float(value) for key, value in (values or {}).items() if key in NORM_BY_KEY and value is not None}
+    project.economy_overrides = clean
+    db.commit()
+    return clean
+
+
+def project_economy(
+    db: Session,
+    project_id: UUID,
+    site: dict | None,
+    choices: dict[str, str] | None,
+    tasks: list[dict] | None = None,
+    preview: dict | None = None,
+) -> dict:
+    project = db.get(ProjectRow, project_id)
+    if project is None:
+        raise KeyError(str(project_id))
+    site = site if site is not None else (project.site or {})
+    overrides = dict(preview) if preview is not None else dict(project.economy_overrides or {})
+    standard = economy_standards(db)
+    load = overrides.get("load_factor", standard.get("load_factor", NORM_BY_KEY["load_factor"].value))
+    matched = run_match(db, project_id, scale_load(site, float(load)))
+    picked = []
+    for group in matched["groups"]:
+        hit = _economy_hit(group, (choices or {}).get(group["process_code"]))
+        if hit is not None:
+            picked.append((group, hit))
+    ids = [UUID(hit["product_id"]) for _group, hit in picked]
+    attrs = {str(row.id): _values(row) for row in db.scalars(select(ProductRow).where(ProductRow.id.in_(ids)))} if ids else {}
+    rows = []
+    for group, hit in picked:
+        values = attrs.get(hit["product_id"], {})
+        raas = str(values.get("raas_available", "")).strip().lower() in {"true", "да", "yes", "1"}
+        rows.append({
+            "process_code": group["process_code"],
+            "process_name": group["process_name"],
+            "product_id": hit["product_id"],
+            "name": hit["name"],
+            "slug": hit["slug"],
+            "image_url": hit.get("image_url"),
+            "price_rub": values.get("price_rub"),
+            "count": hit.get("count"),
+            "power_w": _number(values.get("power_watt")) if values.get("power_watt") is not None else None,
+            "raas_available": raas,
+        })
+    report = calculate(rows, site, standard=standard, overrides=overrides, tasks=tasks)
+    report["project_id"] = matched["project_id"]
+    report["saved_overrides"] = project.economy_overrides or {}
+    return report
+
+
+def _economy_hit(group: dict, chosen_id: str | None) -> dict | None:
+    hits = group.get("hits") or []
+    if chosen_id:
+        found = next((hit for hit in hits if hit["product_id"] == chosen_id), None)
+        if found is not None:
+            return found
+    best = group.get("best_product_id")
+    if best:
+        return next((hit for hit in hits if hit["product_id"] == best), None)
+    return None
 
 
 _COMPARE_SPECS = (

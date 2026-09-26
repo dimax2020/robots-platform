@@ -13,13 +13,18 @@ from app.infrastructure.db.taxonomy_repo import (
     assign_processes,
     attributes,
     create_project,
+    economy_norm_log,
+    economy_norms,
     mark_unused,
     process_setup,
+    project_economy,
     project_view,
     replace_filters,
     robot_attributes,
     run_match,
     object_setup,
+    save_economy_norms,
+    save_economy_overrides,
     save_object,
     save_object_setup,
     save_process_setup,
@@ -95,6 +100,22 @@ class ProcessSetupIn(BaseModel):
 
 class MatchIn(BaseModel):
     site: dict = Field(default_factory=dict)
+
+
+class EconomyIn(BaseModel):
+    site: dict | None = None
+    choices: dict[str, str] = Field(default_factory=dict)
+    tasks: list[dict] = Field(default_factory=list)
+    preview: dict[str, float] | None = None
+
+
+class OverridesIn(BaseModel):
+    values: dict[str, float] = Field(default_factory=dict)
+
+
+class NormsIn(BaseModel):
+    values: dict[str, float]
+    note: str = ""
 
 
 class AssignIn(BaseModel):
@@ -341,3 +362,40 @@ def match_project(project_id: UUID, body: MatchIn | None = None) -> dict:
             return run_match(db, project_id, site=None if body is None else body.site)
         except KeyError:
             raise HTTPException(404, "Проект не найден") from None
+
+
+@app.post("/api/v1/projects/{project_id}/economy")
+def economy_project(project_id: UUID, body: EconomyIn | None = None) -> dict:
+    body = body or EconomyIn()
+    with session_factory()() as db:
+        try:
+            return project_economy(db, project_id, body.site, body.choices, body.tasks, body.preview)
+        except KeyError:
+            raise HTTPException(404, "Проект не найден") from None
+
+
+@app.put("/api/v1/projects/{project_id}/economy/overrides")
+def economy_overrides(project_id: UUID, body: OverridesIn) -> dict:
+    with session_factory()() as db:
+        try:
+            return {"values": save_economy_overrides(db, project_id, body.values)}
+        except KeyError:
+            raise HTTPException(404, "Проект не найден") from None
+
+
+@app.get("/api/v1/economy/norms")
+def economy_norm_list() -> dict:
+    with session_factory()() as db:
+        return {"items": economy_norms(db)}
+
+
+@app.put("/api/v1/admin/economy/norms")
+def economy_norm_save(body: NormsIn) -> dict:
+    with session_factory()() as db:
+        return {"items": save_economy_norms(db, body.values, body.note)}
+
+
+@app.get("/api/v1/admin/economy/norms/log")
+def economy_norm_history() -> dict:
+    with session_factory()() as db:
+        return {"items": economy_norm_log(db)}

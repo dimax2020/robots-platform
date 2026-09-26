@@ -2,7 +2,7 @@
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
-  css: ['~/assets/css/main.css'],
+  css: ['katex/dist/katex.min.css', '~/assets/css/main.css'],
   runtimeConfig: {
     // Адрес для SSR. По умолчанию через traefik на :80 — единственный порт, опубликованный
     // на хост, поэтому `bun run dev` работает без правок. В compose переопределяется на
