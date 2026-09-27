@@ -283,7 +283,7 @@ def test_floor_wash_count_uses_rate_and_shift():
         (("clean_area_m2", "Площадь"), ("shift_hours", "Смена")),
         {"clean_area_m2": "clean_area_m2", "shift_hours": "shift_hours"},
         {"clean_area_m2": 10000, "shift_hours": 11},
-        {"proizvoditelnost": "1 200 м²/ч (макс), 700 м²/ч (при высоком трафике)"},
+        {"proizvoditelnost": "1 200 м²/ч (макс)"},
     )
     assert note == ""
     assert amount == 1

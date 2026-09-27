@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.domain.specs import normalize_value, upper_bound_text
+
 import math
 import re
 
@@ -57,7 +59,8 @@ def build_env(
         raw = robot.get(bare)
         if raw is None or raw == "":
             return "missing", {}, bare
-        number = _number(raw)
+        normalized = normalize_value(bare, raw)
+        number = _number(normalized[1] if normalized else raw)
         if number is None:
             return "bad", {}, bare
         env[name] = number
@@ -72,14 +75,16 @@ def _number(raw: object) -> float | None:
     if isinstance(raw, bool):
         return 1.0 if raw else 0.0
     if isinstance(raw, (int, float)):
-        return float(raw)
-    compact = re.sub(r"(?<=\d)\s+(?=\d)", "", str(raw).strip()).replace(",", ".")
-    if not re.fullmatch(r"-?\d+(?:\.\d+)?", compact) and _UNIT.search(compact) is None:
+        return float(raw) if math.isfinite(raw) else None
+    compact = re.sub(r"(?<=\d)\s+(?=\d)", "", upper_bound_text(str(raw))).replace(",", ".")
+    if re.fullmatch(r"[+-]?\d+(?:\.\d+)?", compact):
+        number = float(compact)
+        return number if math.isfinite(number) else None
+    # Поддерживаем старые строки с одной величиной, но не диапазоны/ограничения.
+    match = re.fullmatch(r"([+-]?\d+(?:\.\d+)?)\s*([а-яa-z²/ .]+?)(?:\s*\(макс\))?", compact, re.IGNORECASE)
+    if match is None or _UNIT.search(match[2]) is None:
         return None
-    match = re.search(r"\d+(?:\.\d+)?", compact)
-    if match is None:
-        return None
-    return float(match.group(0))
+    return float(match[1])
 
 
 def evaluate(formula: str, env: dict) -> bool | float:

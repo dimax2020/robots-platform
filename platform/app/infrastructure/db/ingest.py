@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.domain.csv_parse import slugify
 from app.domain.match import OverlayRow, ParsedRecord
-from app.domain.specs import expand_known_specs
+from app.domain.specs import definitions, display_label, normalize_attrs
 from app.infrastructure.db.models import AttributeDefRow, ProductOriginRow, ProductRow, SourceRow
 
 
@@ -28,8 +28,6 @@ def ingest_records(db: Session, records: list[ParsedRecord]) -> IngestCounters:
     taken = set(db.scalars(select(ProductRow.slug)).all())
     by_name = _names(db)
     for record in records:
-        attributes, labels = expand_known_specs(record.attributes, record.attribute_labels)
-        record = ParsedRecord(**{**record.__dict__, "attributes": attributes, "attribute_labels": labels})
         origin = db.get(ProductOriginRow, (record.platform, record.external_id))
         source_id = _source_id(db, record.source_kind, record.source_publisher, record.source_url, record.parser_code)
         _ensure_attrs(db, record.attributes, record.attribute_labels)
@@ -38,6 +36,7 @@ def ingest_records(db: Session, records: list[ParsedRecord]) -> IngestCounters:
             if existing is not None and len(existing) == 1:
                 product = existing[0]
                 _fill_product(product, record, source_id)
+                product.attrs = _normalized(db, product.attrs, record.attribute_labels)
                 db.add(ProductOriginRow(platform=record.platform, external_id=record.external_id, product_id=product.id))
                 counters.updated += 1
                 continue
@@ -53,7 +52,7 @@ def ingest_records(db: Session, records: list[ParsedRecord]) -> IngestCounters:
                 image_url=record.image_url,
                 summary=record.summary,
                 raw_catalog=record.raw,
-                attrs=_pack_attrs(record.attributes, source_id),
+                attrs=_normalized(db, _pack_attrs(record.attributes, source_id), record.attribute_labels),
                 column_sources=_column_sources(record, source_id),
             )
             db.add(product)
@@ -67,6 +66,7 @@ def ingest_records(db: Session, records: list[ParsedRecord]) -> IngestCounters:
             counters.skipped += 1
             continue
         _fill_product(product, record, source_id)
+        product.attrs = _normalized(db, product.attrs, record.attribute_labels)
         counters.updated += 1
     db.commit()
     return counters
@@ -90,7 +90,9 @@ def overlay_rows(db: Session, rows: list[OverlayRow]) -> IngestCounters:
             attrs[row.attr_key] = {"status": row.status or "unknown", "value": None, "source_id": source_id, "quote": row.quote}
         else:
             attrs[row.attr_key] = {"status": "known", "value": row.value, "source_id": source_id, "quote": row.quote}
-        product.attrs = attrs
+        if row.unit:
+            attrs[row.attr_key]["unit"] = row.unit
+        product.attrs = _normalized(db, attrs, {row.attr_key: row.label})
         product.updated_at = datetime.now(timezone.utc)
         counters.updated += 1
     db.commit()
@@ -109,33 +111,39 @@ def _names(db: Session) -> dict[str, list[ProductRow]]:
     return grouped
 
 
+def normalize_stored(db: Session) -> dict:
+    """Идемпотентная обработка существующей БД; транзакцией управляет вызывающий код."""
+    from app.application.reference_data import _seed_attribute_meta
+    _seed_attribute_meta(db)
+    report = {"products": 0, "changed": 0, "issues": []}
+    for product in db.scalars(select(ProductRow).order_by(ProductRow.slug)):
+        report["products"] += 1
+        issues = []
+        normalized = _normalized(db, product.attrs or {}, {}, issues)
+        report["issues"].extend({"slug": product.slug, **issue} for issue in issues)
+        if normalized != product.attrs:
+            product.attrs = normalized
+            product.updated_at = datetime.now(timezone.utc)
+            report["changed"] += 1
+    db.flush()
+    return report
+
+
 def canonicalize_stored(db: Session) -> int:
-    """Дописать канонические поля в уже сохранённые характеристики парсеров."""
-    labels = {row.key: row.label for row in db.scalars(select(AttributeDefRow))}
-    changed = 0
-    for product in db.scalars(select(ProductRow)):
-        raw = {
-            key: str(item.get("value"))
-            for key, item in (product.attrs or {}).items()
-            if item.get("status") == "known" and item.get("value") not in (None, "")
-        }
-        expanded, new_labels = expand_known_specs(raw, labels)
-        attrs = dict(product.attrs or {})
-        added = False
-        for key, value in expanded.items():
-            if key in attrs:
-                continue
-            source_id = next((item.get("source_id") for item in attrs.values() if item.get("source_id")), None)
-            attrs[key] = {"status": "known", "value": value, "source_id": source_id, "quote": None}
-            added = True
-        if not added:
-            continue
-        _ensure_attrs(db, {key: expanded[key] for key in expanded if key not in labels}, new_labels)
-        product.attrs = attrs
-        product.updated_at = datetime.now(timezone.utc)
-        changed += 1
+    report = normalize_stored(db)
     db.commit()
-    return changed
+    return report["changed"]
+
+
+def _normalized(db: Session, attrs: dict, labels: dict, issues: list | None = None) -> dict:
+    meta = {row.key: row for row in db.scalars(select(AttributeDefRow))}
+    names = {key: row.label for key, row in meta.items()}
+    names.update({key: label for key, label in labels.items() if label and label != key})
+    normalized, found = normalize_attrs(attrs, names, {key: row.unit for key, row in meta.items()})
+    _ensure_attrs(db, normalized, names)
+    if issues is not None:
+        issues.extend(found)
+    return normalized
 
 
 def _new_id(record: ParsedRecord) -> UUID:
@@ -168,10 +176,20 @@ def _source_id(db: Session, kind: str, publisher: str, url: str | None, parser_c
     return row.id
 
 
-def _ensure_attrs(db: Session, attributes: dict[str, str], labels: dict[str, str]) -> None:
+def _ensure_attrs(db: Session, attributes: dict, labels: dict[str, str]) -> None:
     for key in attributes:
-        if db.get(AttributeDefRow, key) is None:
-            db.add(AttributeDefRow(key=key, label=labels.get(key) or key, usage="pending"))
+        spec = definitions().get(key, {})
+        row = db.get(AttributeDefRow, key)
+        if row is None:
+            label = display_label(key, labels.get(key))
+            if label == key and re.fullmatch(r"[a-z][a-z0-9_]*", key):
+                raise ValueError(f"Для новой характеристики {key!r} требуется понятная подпись label или запись в справочнике")
+            row = AttributeDefRow(key=key, label=label, usage="pending",
+                                  unit=spec.get("unit"), group_code=spec.get("group_code", ""),
+                                  datatype=spec.get("datatype", "text"), sort=spec.get("sort", 1000))
+            db.add(row)
+        elif not row.label or row.label == key:
+            row.label = display_label(key, labels.get(key))
     db.flush()
 
 

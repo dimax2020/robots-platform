@@ -155,8 +155,9 @@ def parse_manual_csv(text: str) -> list[OverlayRow]:
             OverlayRow(
                 product_slug=slug,
                 attr_key=key,
-                label=key,
+                label=(row.get("label") or key).strip(),
                 value=(row.get("value") or "").strip(),
+                unit=(row.get("unit") or "").strip() or None,
                 status=(row.get("status") or "known").strip() or "known",
                 source_kind=(row.get("source_kind") or "dealer").strip() or "dealer",
                 source_url=(row.get("source_url") or "").strip() or None,

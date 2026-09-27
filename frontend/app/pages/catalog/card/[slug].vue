@@ -2,11 +2,12 @@
 import { PhArrowLeft } from '@phosphor-icons/vue'
 import { platformGet } from '~/composables/usePlatform'
 import { formatRub, availabilityLabel, type Availability } from '~/data/catalog'
+import { formatAttributeValue } from '~/data/attributeValue'
 import { photoFor } from '~/data/placeholders'
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-interface Attr { key: string; label?: string; status: string; value: string | number | null; quote: string | null; source: { kind: string; publisher: string; url: string | null; parser_code: string | null } | null }
+interface Attr { approximate?: boolean; condition?: string | null; unit?: string | null; key: string; label?: string; status: string; value: string | number | null; quote: string | null; source: { kind: string; publisher: string; url: string | null; parser_code: string | null } | null }
 interface Card {
   name: string
   manufacturer: string | null
@@ -88,7 +89,7 @@ onMounted(async () => {
         <div v-if="known.length" class="rows">
           <div v-for="attr in known" :key="attr.key" class="rowl">
             <span class="body-sm k">{{ attr.label || attr.key }}</span>
-            <span class="body-sm strong val">{{ attr.value }}</span>
+            <span class="body-sm strong val">{{ formatAttributeValue(attr.value, attr.unit, attr.approximate, attr.condition) }}</span>
             <span class="caption">{{ sourceOf(attr) }}</span>
           </div>
         </div>

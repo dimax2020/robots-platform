@@ -59,6 +59,11 @@ def _migrate(settings) -> None:
     cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
     cfg.set_main_option("sqlalchemy.url", settings.database_url)
     command.upgrade(cfg, "head")
+    # Метаданные справочника обновляются и для непустой БД.
+    from app.application.reference_data import _seed_attribute_meta
+    with session_factory()() as db:
+        _seed_attribute_meta(db)
+        db.commit()
 
 
 def _restore(url: str, dump: Path) -> None:

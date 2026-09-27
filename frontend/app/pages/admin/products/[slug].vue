@@ -8,7 +8,7 @@ import { photoFor } from '~/data/placeholders'
 definePageMeta({ layout: 'admin', middleware: 'admin', pageTransition: false })
 
 interface Source { id: number; kind: string; publisher: string; url: string | null; title: string | null; parser_code: string | null }
-interface Attr { key: string; label: string; unit: string | null; group: string; datatype: string; sort: number; status: string; value: unknown; quote: string | null; fetched_at: string | null; confirmed: boolean; source: Source | null }
+interface Attr { approximate?: boolean; condition?: string | null; key: string; label: string; unit: string | null; group: string; datatype: string; sort: number; status: string; value: unknown; quote: string | null; fetched_at: string | null; confirmed: boolean; source: Source | null }
 interface Card {
   slug: string
   name: string
@@ -28,7 +28,7 @@ interface Card {
   quality: { completeness: number; filled: number; total: number; sources: number }
 }
 interface DictItem { key: string; label: string; unit: string | null; group: string; datatype: string; sort: number; products: number }
-interface Row { key: string; label: string; unit: string | null; group: string; sort: number; status: string; value: string; quote: string; confirmed: boolean; source: Source | null; fetched_at: string | null; initial: string; present: boolean }
+interface Row { approximate?: boolean; condition?: string | null; key: string; label: string; unit: string | null; group: string; sort: number; status: string; value: string; quote: string; confirmed: boolean; source: Source | null; fetched_at: string | null; initial: string; present: boolean }
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
@@ -71,7 +71,7 @@ const build = (data: Card) => {
   const next: Row[] = []
   for (const item of data.attrs) {
     if (item.key === 'region' || item.key === 'market_potential') continue
-    const row = { key: item.key, label: item.label, unit: item.unit, group: item.group, sort: item.sort, status: item.status, value: text(item.value), quote: item.quote ?? '', confirmed: item.confirmed, source: item.source, fetched_at: item.fetched_at, initial: '', present: true }
+    const row = { key: item.key, label: item.label, approximate: item.approximate, condition: item.condition, unit: item.unit, group: item.group, sort: item.sort, status: item.status, value: text(item.value), quote: item.quote ?? '', confirmed: item.confirmed, source: item.source, fetched_at: item.fetched_at, initial: '', present: true }
     row.initial = rowState(row)
     next.push(row)
   }
@@ -307,7 +307,7 @@ const sourceText = (item: Source | null | undefined) => (item ? `${sourceKindNam
       <div class="attrs">
         <div class="arow head caption"><span>Характеристика</span><span>Значение</span><span>Статус</span><span>Цитата</span><span>Источник</span></div>
         <div v-for="row in group.rows" :key="row.key" class="arow" :class="{ changed: rowState(row) !== row.initial, empty: !row.present && row.status !== 'known' }">
-          <span class="body-sm strong">{{ row.label }}<span v-if="row.unit" class="caption block">{{ row.unit }}</span></span>
+          <span class="body-sm strong">{{ row.label }}<span v-if="row.approximate || row.condition" class="caption block">{{ [row.approximate ? 'Приблизительно' : '', row.condition].filter(Boolean).join(' · ') }}</span><span v-if="row.unit" class="caption block">{{ row.unit }}</span></span>
           <input v-model="row.value" class="input" :class="{ 'input-mono': datatypeOf(row.key) === 'number' }" :disabled="row.status !== 'known'" :placeholder="row.status === 'known' ? '' : statusLabel[row.status]">
           <select v-model="row.status" class="select"><option v-for="(label, key) in statusLabel" :key="key" :value="key">{{ label }}</option></select>
           <span class="quote"><PhQuotes :size="14" weight="fill" /><input v-model="row.quote" class="input" placeholder="Цитата из источника"></span>

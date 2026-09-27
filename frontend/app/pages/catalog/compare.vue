@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { PhX, PhPlus } from '@phosphor-icons/vue'
 import { attrGroups, availabilityLabel, availabilityTone, formatRub, type Availability } from '~/data/catalog'
+import { formatAttributeValue } from '~/data/attributeValue'
 import { photoFor } from '~/data/placeholders'
 import { platformGet } from '~/composables/usePlatform'
 
@@ -8,6 +9,9 @@ useHead({ title: 'Сравнение решений' })
 const { picks, toggle } = useCompare()
 
 interface CardAttr {
+  approximate?: boolean
+  condition?: string | null
+  unit?: string | null
   key: string
   label: string
   group: string
@@ -67,7 +71,7 @@ const rows = computed(() => {
 const cell = (card: Card, key: string) => {
   const attr = card.attrs.find((item) => item.key === key)
   if (!attr || attr.status !== 'known' || attr.value == null || attr.value === '') return 'нет данных'
-  return String(attr.value)
+  return formatAttributeValue(attr.value, attr.unit, attr.approximate, attr.condition)
 }
 const toneOf = (raw: string | null): Availability => {
   if (raw === 'operation' || raw === 'piloting' || raw === 'rnd') return raw

@@ -189,6 +189,8 @@ def product_detail(db: Session, slug: str) -> dict:
     labels = _labels(db)
     attrs = []
     for key, raw in (row.attrs or {}).items():
+        if raw.get("alias_of"):
+            continue
         meta = defs.get(key)
         attrs.append({
             "key": key,
@@ -200,6 +202,8 @@ def product_detail(db: Session, slug: str) -> dict:
             "status": raw.get("status") or "unknown",
             "value": raw.get("value"),
             "quote": raw.get("quote"),
+            "approximate": bool(raw.get("approximate")),
+            "condition": raw.get("condition"),
             "fetched_at": raw.get("fetched_at"),
             "confirmed": bool(raw.get("confirmed")),
             "source": _source_view(sources.get(raw.get("source_id"))),
@@ -285,6 +289,7 @@ def patch_product(db: Session, slug: str, payload: dict) -> dict:
     for key, item in attrs_in.items():
         if item is None:
             attrs.pop(key, None)
+            attrs = {k: v for k, v in attrs.items() if v.get("alias_of") != key}
             continue
         status = item.get("status") or "known"
         value = item.get("value")
@@ -297,13 +302,18 @@ def patch_product(db: Session, slug: str, payload: dict) -> dict:
             "quote": (item.get("quote") or None),
             "fetched_at": today,
             "confirmed": bool(item.get("confirmed")),
+            **({"unit": item["unit"]} if item.get("unit") else {}),
         }
-        if db.get(AttributeDefRow, key) is None:
-            db.add(AttributeDefRow(key=key, label=item.get("label") or key, unit=item.get("unit") or None, usage="pending"))
+        from app.infrastructure.db.ingest import _ensure_attrs
+        _ensure_attrs(db, {key: value}, {key: item.get("label") or key})
+        definition = db.get(AttributeDefRow, key)
+        if item.get("unit") and not definition.unit:
+            definition.unit = item["unit"]
     for key, flag in (payload.get("confirm") or {}).items():
         if key in attrs:
             attrs[key] = {**attrs[key], "confirmed": bool(flag)}
-    row.attrs = attrs
+    from app.infrastructure.db.ingest import _normalized
+    row.attrs = _normalized(db, attrs, {key: item.get("label", key) for key, item in attrs_in.items() if item})
     if "solution_type" in payload:
         code = payload.get("solution_type")
         row.solution_type_id = db.scalar(select(SolutionTypeRow.id).where(SolutionTypeRow.code == code)) if code else None

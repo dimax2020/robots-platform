@@ -56,6 +56,31 @@
     { "key": "risks", "group_code": "applicability", "label": "Риски и ограничения", "datatype": "text", "sort": 700 },
     { "key": "not_to_confuse_with", "group_code": "applicability", "label": "Не путать с", "datatype": "text", "sort": 710 },
 
-    { "key": "ready_for_automatch", "group_code": "data_quality", "label": "Готов к автоподбору", "datatype": "bool", "sort": 800 }
+    { "key": "ready_for_automatch", "group_code": "data_quality", "label": "Готов к автоподбору", "datatype": "bool", "sort": 800 },
+    {"key": "max_speed_ms", "label": "Максимальная скорость", "unit": "м/с", "datatype": "number", "group_code": "technical", "sort": 155},
+    {"key": "robot_kind", "label": "Вид робота", "unit": null, "datatype": "text", "group_code": "identification", "sort": 50},
+    {"key": "country", "label": "Страна", "unit": null, "datatype": "text", "group_code": "identification", "sort": 50},
+    {"key": "robot_class", "label": "Тип робота", "unit": null, "datatype": "text", "group_code": "identification", "sort": 50},
+    {"key": "subtype", "label": "Подтип", "unit": null, "datatype": "text", "group_code": "identification", "sort": 50},
+    {"key": "scenario", "label": "Сценарий", "unit": null, "datatype": "text", "group_code": "identification", "sort": 50},
+    {"key": "industry_name", "label": "Отрасль", "unit": null, "datatype": "text", "group_code": "identification", "sort": 50},
+    {"key": "case_summary", "label": "Кейсы", "unit": null, "datatype": "text", "group_code": "identification", "sort": 50},
+    {"key": "market_potential", "label": "Рыночный потенциал", "unit": null, "datatype": "number", "group_code": "identification", "sort": 50},
+    {"key": "work_time_loaded_h", "label": "Время работы с полной нагрузкой", "unit": "ч", "datatype": "number", "group_code": "technical", "sort": 310},
+    {"key": "work_time_empty_h", "label": "Время работы без нагрузки", "unit": "ч", "datatype": "number", "group_code": "technical", "sort": 311},
+    {"key": "work_time_motion_h", "label": "Время непрерывного движения", "unit": "ч", "datatype": "number", "group_code": "technical", "sort": 312},
+    {"key": "work_time_cleaning_h", "label": "Время работы при уборке", "unit": "ч", "datatype": "number", "group_code": "technical", "sort": 313},
+    {"key": "work_time_dust_h", "label": "Время работы при уборке пыли", "unit": "ч", "datatype": "number", "group_code": "technical", "sort": 314},
+    {"key": "payload_static_kg", "label": "Статическая грузоподъёмность", "unit": "кг", "datatype": "number", "group_code": "technical", "sort": 315},
+    {"key": "payload_per_level_kg", "label": "Грузоподъёмность одного яруса", "unit": "кг", "datatype": "number", "group_code": "technical", "sort": 316},
+    {"key": "speed_cleaning_ms", "label": "Скорость при уборке", "unit": "м/с", "datatype": "number", "group_code": "technical", "sort": 317},
+    {"key": "speed_travel_ms", "label": "Скорость при обычном движении", "unit": "м/с", "datatype": "number", "group_code": "technical", "sort": 318},
+    {"key": "water_tank_l", "label": "Объём бака для воды", "unit": "л", "datatype": "number", "group_code": "technical", "sort": 319},
+    {"key": "clean_water_tank_l", "label": "Объём бака чистой воды", "unit": "л", "datatype": "number", "group_code": "technical", "sort": 320},
+    {"key": "dirty_water_tank_l", "label": "Объём бака грязной воды", "unit": "л", "datatype": "number", "group_code": "technical", "sort": 321},
+    {"key": "slope_max_deg", "label": "Максимальный угол подъёма", "unit": "°", "datatype": "number", "group_code": "technical", "sort": 322},
+    {"key": "charge_time_to_90_h", "label": "Время зарядки до 90%", "unit": "ч", "datatype": "number", "group_code": "technical", "sort": 323},
+    {"key": "work_time_at_20kg_h", "label": "Время работы с нагрузкой 20 кг", "unit": "ч", "datatype": "number", "group_code": "technical", "sort": 324},
+    {"key": "work_time_general_h", "label": "Автономность в неуточнённом режиме", "unit": "ч", "datatype": "number", "group_code": "technical", "sort": 330}
   ]
 }

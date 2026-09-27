@@ -49,6 +49,7 @@ class OverlayRow:
     source_kind: str
     source_url: str | None
     quote: str | None
+    unit: str | None = None
 
 
 @dataclass(frozen=True)

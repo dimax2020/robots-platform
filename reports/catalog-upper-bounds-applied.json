@@ -1,0 +1,733 @@
+{
+  "products": 555,
+  "changed": 58,
+  "issues": [
+    {
+      "slug": "bazovaya-robotizirovannaya-platforma-droneshub-frame",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "6"
+    },
+    {
+      "slug": "bazovaya-robotizirovannaya-platforma-droneshub-frame",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "8"
+    },
+    {
+      "slug": "bazovaya-robotizirovannaya-platforma-droneshub-frame-patrol",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "8"
+    },
+    {
+      "slug": "bazovaya-robotizirovannaya-platforma-droneshub-frame-patrol",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "6"
+    },
+    {
+      "slug": "bionicheskiy-robot-gumanoid-unitree-robotics-g1",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "2 кг 3 кг 3 кг 3 кг 3 кг"
+    },
+    {
+      "slug": "bionicheskiy-robot-gumanoid-unitree-robotics-g1",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "2 м/с 2 м/с 2 м/с 2 м/с 2 м/с"
+    },
+    {
+      "slug": "bionicheskiy-robot-gumanoid-unitree-robotics-g1",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "35кг 35кг 35кг 35кг 35кг"
+    },
+    {
+      "slug": "bionicheskiy-robot-gumanoid-unitree-robotics-g1",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "2 ч. 2 ч. 2 ч. 2 ч. 2 ч."
+    },
+    {
+      "slug": "bionicheskiy-robot-gumanoid-unitree-robotics-h1",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "примерно 47 кг"
+    },
+    {
+      "slug": "bionicheskiy-robot-gumanoid-unitree-robotics-h2",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "180 min 180 min"
+    },
+    {
+      "slug": "cleanbotics-400",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "Бак чистой воды 28 л, бак грязной воды 30 л"
+    },
+    {
+      "slug": "cleanbotics-600",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "Бак для воды 60 л"
+    },
+    {
+      "slug": "dobot-e6-roboter-inklusive-es01-saugnapf",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "лёгкие детали (в комплекте вакуумный захват ES01)"
+    },
+    {
+      "slug": "dobot-magician-lite-roboter",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~0,25 кг"
+    },
+    {
+      "slug": "dobot-rover-x1-explorer-roboterhund",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "высокая (колёса) + проходимость (ноги)"
+    },
+    {
+      "slug": "gausium-beetle-pro",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~3 ч"
+    },
+    {
+      "slug": "gausium-omnie",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~3 ч"
+    },
+    {
+      "slug": "gausium-phantas",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~3 ч"
+    },
+    {
+      "slug": "gausium-scrubber-50-pro",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~3 ч"
+    },
+    {
+      "slug": "gausium-scrubber-75",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~3 ч"
+    },
+    {
+      "slug": "gausium-vacuum-40",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~3 ч"
+    },
+    {
+      "slug": "ikitbot-one-pro-s55-pro-series",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~3 ч"
+    },
+    {
+      "slug": "interaktivnyy-robot-sobaka-petoi-bittle-x-v2",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "0.2"
+    },
+    {
+      "slug": "interaktivnyy-robot-sobaka-petoi-bittle-x-v2",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "2,5 длины корпуса в секунду"
+    },
+    {
+      "slug": "interaktivnyy-robot-sobaka-petoi-bittle-x-v2",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "0.28"
+    },
+    {
+      "slug": "interaktivnyy-robot-sobaka-petoi-bittle-x-v2",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "60"
+    },
+    {
+      "slug": "interaktivnyy-robot-sobaka-petoi-bittle-x-v2",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "120"
+    },
+    {
+      "slug": "kleenbot-c55-disc-brush-version-2d",
+      "key": "maksimalnaya_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "До 1.2 м/с при обычной езде и до 0.8 м/с при уборке"
+    },
+    {
+      "slug": "kleenbot-c55-roller-brush-version-2d",
+      "key": "maksimalnaya_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "До 1.2 м/с при обычной езде и до 0.8 м/с при уборке"
+    },
+    {
+      "slug": "orionstar-carrybot-2-lieferroboter",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "свыше 50 кг (открытые платформы)"
+    },
+    {
+      "slug": "orionstar-carrybot-2-lieferroboter",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~4 ч"
+    },
+    {
+      "slug": "orionstar-luckibot-lieferroboter",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "до 40 кг (3–4 подноса)"
+    },
+    {
+      "slug": "orionstar-luckibot-lieferroboter",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~4,5 ч"
+    },
+    {
+      "slug": "orionstar-luckibot-plus-service-roboter",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "несколько отсеков (запираемых/термо)"
+    },
+    {
+      "slug": "orionstar-luckibot-pro-autodoor-lieferroboter",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "до 60 кг (до 15 кг/уровень)"
+    },
+    {
+      "slug": "orionstar-luckibot-pro-lieferroboter",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "до 60 кг (до 15 кг/уровень)"
+    },
+    {
+      "slug": "patrulnaya-robotizirovannaya-platforma-droneshub-legat",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "10"
+    },
+    {
+      "slug": "patrulnaya-robotizirovannaya-platforma-droneshub-legat",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "6"
+    },
+    {
+      "slug": "pozharnyy-robot-citic-rxr-mc80bd",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "≥2,0 м/с, с бесступенчатым регулированием скорости с помощью дистанционного управления"
+    },
+    {
+      "slug": "pudu-bellabot-pro",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "до 40 кг (4 подноса, ~10 кг/уровень)"
+    },
+    {
+      "slug": "pudu-bellabot-pro-serviceroboter",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "до 40 кг (4 подноса, ~10 кг/уровень)"
+    },
+    {
+      "slug": "pudu-bg1-pro",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~3 ч"
+    },
+    {
+      "slug": "pudu-cc1",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "< 3 ч"
+    },
+    {
+      "slug": "pudu-cc1-pro-reinigungsroboter",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "< 3 ч"
+    },
+    {
+      "slug": "pudu-cc1-reinigungsroboter",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "< 3 ч"
+    },
+    {
+      "slug": "pudu-flashbot-max",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "вместительные запираемые отсеки"
+    },
+    {
+      "slug": "pudu-flashbot-max",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~4 ч"
+    },
+    {
+      "slug": "pudu-holabot",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "до 60 кг (вместительные подносы)"
+    },
+    {
+      "slug": "pudu-holabot",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~4 ч"
+    },
+    {
+      "slug": "pudu-kettybot",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~35 кг"
+    },
+    {
+      "slug": "pudu-kettybot",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~4 ч"
+    },
+    {
+      "slug": "pudu-kettybot-pro-serviceroboter",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~35 кг"
+    },
+    {
+      "slug": "pudu-kettybot-pro-serviceroboter",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~4 ч"
+    },
+    {
+      "slug": "pudu-mt1",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~3 ч"
+    },
+    {
+      "slug": "pudu-mt1-reinigungsroboter",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~3 ч"
+    },
+    {
+      "slug": "pudu-mt1-vac",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~3 ч"
+    },
+    {
+      "slug": "pudu-pudubot-2-lieferroboter-weiss",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "несколько подносов"
+    },
+    {
+      "slug": "pudu-pudubot-2-lieferroboter-weiss",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~55 кг"
+    },
+    {
+      "slug": "pudu-t300-lieferroboter",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "12 ч (без нагрузки) / 6 ч (полная)"
+    },
+    {
+      "slug": "pudu-t600-lieferroboter",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "до 600 кг (версия Underride — подъезд под стеллаж)"
+    },
+    {
+      "slug": "robot-agilex-bunker-pro",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "120"
+    },
+    {
+      "slug": "robot-agilex-scout-2-0",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "50"
+    },
+    {
+      "slug": "robot-agilex-scout-mini",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "10"
+    },
+    {
+      "slug": "robot-agilex-tracer",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "100"
+    },
+    {
+      "slug": "robot-gumanoid-booster-k1",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "до 40 минут при активной ходьбе"
+    },
+    {
+      "slug": "robot-gumanoid-noetix-robotics-hobbs",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "18 кг (из них ~3 кг — голова)"
+    },
+    {
+      "slug": "robot-keenon-s100",
+      "key": "minimalnaya_shirina_proezda",
+      "reason": "ambiguous_value_or_unit",
+      "value": "90 см (без поворота)"
+    },
+    {
+      "slug": "robot-oficiant-pudu-bellabot-pro",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "до 40 кг (10 кг на каждый из 4 подносов)"
+    },
+    {
+      "slug": "robot-oficiant-pudu-bellabot-pro",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "0,2–1,2 м/с (регулируемая)​"
+    },
+    {
+      "slug": "robot-oficiant-pudu-bellabot-pro",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "55 кг​"
+    },
+    {
+      "slug": "robot-petoi-bittle-stem-kit",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "около 1 ч"
+    },
+    {
+      "slug": "robot-pozharnyy-citic-rxr-m40d",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "10 часов Непрерывное движение 2,5 часа"
+    },
+    {
+      "slug": "robot-pudu-flashbot-max",
+      "key": "gruzopodemnost_maksimalnaya",
+      "reason": "ambiguous_value_or_unit",
+      "value": "10 кг/ярус"
+    },
+    {
+      "slug": "robot-pudu-kettybot-pro-belyy",
+      "key": "gruzopodemnost_maksimalnaya",
+      "reason": "ambiguous_value_or_unit",
+      "value": "10 кг/ярус"
+    },
+    {
+      "slug": "robot-uborschik-gausium-phantas",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "2,9 км / час"
+    },
+    {
+      "slug": "robot-uborschik-gausium-scrubber-50-pro",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "до 3,5 км/час"
+    },
+    {
+      "slug": "robot-uborschik-gausium-vacuum-40",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "0 ~ 3,2 км / ч"
+    },
+    {
+      "slug": "robot-uborschik-keenon-c30",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "до 6 часов Уборка пыли: до 10 часов"
+    },
+    {
+      "slug": "robot-uborschik-keenon-kleenbot-c55-roller-brush-version-2d",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "До 1.2 м/с при обычной езде и до 0,8 м/с при уборке"
+    },
+    {
+      "slug": "robot-unitree-go2-w",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "3 кг 3 кг"
+    },
+    {
+      "slug": "robot-unitree-go2-w",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "9 км/ч 9 км/ч"
+    },
+    {
+      "slug": "robot-unitree-go2-w",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "18 кг 18 кг"
+    },
+    {
+      "slug": "robot-unitree-go2-w",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "1.5-3 часа 1.5-3 часа"
+    },
+    {
+      "slug": "robotizirovannaya-elektricheskaya-platforma-droneshub-cargo-shell",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "6"
+    },
+    {
+      "slug": "robotizirovannaya-elektricheskaya-platforma-droneshub-cargo-shell",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "8"
+    },
+    {
+      "slug": "robotizirovannaya-elektricheskaya-platforma-droneshub-cargo-unit",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "8"
+    },
+    {
+      "slug": "robotizirovannaya-elektricheskaya-platforma-droneshub-cargo-unit",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "6"
+    },
+    {
+      "slug": "robotizirovannaya-elektricheskaya-platforma-droneshub-piranha",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "12"
+    },
+    {
+      "slug": "robotizirovannaya-elektricheskaya-platforma-droneshub-piranha",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "12"
+    },
+    {
+      "slug": "servisnyy-robot-dostavschik-pudu-kettybot-pro",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "10 кг/ярус"
+    },
+    {
+      "slug": "servisnyy-robot-dostavschik-pudu-pudubot",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "2-4 км/ч, Угол подъема 5°"
+    },
+    {
+      "slug": "servisnyy-robot-dostavschik-pudu-pudubot",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "10 часов, Зарядка 4 часа"
+    },
+    {
+      "slug": "servisnyy-robot-uborschik-pudu-mt1",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "4~8 ч (зависит от режима)"
+    },
+    {
+      "slug": "servisnyy-robot-uborschik-pudu-mt1-2",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "4~8 ч (зависит от режима)"
+    },
+    {
+      "slug": "servisnyy-robot-uborschik-pudu-mt1-vac",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "3~6,5 ч (Стандартный режим подметания/пылесоса для твердых поверхностей - 4 ч)"
+    },
+    {
+      "slug": "servisnyy-robot-uborschik-pudu-mt1-vac-2",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "3~6,5 ч (Стандартный режим подметания/пылесоса для твердых поверхностей - 4 ч)"
+    },
+    {
+      "slug": "servisnyy-robot-uborschik-pudu-robotics-mt1-max",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "5~10 ч (Стандартный режим 8 ч)"
+    },
+    {
+      "slug": "servisnyy-robot-uborschik-pudurobotics-mt1-max",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "5~10 ч (Стандартный режим 8 ч)"
+    },
+    {
+      "slug": "skladskoy-robot-pudu-t600",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "2 ч (с 0% до 90%)"
+    },
+    {
+      "slug": "skladskoy-robot-pudu-t600-2",
+      "key": "vremya_zaryadki",
+      "reason": "ambiguous_value_or_unit",
+      "value": "2 ч (с 0% до 90%)"
+    },
+    {
+      "slug": "skladskoy-robot-pudu-t600-underride",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "0,2–1,2 м/с (регулируемая)​"
+    },
+    {
+      "slug": "skladskoy-robot-pudu-t600-underride",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "94 кг​"
+    },
+    {
+      "slug": "skladskoy-robot-pudu-t600-underride",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "12 ч (без нагрузки), 6 ч (полная нагрузка)"
+    },
+    {
+      "slug": "ubtech-walker-s2",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~70 кг"
+    },
+    {
+      "slug": "ubtech-walker-tienkung",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~61–73 кг"
+    },
+    {
+      "slug": "unitree-b2-roboterhund",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "120 кг (стоя) / 40 кг (в движении)"
+    },
+    {
+      "slug": "unitree-b2-roboterhund",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "5 ч (без нагрузки) / 4 ч (с 20 кг)"
+    },
+    {
+      "slug": "unitree-b2-w-roboterhund",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "120 кг (стоя) / 40 кг (в движении)"
+    },
+    {
+      "slug": "unitree-b2-w-roboterhund",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "до 6 м/с (колёсно-шагающий)"
+    },
+    {
+      "slug": "unitree-b2-w-roboterhund",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~65 кг"
+    },
+    {
+      "slug": "unitree-g1-basic-humanoider-roboter",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "двуногая ходьба"
+    },
+    {
+      "slug": "unitree-g1-basic-humanoider-roboter",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~35 кг"
+    },
+    {
+      "slug": "unitree-g1-basic-humanoider-roboter",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~2 ч"
+    },
+    {
+      "slug": "unitree-g1-edu-humanoid-roboter",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~35 кг"
+    },
+    {
+      "slug": "unitree-g1-edu-humanoid-roboter",
+      "key": "vremya_raboty",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~2 ч"
+    },
+    {
+      "slug": "unitree-go2-edu-roboterhund",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~7–8 кг"
+    },
+    {
+      "slug": "unitree-go2-roboterhund",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~7–8 кг"
+    },
+    {
+      "slug": "unitree-go2-x",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "высокая, сложный рельеф"
+    },
+    {
+      "slug": "unitree-go2-x",
+      "key": "massa",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~15 кг"
+    },
+    {
+      "slug": "unitree-go2w-u1-roboterhund-standard-40tops",
+      "key": "gruzopodemnost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "~7–8 кг"
+    },
+    {
+      "slug": "unitree-go2w-u1-roboterhund-standard-40tops",
+      "key": "maks_skorost",
+      "reason": "ambiguous_value_or_unit",
+      "value": "высокая (колёсно-шагающий)"
+    }
+  ],
+  "applied": true
+}

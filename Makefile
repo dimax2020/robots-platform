@@ -68,3 +68,14 @@ parse:
 	docker compose run --rm parser python run.py --once
 	docker compose up -d api
 	docker compose restart api
+
+# Аудит новой платформы: по умолчанию БД не меняется.
+.PHONY: audit-platform normalize-platform
+audit-platform:
+	mkdir -p reports
+	docker compose run --rm --no-deps -v "$(CURDIR)/reports:/reports" platform-api python -m app.normalize_catalog --report /reports/catalog-normalization-audit.json
+
+# Применить те же правила к существующим карточкам с подробным отчётом.
+normalize-platform:
+	mkdir -p reports
+	docker compose run --rm --no-deps -v "$(CURDIR)/reports:/reports" platform-api python -m app.normalize_catalog --apply --report /reports/catalog-normalization-applied.json

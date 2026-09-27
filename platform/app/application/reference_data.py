@@ -131,16 +131,22 @@ def _seed_object_fields(db: Session) -> None:
 
 
 def _seed_attribute_meta(db: Session) -> None:
-    for row in _read("attributes.json").get("attributes") or []:
+    from app.domain.specs import definitions
+    for row in definitions().values():
         item = db.get(AttributeDefRow, row["key"])
-        if item is None or item.group_code:
+        if item is None:
+            item = AttributeDefRow(key=row["key"], label=row["label"], usage="pending",
+                                   group_code=row.get("group_code", ""), datatype=row.get("datatype", "text"),
+                                   sort=row.get("sort", 1000), unit=row.get("unit"))
+            db.add(item)
             continue
-        item.group_code = row.get("group_code") or ""
-        item.datatype = row.get("datatype") or "text"
-        item.sort = row.get("sort") or 1000
+        if not item.group_code:
+            item.group_code = row.get("group_code") or ""
+            item.datatype = row.get("datatype") or "text"
+            item.sort = row.get("sort") or 1000
         if row.get("unit") and not item.unit:
             item.unit = row["unit"]
-        if row.get("label") and item.label in ("", item.key):
+        if item.label in ("", item.key):
             item.label = row["label"]
     db.flush()
 

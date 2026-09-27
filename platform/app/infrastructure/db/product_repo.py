@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import func, select, tuple_
 from sqlalchemy.orm import Session
 
+from app.domain.specs import display_label
 from app.infrastructure.db.models import (
     ObjectProcessRow,
     ObjectTypeRow,
@@ -77,15 +78,20 @@ def get_product(db: Session, slug: str) -> dict | None:
     meta = {item.key: item for item in db.scalars(select(AttributeDefRow))}
     attrs = []
     for key, raw in (row.attrs or {}).items():
+        if raw.get("alias_of"):
+            continue
         source = sources.get(raw.get("source_id"))
         field = meta.get(key)
         attrs.append({
             "key": key,
-            "label": field.label if field else key,
+            "label": display_label(key, field.label if field else None),
+            "unit": raw.get("unit") if "unit" in raw else (field.unit if field else None),
             "group": field.group_code if field else "",
             "status": raw.get("status"),
             "value": raw.get("value"),
             "quote": raw.get("quote"),
+            "approximate": bool(raw.get("approximate")),
+            "condition": raw.get("condition"),
             "source": None if source is None else {
                 "kind": source.kind,
                 "publisher": source.publisher,
