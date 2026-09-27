@@ -6,7 +6,7 @@ from alembic import op
 from sqlalchemy.orm import Session
 
 revision = "0011_review_process_assignments"
-down_revision = "0010_attribute_upper_bounds"
+down_revision = "0011_demo_projects"
 branch_labels = None
 depends_on = None
 
