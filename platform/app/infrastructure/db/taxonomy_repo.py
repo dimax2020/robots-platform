@@ -1024,6 +1024,7 @@ def _economy_report(db: Session, matched: dict, site: dict, choices, tasks, over
         })
     meta = economy_meta(db)
     by_type, type_names = economy_type_norms(db)
+    standard = economy_standards(db)
     standard, type_meta = blend_by_type(standard, rows, by_type, type_names, meta)
     meta.update(type_meta)
     report = calculate(rows, site, standard=standard, overrides=overrides, tasks=tasks, meta=meta)
