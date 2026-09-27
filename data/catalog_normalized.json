@@ -2138,7 +2138,7 @@
     {
       "id": "5760e938-9a43-45a7-b8e8-f4f2e6383930",
       "slug": "ronavi-h1500-gruzopodemnost-do-1-500-kg",
-      "name": "Ronavi H1500 (грузоподъемность до 1 500 кг)",
+      "name": "Ronavi H1500",
       "manufacturer": "Ronavi Robotics",
       "legal_entity": "ООО «Ронави Роботикс»",
       "country": "Россия",
@@ -2174,7 +2174,7 @@
     {
       "id": "3f2aaa1b-2237-4d7b-b215-1ac5ec789ed5",
       "slug": "ronavi-sr-gruzopodemnost-do-50-kg",
-      "name": "Ronavi SR (грузоподъемность до 50 кг)",
+      "name": "Ronavi SR",
       "manufacturer": "Ronavi Robotics",
       "legal_entity": "ООО «Ронави Роботикс»",
       "country": "Россия",
@@ -2204,7 +2204,7 @@
     {
       "id": "6f3da854-41da-4363-8496-5487f37c845a",
       "slug": "ronavi-h2000-gruzopodemnost-do-2-000-kg",
-      "name": "Ronavi H2000 (грузоподъемность до 2 000 кг)",
+      "name": "Ronavi H2000",
       "manufacturer": "Ronavi Robotics",
       "legal_entity": "ООО «Ронави Роботикс»",
       "country": "Россия",
@@ -2236,7 +2236,7 @@
     {
       "id": "66d8e7ad-cdcd-4287-afb0-e2afa9ef5217",
       "slug": "ronavi-sd-gruzopodemnost-do-10-kg",
-      "name": "Ronavi SD (грузоподъемность до 10 кг)",
+      "name": "Ronavi SD",
       "manufacturer": "Ronavi Robotics",
       "legal_entity": "ООО «Ронави Роботикс»",
       "country": "Россия",
@@ -2266,7 +2266,7 @@
     {
       "id": "dcfd9975-81eb-49b5-a422-827a720ba582",
       "slug": "ronavi-m-gruzopodemnost-do-1200-kg",
-      "name": "Ronavi M (грузоподъемность до 1200 кг)",
+      "name": "Ronavi M",
       "manufacturer": "Ronavi Robotics",
       "legal_entity": "ООО «Ронави Роботикс»",
       "country": "Россия",
@@ -2296,7 +2296,7 @@
     {
       "id": "4d347e47-38f9-415b-aae1-7a6d3759a75c",
       "slug": "ronavi-rcm-gruzopodemnost-do-350-kg",
-      "name": "Ronavi RCM (грузоподъемность до 350 кг)",
+      "name": "Ronavi RCM",
       "manufacturer": "Ronavi Robotics",
       "legal_entity": "ООО «Ронави Роботикс»",
       "country": "Россия",
@@ -2326,7 +2326,7 @@
     {
       "id": "89ffd69f-f07b-4bf2-8023-1fd765a2b6ff",
       "slug": "amr-100-gruzopodemnost-do-100-kg",
-      "name": "AMR 100 (грузоподъемность до 100 кг)",
+      "name": "AMR 100",
       "manufacturer": "Moros",
       "legal_entity": "ООО «Морос»",
       "country": "Россия",
@@ -2356,7 +2356,7 @@
     {
       "id": "5ec66969-8fcc-47b3-b517-a9c29372fffe",
       "slug": "amr-800-gruzopodemnost-do-800-kg",
-      "name": "AMR 800 (грузоподъемность до 800 кг)",
+      "name": "AMR 800",
       "manufacturer": "Moros",
       "legal_entity": "ООО «Морос»",
       "country": "Россия",
@@ -2386,7 +2386,7 @@
     {
       "id": "7d5a76d2-7bf3-4a40-b6f7-64590d4d9273",
       "slug": "amr-1500-gruzopodemnost-do-1-500-kg",
-      "name": "AMR 1500 (грузоподъемность до 1 500 кг)",
+      "name": "AMR 1500",
       "manufacturer": "Moros",
       "legal_entity": "ООО «Морос»",
       "country": "Россия",
@@ -2416,7 +2416,7 @@
     {
       "id": "cccd0c0d-8ae7-435d-a171-45f5d82886e6",
       "slug": "dmr-1200-gruzopodemnost-do-1-200-kg",
-      "name": "DMR 1200 (грузоподъемность до 1 200 кг)",
+      "name": "DMR 1200",
       "manufacturer": "Диком-Сервис",
       "legal_entity": "ООО «Диком-Сервис»",
       "country": "Россия",
@@ -2446,7 +2446,7 @@
     {
       "id": "be814758-3616-4b94-befa-9848be2ac604",
       "slug": "dmr-600-gruzopodemnost-do-600-kg",
-      "name": "DMR 600 (грузоподъемность до 600 кг)",
+      "name": "DMR 600",
       "manufacturer": "Диком-Сервис",
       "legal_entity": "ООО «Диком-Сервис»",
       "country": "Россия",
@@ -2482,7 +2482,7 @@
     {
       "id": "993d980e-8b91-45e0-9c98-50ffab6e11e4",
       "slug": "semabot-gruzopodemnost-do-1-500-kg",
-      "name": "Сёмабот (грузоподъемность до 1 500 кг)",
+      "name": "Сёмабот",
       "manufacturer": "Семаргл",
       "legal_entity": "ООО «Семаргл»",
       "country": "Россия",
@@ -3686,7 +3686,7 @@
     {
       "id": "d6f3eec1-61c1-40ac-98b1-0f5d80877cb7",
       "slug": "arm95-200-gruzopodemnost-do-18-kg",
-      "name": "ARM95-200 (грузоподъемность до 18 кг)",
+      "name": "ARM95-200",
       "manufacturer": "Прикладная Робототехника",
       "legal_entity": "ООО «Прикладная Робототехника»",
       "country": "Россия",
@@ -4016,7 +4016,7 @@
     {
       "id": "c9e9517c-18f0-47b4-aa05-4344566aa885",
       "slug": "tagarka-gruzopodemnost-do-6-000-kg",
-      "name": "Tagarka (грузоподъемность до 6 000 кг)",
+      "name": "Tagarka",
       "manufacturer": "Семаргл",
       "legal_entity": "ООО «Семаргл»",
       "country": "Россия",
@@ -4046,7 +4046,7 @@
     {
       "id": "3f2a1265-3c35-4823-9d20-1978c86e424b",
       "slug": "tagarka-gruzopodemnost-do-35-000-kg",
-      "name": "Tagarka (грузоподъемность до 35 000 кг)",
+      "name": "Tagarka",
       "manufacturer": "Семаргл",
       "legal_entity": "ООО «Семаргл»",
       "country": "Россия",
@@ -4765,7 +4765,7 @@
     {
       "id": "bd7a808d-3f50-4bd0-93e9-87e9646cfb26",
       "slug": "mark-a-agro",
-      "name": "MARK A (Agro)",
+      "name": "MARK A",
       "manufacturer": "Электромотив",
       "legal_entity": "ООО «Электромотив»",
       "country": "Россия",
@@ -5042,7 +5042,7 @@
     {
       "id": "08ff32f6-6023-4b20-b528-322678f43910",
       "slug": "seriya-sigma-100d-150-200-250a",
-      "name": "Серия Sigma (100D, 150, 200, 250А)",
+      "name": "Серия Sigma",
       "manufacturer": "Тарис",
       "legal_entity": "ООО «Тарис»",
       "country": "Россия",
@@ -7152,7 +7152,7 @@
     {
       "id": "28a5afa8-0473-4f80-99a9-b2922b76810f",
       "slug": "bespilotnyy-tyagach-kognitiv-pilot",
-      "name": "Беспилотный тягач (Когнитив Пилот)",
+      "name": "Беспилотный тягач",
       "manufacturer": "Cognitive Pilot",
       "legal_entity": "АО «Когнитив Пилот»",
       "country": "Россия",

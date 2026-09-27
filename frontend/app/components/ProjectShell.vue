@@ -6,6 +6,7 @@ const props = defineProps<{
   current: string
   title: string
   lead?: string
+  dense?: boolean
   substages?: { id: string; label: string; to: string }[]
   currentSub?: string
 }>()
@@ -17,8 +18,8 @@ const placeLabel = computed(() => {
 </script>
 
 <template>
-  <section class="container shell">
-    <div class="shell-head" v-reveal>
+  <section class="container shell" :class="{ dense }">
+    <div class="shell-head no-print" v-reveal>
       <div class="crumbs">
         <NuxtLink :to="`/projects/${project.id}`" class="back body-sm"><PhArrowLeft :size="14" weight="bold" /> {{ project.name }}</NuxtLink>
         <span class="meta">
@@ -29,7 +30,7 @@ const placeLabel = computed(() => {
       </div>
       <ProjectSteps :project="project" :current="current" :substages="substages" :current-sub="currentSub" />
     </div>
-    <div class="shell-title" v-reveal="1">
+    <div class="shell-title no-print" v-reveal="1">
       <div>
         <h1 class="hero-2">{{ title }}</h1>
         <p v-if="lead" class="body-lg muted lead">{{ lead }}</p>
@@ -50,4 +51,11 @@ const placeLabel = computed(() => {
 .shell-title { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-8); }
 .lead { max-width: 68ch; margin-top: 10px; }
 .actions { display: flex; gap: 8px; flex: none; }
+.dense { gap: var(--space-5); padding-bottom: var(--space-10); }
+.dense .shell-title { align-items: center; }
+.dense .lead { font-size: 16px; margin-top: 6px; max-width: 56ch; }
+.dense :deep(.hero-2) { font-size: clamp(28px, 2vw, 40px); }
+@media print {
+  .shell { padding: 0; gap: 0; max-width: none; }
+}
 </style>
