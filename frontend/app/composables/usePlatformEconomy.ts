@@ -69,7 +69,7 @@ export interface EconScenario {
 
 export interface EconParam {
   key: string
-  group: 'capex' | 'opex' | 'staff' | 'raas' | 'horizon' | 'whatif'
+  group: 'capex' | 'opex' | 'staff' | 'raas' | 'horizon' | 'whatif' | 'subsidy'
   label: string
   symbol: string
   unit: string
@@ -102,6 +102,47 @@ export interface EconSensitivity {
 
 export const PRELIMINARY = 'Результат является предварительной оценкой и требует верификации при обследовании объекта.'
 
+export interface EconSubsidy {
+  code: string
+  label: string
+  subtitle: string
+  kind: 'once' | 'year'
+  enabled: boolean
+  value: number | null
+  total: number | null
+  params: string[]
+  fig: EconFig
+}
+
+export interface EconSuggestion {
+  key: string
+  label: string
+  unit: string
+  scope: 'process' | 'site' | 'subsidy'
+  from: number
+  to: number
+  effect: number
+  payback: number | null
+}
+
+export interface EconProcess {
+  process_code: string
+  process_name: string
+  robot_name: string
+  image_url: string | null
+  count: number | null
+  cost_rub: number | null
+  included: boolean
+  note: string
+  share: number
+  share_note: string
+  profitable: boolean | null
+  reason: string
+  payroll: EconFig | null
+  scenarios: EconScenario[]
+  suggestions: EconSuggestion[]
+}
+
 export interface EconReport {
   project_id: string
   disclaimer: string
@@ -110,10 +151,20 @@ export interface EconReport {
   robots: number
   payroll: EconFig
   scenarios: EconScenario[]
+  processes?: EconProcess[]
+  subsidies?: EconSubsidy[]
   params: EconParam[]
   sensitivity: EconSensitivity[]
   saved_overrides: Record<string, number>
 }
+
+/** Коэффициенты, которые what-if умеет задать одному процессу. Остальные остаются на всю площадку. */
+export const PROCESS_PARAM_KEYS = [
+  'price_factor',
+  'infra_pct', 'software_pct', 'integration_pct', 'commissioning_pct', 'training_pct', 'reserve_pct',
+  'service_pct', 'license_pct', 'comms_pct', 'consumables_pct', 'repair_pct', 'energy_kwh',
+  'raas_rate_pct',
+] as const
 
 export const PARAM_GROUPS: { id: EconParam['group']; label: string }[] = [
   { id: 'whatif', label: 'What-if' },
@@ -122,7 +173,10 @@ export const PARAM_GROUPS: { id: EconParam['group']; label: string }[] = [
   { id: 'opex', label: 'OPEX' },
   { id: 'raas', label: 'Аренда' },
   { id: 'horizon', label: 'Горизонт' },
+  { id: 'subsidy', label: 'Господдержка' },
 ]
+
+export const subsidyKey = (code: string) => `subsidy:${code}`
 
 export const SOURCE_TONE: Record<EconSource, 'ok' | 'warn' | 'info' | 'neutral' | 'brand'> = {
   card: 'ok',
@@ -204,6 +258,17 @@ export function usePlatformEconomy(id: Ref<string>) {
     await platformSend(`/projects/${id.value}/economy/overrides`, 'PUT', { values })
   }
 
+  const setProcess = async (code: string, on: boolean, reason?: string) => {
+    const rec = live.record.value
+    if (!rec || readonly.value) return
+    const enabled: Record<string, boolean> = {}
+    for (const item of rec.processes) enabled[item.code] = item.code === code ? on : item.enabled
+    await live.save({ ...rec.site }, rec.tasks, enabled, reason ? { [code]: reason } : undefined)
+  }
+  const disableProcess = (code: string, reason: string) => setProcess(code, false, reason)
+  const restoreProcess = (code: string) => setProcess(code, true)
+  const inactive = computed(() => (live.record.value?.processes ?? []).filter((item) => !item.enabled))
+
   return {
     project,
     isDemo,
@@ -221,5 +286,8 @@ export function usePlatformEconomy(id: Ref<string>) {
     load,
     request,
     saveOverrides,
+    disableProcess,
+    restoreProcess,
+    inactive,
   }
 }

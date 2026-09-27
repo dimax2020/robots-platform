@@ -8,23 +8,114 @@ import {
   PRELIMINARY,
   rubles,
   SOURCE_TONE,
+  subsidyKey,
   usePlatformEconomy,
   type EconFig,
   type EconScenario,
+  type EconSuggestion,
 } from '~/composables/usePlatformEconomy'
+import { replaceQuery } from '~/composables/useQuerySync'
 import { fetchErrorMessage } from '~/utils/errors'
 import { isAccent } from '~/utils/accent'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
-const { project, isDemo, readonly, report, loading, failure, pending, error, source, choices, skipped, load } = usePlatformEconomy(id)
+const { project, isDemo, readonly, report, loading, failure, pending, error, source, choices, skipped, load, saveOverrides, disableProcess, restoreProcess, inactive } = usePlatformEconomy(id)
 useHead({ title: () => `Экономика · ${project.value?.name ?? 'проект'}` })
 
-onMounted(() => { void load() })
-watch([() => JSON.stringify(source.value ?? null), () => JSON.stringify(choices.value)], () => { void load() })
+/* В демо только просмотр: включённые меры живут в предпросмотре и в проект не пишутся. */
+const preview = ref<Record<string, number> | null>(null)
+onMounted(() => { void load(preview.value) })
+watch([() => JSON.stringify(source.value ?? null), () => JSON.stringify(choices.value)], () => { void load(preview.value) })
 
+const processCode = ref(typeof route.query.process === 'string' ? route.query.process : '')
+watch(processCode, (value) => replaceQuery({ process: value || undefined }))
+const activeProcess = computed(() => report.value?.processes?.find((item) => item.process_code === processCode.value) ?? null)
+const scenarios = computed(() => activeProcess.value?.scenarios?.length ? activeProcess.value.scenarios : processCode.value ? [] : (report.value?.scenarios ?? []))
+const payrollFig = computed(() => activeProcess.value?.payroll ?? report.value?.payroll ?? null)
+const fleetPurchase = computed(() => report.value?.scenarios.find((item) => item.key === 'purchase') ?? null)
+const activePurchase = computed(() => activeProcess.value?.scenarios.find((item) => item.key === 'purchase') ?? null)
+const activeRobot = computed(() => report.value?.fleet.find((row) => row.process_code === processCode.value) ?? null)
 const picked = ref<EconScenario['key']>('purchase')
-const scenario = computed(() => report.value?.scenarios.find((item) => item.key === picked.value) ?? null)
+const scenario = computed(() => scenarios.value.find((item) => item.key === picked.value) ?? null)
+const cancelOpen = ref(false)
+const disabling = ref(false)
+const cancelError = ref('')
+watch(processCode, () => { cancelOpen.value = false; cancelError.value = '' })
+
+const subsidyBusy = ref('')
+const subsidyError = ref('')
+const setSubsidies = async (codes: string[], on: boolean | null) => {
+  if (!report.value) return
+  const next = { ...(preview.value ?? report.value.saved_overrides) }
+  for (const code of codes) {
+    const key = subsidyKey(code)
+    if (on ?? !next[key]) next[key] = 1
+    else delete next[key]
+  }
+  subsidyBusy.value = codes.join(',')
+  subsidyError.value = ''
+  try {
+    if (readonly.value) {
+      preview.value = next
+    } else {
+      await saveOverrides(next)
+    }
+    await load(preview.value)
+  } catch (err: unknown) {
+    subsidyError.value = fetchErrorMessage(err, 'Не удалось изменить меру поддержки')
+  } finally {
+    subsidyBusy.value = ''
+  }
+}
+const toggleSubsidy = (code: string) => setSubsidies([code], null)
+
+const SCOPE_LABEL: Record<EconSuggestion['scope'], string> = { process: 'только этот процесс', site: 'вся площадка', subsidy: 'господдержка' }
+const suggestionChange = (item: EconSuggestion) => item.scope === 'subsidy'
+  ? (item.key.includes(',') ? `включить ${item.key.split(',').length} меры` : 'включить меру')
+  : `${item.from.toLocaleString('ru-RU')} → ${item.to.toLocaleString('ru-RU')} ${item.unit}`
+const tuneTo = (item: EconSuggestion) => {
+  const params = new URLSearchParams({
+    process: activeProcess.value?.process_code ?? '',
+    tune: item.key,
+    value: String(item.to),
+    scope: item.scope,
+  })
+  return `/projects/${id.value}/what-if?${params}`
+}
+const confirmCancel = async () => {
+  const item = activeProcess.value
+  if (!item) return
+  disabling.value = true
+  cancelError.value = ''
+  const reason = `${item.reason} Выключен на шаге экономики ${new Date().toLocaleDateString('ru-RU')}.`
+  try {
+    await disableProcess(item.process_code, reason)
+    processCode.value = ''
+    cancelOpen.value = false
+    await load(preview.value)
+  } catch (err: unknown) {
+    cancelError.value = fetchErrorMessage(err, 'Не удалось выключить процесс')
+  } finally {
+    disabling.value = false
+  }
+}
+const restoring = ref('')
+const restoreError = ref('')
+const restore = async (code: string) => {
+  restoring.value = code
+  restoreError.value = ''
+  try {
+    await restoreProcess(code)
+    await load(preview.value)
+    processCode.value = code
+  } catch (err: unknown) {
+    restoreError.value = fetchErrorMessage(err, 'Не удалось вернуть процесс')
+  } finally {
+    restoring.value = ''
+  }
+}
+const inactiveOpen = ref(true)
 const open = ref<string | null>(null)
 const toggle = (key: string) => { open.value = open.value === key ? null : key }
 const openParam = ref<string | null>(null)
@@ -38,17 +129,19 @@ const columns = computed(() => scenario.value
     ]
   : [])
 
-const chartMax = computed(() => Math.max(1, ...(report.value?.scenarios.flatMap((item) => item.years.map((row) => row.cost_rub)) ?? [1])))
+const chartMax = computed(() => Math.max(1, ...scenarios.value.flatMap((item) => item.years.map((row) => row.cost_rub))))
 const chartYears = computed(() => {
-  const base = report.value?.scenarios[0]?.years ?? []
+  const base = scenarios.value[0]?.years ?? []
   return base.map((row) => ({
     year: row.year,
-    bars: (report.value?.scenarios ?? []).map((item) => ({ key: item.key, value: item.years.find((y) => y.year === row.year)?.cost_rub ?? 0 })),
+    bars: scenarios.value.map((item) => ({ key: item.key, value: item.years.find((y) => y.year === row.year)?.cost_rub ?? 0 })),
   }))
 })
+const enabledSubsidies = computed(() => new Set((report.value?.subsidies ?? []).filter((item) => item.enabled).map((item) => item.code)))
 const groups = computed(() => PARAM_GROUPS.map((group) => ({
   ...group,
-  items: (report.value?.params ?? []).filter((item) => item.group === group.id),
+  items: (report.value?.params ?? []).filter((item) => item.group === group.id && (group.id !== 'subsidy'
+    || (report.value?.subsidies ?? []).some((sub) => enabledSubsidies.value.has(sub.code) && sub.params.includes(item.key)))),
 })).filter((group) => group.items.length))
 const sourceText = (item: { source: string }) => ({ norm: 'стандарт', project: 'значение проекта', site: 'площадка' } as Record<string, string>)[item.source] ?? item.source
 const withoutPrice = computed(() => report.value?.fleet.filter((row) => !row.included).length ?? 0)
@@ -61,7 +154,7 @@ const fleetOpen = ref(false)
     :project="project"
     current="economics"
     title="Экономика: три сценария"
-    lead="Без роботизации, покупка и аренда на одном парке: один выбранный робот на процесс. У каждой величины открывается формула, числа подстановки и источник каждого значения."
+    lead="Без роботизации, покупка и аренда. Выберите процесс, чтобы посмотреть его окупаемость отдельно. Если покупка не окупается, подберите допущения или меру господдержки — или выключите процесс."
   >
     <template #actions>
       <UiButton :to="`/projects/${project.id}/compare`" variant="secondary">К сравнению</UiButton>
@@ -81,7 +174,102 @@ const fleetOpen = ref(false)
     <section v-if="(pending || loading) && !report" class="waiting glass"><div class="h3">Считаем экономику</div></section>
     <UiCallout v-else-if="failure || error" tone="danger" title="Экономика не посчиталась">{{ failure || fetchErrorMessage(error, 'Сервер не ответил.') }}</UiCallout>
     <template v-else-if="report">
-      <section class="fleet glass">
+      <EconProcessGrid
+        v-if="report.processes?.length"
+        v-model="processCode"
+        :processes="report.processes"
+        :fleet="fleetPurchase"
+        :robots="report.robots"
+        :horizon="report.horizon_years"
+      />
+
+      <section v-if="inactive.length" class="inactive glass">
+        <div class="c-in">
+          <button type="button" class="c-head fleet-toggle" :aria-expanded="inactiveOpen" @click="inactiveOpen = !inactiveOpen">
+            <div>
+              <div class="h3">Неактивные процессы <span class="count mono-sm">{{ inactive.length }}</span></div>
+              <div class="caption">Не входят в подбор и экономику. Любой можно вернуть — расчёт пересчитается.</div>
+            </div>
+            <PhCaretDown :size="16" weight="bold" class="caret" :class="{ up: inactiveOpen }" />
+          </button>
+          <ul v-show="inactiveOpen" class="off-list">
+            <li v-for="item in inactive" :key="item.code" class="off" :class="{ loss: item.disabled_reason }">
+              <span class="off-copy">
+                <span class="off-title">
+                  <span class="body-sm strong">{{ item.name }}</span>
+                  <span class="off-tag" :class="{ loss: item.disabled_reason }">{{ item.disabled_reason ? 'невыгоден' : 'выключен в параметрах' }}</span>
+                </span>
+                <span class="caption">{{ item.disabled_reason || 'Процесс сняли с подбора на шаге параметров.' }}</span>
+              </span>
+              <UiButton v-if="!readonly" variant="secondary" size="sm" :disabled="restoring === item.code" @click="restore(item.code)">{{ restoring === item.code ? 'Возвращаем' : 'Вернуть в проект' }}</UiButton>
+            </li>
+          </ul>
+          <p v-if="restoreError" class="caption d-err-light">{{ restoreError }}</p>
+        </div>
+      </section>
+
+      <section v-if="activeProcess" class="detail glass-graphite glass-graphite-solid">
+        <div class="d-in">
+          <div class="d-main">
+            <img class="d-photo" :src="photoFor(activeProcess.image_url, activeProcess.robot_name, activeProcess.process_code)" :alt="activeProcess.robot_name">
+            <div class="d-copy">
+              <span class="label">{{ activeProcess.process_name }}</span>
+              <span class="h3">{{ activeProcess.robot_name }}</span>
+              <span class="caption">{{ activeProcess.count ? `${activeProcess.count.toLocaleString('ru-RU')} шт. · ` : '' }}{{ rubles(activeProcess.cost_rub) }} оборудование · доля ФОТ {{ Math.round(activeProcess.share * 100) }}%</span>
+            </div>
+            <div class="d-kpi">
+              <span class="caption">Окупаемость покупки</span>
+              <span class="d-pay" :class="{ bad: activeProcess.profitable === false }">{{ activePurchase?.payback.value != null ? figValue(activePurchase.payback.value, 'лет') : 'нет' }}</span>
+              <span class="caption">горизонт {{ report.horizon_years }} лет</span>
+            </div>
+          </div>
+          <p class="d-reason body-sm" :class="{ bad: activeProcess.profitable === false }">{{ activeProcess.reason }}</p>
+          <p v-if="activeProcess.share_note" class="caption d-note">{{ activeProcess.share_note }}</p>
+          <div class="d-actions">
+            <UiButton :to="`/projects/${project.id}/what-if?process=${activeProcess.process_code}`" variant="onGraphite" size="sm">Настроить в what-if</UiButton>
+            <UiButton v-if="activeRobot?.fig" variant="glass" size="sm" @click="toggle(`fleet:${activeProcess.process_code}`)">Как посчитано оборудование</UiButton>
+            <UiButton v-if="activeProcess.included && activeProcess.profitable === false && !cancelOpen" variant="danger" size="sm" @click="cancelOpen = true">Выключить процесс</UiButton>
+          </div>
+          <EconFormula v-if="activeRobot?.fig && open === `fleet:${activeProcess.process_code}`" :fig="activeRobot.fig" dark />
+
+          <div v-if="cancelOpen" class="rescue">
+            <div>
+              <div class="h4">Прежде чем выключать — вот что сделает процесс прибыльным</div>
+              <p class="caption">Ближайшие изменения, при которых покупка окупается за {{ report.horizon_years }} лет. Меру господдержки можно включить сразу, остальное откроется в what-if с подставленным значением.</p>
+            </div>
+            <div v-if="activeProcess.suggestions.length" class="rescue-grid">
+              <div v-for="item in activeProcess.suggestions" :key="`${item.scope}:${item.key}`" class="fix" :class="item.scope">
+                <span class="fix-scope">{{ SCOPE_LABEL[item.scope] }}</span>
+                <span class="body-sm strong">{{ item.label }}</span>
+                <span class="mono-md">{{ suggestionChange(item) }}</span>
+                <span class="caption">окупаемость {{ item.payback != null ? figValue(item.payback, 'лет') : '—' }} · эффект {{ millions(item.effect) }}</span>
+                <UiButton v-if="item.scope === 'subsidy'" size="sm" :disabled="subsidyBusy === item.key" @click="setSubsidies(item.key.split(','), true)">{{ item.key.includes(',') ? 'Включить меры' : 'Включить меру' }}</UiButton>
+                <UiButton v-else :to="tuneTo(item)" size="sm">Открыть в what-if</UiButton>
+              </div>
+            </div>
+            <p v-else class="body-sm">В допустимых границах коэффициентов и мер поддержки процесс не становится прибыльным.</p>
+            <div class="d-actions">
+              <UiButton variant="onGraphite" size="sm" @click="cancelOpen = false">Оставить процесс</UiButton>
+              <UiButton variant="danger" size="sm" :disabled="readonly || disabling" @click="confirmCancel">{{ disabling ? 'Выключаем' : 'Всё равно выключить' }}</UiButton>
+            </div>
+            <p class="caption">Выключенный процесс попадёт в список неактивных с пометкой «невыгоден» — его можно вернуть в любой момент.</p>
+            <p v-if="readonly" class="caption">В этом демо процесс не выключается. Допущения в what-if можно двигать, но они не сохранятся.</p>
+            <p v-if="cancelError" class="caption d-err">{{ cancelError }}</p>
+          </div>
+        </div>
+      </section>
+
+      <EconSubsidies
+        v-if="report.subsidies?.length"
+        :items="report.subsidies"
+        :horizon="report.horizon_years"
+        :busy="subsidyBusy"
+        :to="`/projects/${project.id}/what-if`"
+        @toggle="toggleSubsidy"
+      />
+      <UiCallout v-if="subsidyError" tone="danger">{{ subsidyError }}</UiCallout>
+
+      <section v-if="!processCode" class="fleet glass">
         <div class="c-in">
           <button type="button" class="c-head fleet-toggle" :aria-expanded="fleetOpen" @click="fleetOpen = !fleetOpen">
             <div>
@@ -109,9 +297,9 @@ const fleetOpen = ref(false)
         </div>
       </section>
 
-      <div class="scen">
+      <div v-if="scenarios.length" class="scen">
         <button
-          v-for="item in report.scenarios"
+          v-for="item in scenarios"
           :key="item.key"
           type="button"
           class="sc"
@@ -155,12 +343,12 @@ const fleetOpen = ref(false)
               <EconFormula v-if="open === `kpi:${fig.key}`" :fig="fig" dark />
             </template>
           </div>
-          <div class="side glass">
+          <div v-if="payrollFig" class="side glass">
             <div class="u-in">
-              <div class="label">База сравнения</div>
-              <div class="h3">{{ report.payroll.label }}</div>
-              <div class="mono-lg">{{ rubles(report.payroll.value) }}</div>
-              <EconFormula :fig="report.payroll" />
+              <div class="label">{{ activeProcess ? 'Доля процесса' : 'База сравнения' }}</div>
+              <div class="h3">{{ payrollFig.label }}</div>
+              <div class="mono-lg">{{ rubles(payrollFig.value) }}</div>
+              <EconFormula :fig="payrollFig" />
             </div>
           </div>
         </div>
@@ -189,7 +377,7 @@ const fleetOpen = ref(false)
         </div>
       </template>
 
-      <section class="chart glass">
+      <section v-if="scenarios.length" class="chart glass">
         <div class="c-in">
           <div class="c-head">
             <div>
@@ -212,7 +400,7 @@ const fleetOpen = ref(false)
       <section class="coefs glass">
         <div class="c-in">
           <div class="c-head">
-            <div><div class="h3">Предпосылки расчёта</div><div class="caption">Стандарт задаётся в админке, значение проекта — на шаге what-if</div></div>
+            <div><div class="h3">Предпосылки расчёта</div><div class="caption">{{ activeProcess ? 'Общие коэффициенты парка. Свои для выбранного процесса задаются на шаге what-if.' : 'Стандарт задаётся в админке, значение проекта — на шаге what-if' }}</div></div>
             <UiButton :to="`/projects/${project.id}/what-if`" variant="secondary" size="sm">Изменить</UiButton>
           </div>
           <div v-for="group in groups" :key="group.id" class="coef-group">
@@ -263,6 +451,44 @@ const fleetOpen = ref(false)
 .fleet-row img { width: 64px; height: 50px; object-fit: contain; border-radius: 10px; background: #e9eeec; }
 .fleet-name { display: grid; gap: 2px; min-width: 0; }
 .fleet-name .body-sm { color: var(--ink-strong); }
+
+.inactive .count { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 22px; padding: 0 6px; margin-left: 6px; border-radius: 999px; background: rgba(15, 20, 19, 0.07); color: var(--ink-muted); vertical-align: 3px; }
+.off-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.off { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.5); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); }
+.off.loss { box-shadow: inset 3px 0 0 rgba(179, 42, 38, 0.6), inset 0 0 0 1px rgba(15, 20, 19, 0.06); }
+.off-copy { display: grid; gap: 4px; min-width: 0; }
+.off-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.off-title .body-sm { color: var(--ink-muted); text-decoration: line-through; text-decoration-color: rgba(15, 20, 19, 0.3); }
+.off-tag { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: rgba(15, 20, 19, 0.06); color: var(--ink-muted); white-space: nowrap; }
+.off-tag.loss { background: var(--state-danger-tint); color: var(--state-danger); }
+.d-err-light { color: var(--state-danger); margin: 0; }
+.detail { border-radius: var(--radius-xl); }
+.d-in { position: relative; z-index: 1; padding: var(--space-6); display: grid; gap: var(--space-4); }
+.d-main { display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; gap: var(--space-5); align-items: center; }
+.d-photo { width: 96px; height: 76px; object-fit: contain; border-radius: 14px; background: rgba(255, 255, 255, 0.92); }
+.d-copy { display: grid; gap: 4px; min-width: 0; }
+.d-copy .h3 { color: var(--ink-on-graphite); }
+.d-copy .caption, .d-kpi .caption, .d-note { color: var(--ink-muted-graphite); }
+.d-kpi { display: grid; justify-items: end; gap: 2px; }
+.d-pay { font-family: var(--font-mono); font-size: 44px; line-height: 1; letter-spacing: -0.04em; color: var(--brand-300); }
+.d-pay.bad { color: #ff8a80; }
+.d-reason { margin: 0; padding: 10px 14px; border-radius: 12px; background: rgba(98, 232, 174, 0.1); color: var(--brand-300); }
+.d-reason.bad { background: rgba(255, 138, 128, 0.12); color: #ffb4ab; }
+.d-note { margin: 0; }
+.d-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.d-err { color: #ffb4ab; margin: 0; }
+.rescue { display: grid; gap: var(--space-4); padding-top: var(--space-4); border-top: 1px solid rgba(255, 255, 255, 0.1); }
+.rescue .h4 { margin: 0; color: var(--ink-on-graphite); }
+.rescue p { margin: 4px 0 0; color: var(--ink-muted-graphite); }
+.rescue-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.fix { display: grid; gap: 6px; align-content: start; padding: 14px; border-radius: var(--radius-lg); background: rgba(255, 255, 255, 0.06); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); }
+.fix .body-sm { color: var(--ink-on-graphite); }
+.fix .mono-md { color: var(--brand-300); }
+.fix .caption { color: var(--ink-muted-graphite); }
+.fix :deep(.btn) { justify-self: start; margin-top: 4px; }
+.fix-scope { justify-self: start; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); color: var(--ink-muted-graphite); }
+.fix.subsidy { box-shadow: inset 0 0 0 1px rgba(98, 232, 174, 0.35); }
+.fix.subsidy .fix-scope { background: rgba(98, 232, 174, 0.16); color: var(--brand-300); }
 
 .scen { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
 .sc { border-radius: var(--radius-xl); text-align: left; transition: transform var(--dur-mid) var(--ease); }
@@ -333,5 +559,8 @@ const fleetOpen = ref(false)
   .fleet-row .mono-sm { grid-column: 2; }
   .kpis { grid-template-columns: 1fr; }
   .payback-n { font-size: 48px; }
+  .d-main { grid-template-columns: 72px minmax(0, 1fr); }
+  .d-photo { width: 72px; height: 58px; }
+  .d-kpi { grid-column: 1 / -1; justify-items: start; }
 }
 </style>

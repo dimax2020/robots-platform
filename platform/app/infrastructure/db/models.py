@@ -220,6 +220,8 @@ class ProjectProcessRow(Base):
     project_id: Mapped[UUID] = mapped_column(ForeignKey("project.id"), primary_key=True)
     process_id: Mapped[int] = mapped_column(ForeignKey("process.id"), primary_key=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Заполняется, когда процесс выключили на шаге экономики как невыгодный. Включение очищает.
+    disabled_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ParserSettingRow(Base):

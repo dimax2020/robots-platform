@@ -6,6 +6,8 @@ export interface LiveProcess {
   code: string
   name: string
   enabled: boolean
+  /** Почему процесс выключили на шаге экономики. Пусто, если выключили вручную на шаге параметров. */
+  disabled_reason?: string | null
 }
 
 export interface LiveRecord {
@@ -76,9 +78,10 @@ export function useLiveProject(id: MaybeRefOrGetter<string>) {
   const readonly = computed(() => Boolean(record.value) && !record.value!.can_edit)
   const objectCode = computed(() => record.value?.object_code ?? '')
 
-  const save = async (nextSite: Record<string, unknown>, nextTasks: unknown[], enabled?: Record<string, boolean>) => {
+  const save = async (nextSite: Record<string, unknown>, nextTasks: unknown[], enabled?: Record<string, boolean>, reasons?: Record<string, string>) => {
     const body: Record<string, unknown> = { site: nextSite, tasks: nextTasks }
     if (enabled) body.enabled = enabled
+    if (reasons) body.reasons = reasons
     record.value = await platformSend<LiveRecord>(`/projects/${key.value}`, 'PATCH', body)
   }
 

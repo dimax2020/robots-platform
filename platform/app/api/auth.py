@@ -108,7 +108,7 @@ def clear_session(response: Response) -> None:
     response.delete_cookie(COOKIE, path="/")
 
 
-@router.post("/api/v1/auth/login")
+@router.post("/api/v1/auth/login", tags=["Авторизация"], summary="Войти и записать сессию в cookie")
 def login(body: LoginIn, response: Response) -> dict:
     login_name = body.login.strip()
     with session_factory()() as db:
@@ -124,13 +124,13 @@ def login(body: LoginIn, response: Response) -> dict:
     return {"login": user.login, "role": user.role}
 
 
-@router.post("/api/v1/auth/logout")
+@router.post("/api/v1/auth/logout", tags=["Авторизация"], summary="Выйти и стереть cookie сессии")
 def logout(response: Response) -> dict:
     clear_session(response)
     return {"ok": True}
 
 
-@router.get("/api/v1/auth/me")
+@router.get("/api/v1/auth/me", tags=["Авторизация"], summary="Кто сейчас вошёл")
 def me(user: SessionUser | None = Depends(optional_user)) -> dict:
     if user is None:
         raise HTTPException(401, "Нужна авторизация")

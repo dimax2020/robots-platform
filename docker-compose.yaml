@@ -85,6 +85,7 @@ services:
       DATABASE_URL: postgresql+psycopg://robots:robots@db:5432/platform
       POSTGRES_ADMIN_URL: postgresql+psycopg://robots:robots@db:5432/postgres
       UPLOAD_DIR: /app/uploads
+      ROOT_PATH: /platform
     volumes:
       - platform_uploads:/app/uploads
     depends_on:

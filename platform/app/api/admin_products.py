@@ -75,13 +75,13 @@ class AttributeIn(BaseModel):
     sort: int | None = None
 
 
-@router.get("/api/v1/admin/products")
+@router.get("/api/v1/admin/products", tags=["Админка · продукты"], summary="Поиск карточек для админки")
 def admin_product_list(q: str = "", process: str = "", type: str = "", limit: int = 0) -> list:
     with session_factory()() as db:
         return admin_products(db, q=q, process=process, solution_type=type, limit=limit)
 
 
-@router.post("/api/v1/admin/products")
+@router.post("/api/v1/admin/products", tags=["Админка · продукты"], summary="Создать карточку вручную")
 def admin_product_create(body: NewProductIn) -> dict:
     with session_factory()() as db:
         try:
@@ -91,7 +91,7 @@ def admin_product_create(body: NewProductIn) -> dict:
         return product_detail(db, slug)
 
 
-@router.get("/api/v1/admin/products/{slug}")
+@router.get("/api/v1/admin/products/{slug}", tags=["Админка · продукты"], summary="Карточка со всеми характеристиками и источниками")
 def admin_product_read(slug: str) -> dict:
     with session_factory()() as db:
         try:
@@ -100,7 +100,7 @@ def admin_product_read(slug: str) -> dict:
             raise HTTPException(404, "Карточка не найдена") from None
 
 
-@router.patch("/api/v1/admin/products/{slug}")
+@router.patch("/api/v1/admin/products/{slug}", tags=["Админка · продукты"], summary="Править карточку: ручное значение следующий импорт не затирает")
 def admin_product_patch(slug: str, body: ProductPatch) -> dict:
     payload = body.model_dump()
     payload["attrs"] = {key: (None if item is None else item) for key, item in payload["attrs"].items()}
@@ -115,7 +115,7 @@ def admin_product_patch(slug: str, body: ProductPatch) -> dict:
             raise HTTPException(422, str(exc)) from None
 
 
-@router.post("/api/v1/admin/products/{slug}/image")
+@router.post("/api/v1/admin/products/{slug}/image", tags=["Админка · продукты"], summary="Загрузить фото карточки: PNG, JPG или WebP до 10 МБ")
 async def admin_product_image(slug: str, file: UploadFile = File(...)) -> dict:
     extension = _IMAGE_TYPES.get(file.content_type or "")
     if extension is None:
@@ -137,7 +137,7 @@ async def admin_product_image(slug: str, file: UploadFile = File(...)) -> dict:
     return {"image_url": url}
 
 
-@router.get("/api/v1/product-files/{name}")
+@router.get("/api/v1/product-files/{name}", tags=["Каталог"], summary="Отдать фото карточки")
 def product_file(name: str) -> FileResponse:
     if not _PRODUCT_FILE.match(name):
         raise HTTPException(404, "Файл не найден")
@@ -147,7 +147,7 @@ def product_file(name: str) -> FileResponse:
     return FileResponse(path)
 
 
-@router.get("/api/v1/admin/processes/{code}/coverage")
+@router.get("/api/v1/admin/processes/{code}/coverage", tags=["Админка · процессы"], summary="Каких данных не хватает роботам процесса для расчёта")
 def admin_process_coverage(code: str) -> dict:
     with session_factory()() as db:
         try:
@@ -156,7 +156,7 @@ def admin_process_coverage(code: str) -> dict:
             raise HTTPException(404, "Процесс не найден") from None
 
 
-@router.put("/api/v1/admin/processes/{code}/products")
+@router.put("/api/v1/admin/processes/{code}/products", tags=["Админка · процессы"], summary="Добавить или убрать роботов процесса")
 def admin_process_products(code: str, body: ProcessProductsIn) -> dict:
     with session_factory()() as db:
         try:
@@ -166,13 +166,13 @@ def admin_process_products(code: str, body: ProcessProductsIn) -> dict:
     return {"changed": changed}
 
 
-@router.get("/api/v1/admin/attribute-dictionary")
+@router.get("/api/v1/admin/attribute-dictionary", tags=["Админка · продукты"], summary="Подписи, единицы и группы характеристик")
 def admin_attribute_dictionary() -> list:
     with session_factory()() as db:
         return attribute_dictionary(db)
 
 
-@router.patch("/api/v1/admin/attribute-dictionary/{key}")
+@router.patch("/api/v1/admin/attribute-dictionary/{key}", tags=["Админка · продукты"], summary="Сохранить подпись характеристики в справочнике")
 def admin_attribute_save(key: str, body: AttributeIn) -> dict:
     with session_factory()() as db:
         try:

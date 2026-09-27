@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 
-from app.domain.economy import NORM_BY_KEY, NORMS, TYPE_NORMS, blend_by_type, calculate, scale_load
+from app.domain.economy import NORM_BY_KEY, NORMS, TYPE_NORMS, blend_by_type, calculate, clamp_overrides, scale_load
 from app.domain.layout_items import clean_items, default_items
 from app.domain.formula import _number, identifiers
 from app.domain.specs import CANON_LABELS
@@ -656,6 +656,7 @@ def update_project(
     site: dict | None,
     enabled: dict[str, bool] | None,
     tasks: list | None = None,
+    reasons: dict[str, str] | None = None,
 ) -> dict:
     project = db.get(ProjectRow, project_id)
     if project is None:
@@ -663,15 +664,21 @@ def update_project(
     if site is not None or tasks is not None:
         project.site = _store_site(site, tasks, project.site)
     if enabled is not None:
+        reasons = reasons or {}
         for code, flag in enabled.items():
             process = db.scalar(select(ProcessRow).where(ProcessRow.code == code))
             if process is None:
                 continue
             link = db.get(ProjectProcessRow, (project.id, process.id))
             if link is None:
-                db.add(ProjectProcessRow(project_id=project.id, process_id=process.id, enabled=flag))
+                link = ProjectProcessRow(project_id=project.id, process_id=process.id, enabled=flag)
+                db.add(link)
             else:
                 link.enabled = flag
+            if flag:
+                link.disabled_reason = None
+            elif code in reasons:
+                link.disabled_reason = (reasons[code] or "").strip() or None
     db.commit()
     return project_view(db, project.id)
 
@@ -683,17 +690,18 @@ def project_view(db: Session, project_id: UUID) -> dict:
     obj = db.get(ObjectTypeRow, project.object_type_id)
     processes = []
     stmt = (
-        select(ProcessRow, ProjectProcessRow.enabled)
+        select(ProcessRow, ProjectProcessRow.enabled, ProjectProcessRow.disabled_reason)
         .join(ProjectProcessRow, ProjectProcessRow.process_id == ProcessRow.id)
         .where(ProjectProcessRow.project_id == project.id)
         .order_by(ProcessRow.name)
     )
-    for process, enabled in db.execute(stmt):
+    for process, enabled, reason in db.execute(stmt):
         filters = list(db.scalars(select(ProcessFilterRow).where(ProcessFilterRow.process_id == process.id)))
         processes.append({
             "code": process.code,
             "name": process.name,
             "enabled": enabled,
+            "disabled_reason": None if enabled else reason,
             "filters": [
                 {"name": item.name, "object_keys": item.object_keys, "robot_keys": item.robot_keys, "op": item.op, "mode": item.mode, "inputs": item.inputs or [], "formula": item.formula or ""}
                 for item in filters
@@ -774,7 +782,7 @@ def copy_project(db: Session, project_id: UUID, *, owner_id: UUID) -> dict:
     db.add(project)
     db.flush()
     for link in db.scalars(select(ProjectProcessRow).where(ProjectProcessRow.project_id == src.id)):
-        db.add(ProjectProcessRow(project_id=project.id, process_id=link.process_id, enabled=link.enabled))
+        db.add(ProjectProcessRow(project_id=project.id, process_id=link.process_id, enabled=link.enabled, disabled_reason=link.disabled_reason))
     db.commit()
     return project_view(db, project.id)
 
@@ -1084,7 +1092,7 @@ def save_economy_overrides(db: Session, project_id: UUID, values: dict) -> dict:
     project = db.get(ProjectRow, project_id)
     if project is None:
         raise KeyError(str(project_id))
-    clean = {key: float(value) for key, value in (values or {}).items() if key in NORM_BY_KEY and value is not None}
+    clean = clamp_overrides(values)
     project.economy_overrides = clean
     db.commit()
     return clean

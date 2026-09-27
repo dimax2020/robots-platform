@@ -33,7 +33,7 @@ class SiteFieldIn(BaseModel):
     hint: str = ""
 
 
-@router.get("/api/v1/catalog/objects/{code}/fields")
+@router.get("/api/v1/catalog/objects/{code}/fields", tags=["Каталог"], summary="Поля формы параметров объекта: подпись, единица, границы")
 def catalog_object_fields(code: str) -> dict:
     with session_factory()() as db:
         try:
@@ -42,7 +42,7 @@ def catalog_object_fields(code: str) -> dict:
             raise HTTPException(404, "Объект не найден") from None
 
 
-@router.get("/api/v1/catalog/industries")
+@router.get("/api/v1/catalog/industries", tags=["Каталог"], summary="Отрасли и их объекты для мастера нового проекта")
 def catalog_industries() -> dict:
     """Отрасли и их объекты для мастера нового проекта: без входа, только имена и коды."""
     from sqlalchemy import select
@@ -59,13 +59,13 @@ def catalog_industries() -> dict:
         return {"items": items}
 
 
-@router.get("/api/v1/admin/objects")
+@router.get("/api/v1/admin/objects", tags=["Админка · объекты"], summary="Список объектов и краткая настройка")
 def admin_objects() -> list:
     with session_factory()() as db:
         return objects_overview(db)
 
 
-@router.post("/api/v1/admin/objects/new")
+@router.post("/api/v1/admin/objects/new", tags=["Админка · объекты"], summary="Создать объект и при желании скопировать набор полей")
 def admin_object_create(body: NewObjectIn) -> dict:
     with session_factory()() as db:
         try:
@@ -75,13 +75,13 @@ def admin_object_create(body: NewObjectIn) -> dict:
         return object_setup(db, code)
 
 
-@router.get("/api/v1/admin/site-fields")
+@router.get("/api/v1/admin/site-fields", tags=["Админка · объекты"], summary="Справочник полей площадки")
 def admin_site_fields() -> list:
     with session_factory()() as db:
         return site_fields(db)
 
 
-@router.post("/api/v1/admin/site-fields")
+@router.post("/api/v1/admin/site-fields", tags=["Админка · объекты"], summary="Создать или обновить поле площадки")
 def admin_site_field_save(body: SiteFieldIn) -> dict:
     with session_factory()() as db:
         try:
@@ -90,7 +90,7 @@ def admin_site_field_save(body: SiteFieldIn) -> dict:
             raise HTTPException(422, str(exc)) from None
 
 
-@router.delete("/api/v1/admin/site-fields/{key}")
+@router.delete("/api/v1/admin/site-fields/{key}", tags=["Админка · объекты"], summary="Удалить поле площадки, если оно нигде не используется")
 def admin_site_field_delete(key: str) -> dict:
     with session_factory()() as db:
         try:

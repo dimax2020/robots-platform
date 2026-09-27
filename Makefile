@@ -1,7 +1,7 @@
 .PHONY: up down logs migrate seed reseed normalize ttx reset ps test parse
 
 # Поднять платформу. Пустая база platform наполняется снимком каталога при старте контейнера.
-# Старый api остаётся: проекты, параметры площадки и прежний каталог всё ещё читаются оттуда.
+# Контейнер api — старый бэкенд: сайт его больше не вызывает, но make up всё ещё гоняет его миграции.
 up:
 	docker compose up -d --build
 	docker compose exec -T api alembic upgrade head
@@ -17,7 +17,7 @@ up:
 	@echo
 	@echo "Сайт:      http://localhost"
 	@echo "Платформа: http://localhost/platform/api/v1/health"
-	@echo "Старый API: http://localhost/api/v1/docs"
+	@echo "Swagger:   http://localhost/platform/api/v1/docs"
 
 down:
 	docker compose down

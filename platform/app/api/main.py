@@ -55,7 +55,37 @@ from app.infrastructure.db.taxonomy_repo import (
 )
 from app.parsers import PARSERS
 
-app = FastAPI(title="Платформа каталога", version="0.1.0")
+_prefix = get_settings().root_path.rstrip("/")
+
+app = FastAPI(
+    title="Платформа каталога",
+    version="0.1.0",
+    description=(
+        "Каталог роботов, подбор под объект и расчёт экономики.\n\n"
+        "Снаружи адрес начинается с `/platform`. "
+        "Ручки `/admin` требуют cookie `platform_session` и роль admin: её выдаёт вход. "
+        "Каталог открыт без сессии. Свой проект читает и меняет владелец; "
+        "опубликованное демо открывается всем, а правит его только администратор."
+    ),
+    openapi_url="/api/v1/openapi.json",
+    docs_url="/api/v1/docs",
+    redoc_url="/api/v1/redoc",
+    servers=[{"url": _prefix}] if _prefix else None,
+    openapi_tags=[
+        {"name": "Служебное", "description": "Живость сервиса."},
+        {"name": "Авторизация", "description": "Вход по логину и паролю. Сессия — httpOnly-cookie platform_session."},
+        {"name": "Каталог", "description": "Витрина: карточки, дерево, поля объекта и пробный расчёт без проекта."},
+        {"name": "Проекты", "description": "Проекты пользователя и демо-объекты."},
+        {"name": "Подбор", "description": "Какие роботы проходят фильтры процессов."},
+        {"name": "Экономика", "description": "Бюджет, окупаемость и нормативы."},
+        {"name": "Схема", "description": "План расстановки и подложка."},
+        {"name": "Админка · каталог", "description": "Отрасли, типы решений, источники и очередь прогонов."},
+        {"name": "Админка · объекты", "description": "Объекты, их поля и справочник величин площадки."},
+        {"name": "Админка · процессы", "description": "Фильтры, формулы количества и привязка роботов."},
+        {"name": "Админка · продукты", "description": "Ручные правки карточек. Следующий импорт их не затирает."},
+        {"name": "Админка · демо", "description": "Учебные объекты: публикация и адрес."},
+    ],
+)
 app.include_router(admin_catalog.router)
 app.include_router(admin_objects.router)
 app.include_router(admin_products.router)
@@ -242,6 +272,7 @@ class ProjectPatch(BaseModel):
     site: dict | None = None
     tasks: list | None = None
     enabled: dict[str, bool] | None = None
+    reasons: dict[str, str] | None = None
 
 
 class DemoFlagsIn(BaseModel):
@@ -277,12 +308,12 @@ class ScheduleIn(BaseModel):
     minute: int | None = None
 
 
-@app.get("/api/v1/health")
+@app.get("/api/v1/health", tags=["Служебное"], summary="Проверка, что сервис отвечает")
 def health() -> dict:
     return {"ok": True}
 
 
-@app.get("/api/v1/catalog/products")
+@app.get("/api/v1/catalog/products", tags=["Каталог"], summary="Порция карточек каталога")
 def catalog_products(
     cursor: str | None = None,
     limit: int | None = None,
@@ -296,7 +327,7 @@ def catalog_products(
         return list_products(db, cursor=cursor, limit=size, solution_type=solution_type, process=process, object_code=object_code)
 
 
-@app.get("/api/v1/catalog/products/{slug}")
+@app.get("/api/v1/catalog/products/{slug}", tags=["Каталог"], summary="Карточка робота и источники её значений")
 def catalog_product(slug: str) -> dict:
     with session_factory()() as db:
         item = get_product(db, slug)
@@ -305,25 +336,25 @@ def catalog_product(slug: str) -> dict:
     return item
 
 
-@app.get("/api/v1/catalog/tree")
+@app.get("/api/v1/catalog/tree", tags=["Каталог"], summary="Отрасли, объекты, процессы и счётчики")
 def catalog_tree() -> dict:
     with session_factory()() as db:
         return tree(db)
 
 
-@app.get("/api/v1/admin/robot-attributes")
+@app.get("/api/v1/admin/robot-attributes", tags=["Админка · процессы"], summary="Характеристики роботов, которые читает фильтр процесса")
 def admin_robot_attributes(process: str | None = None) -> list:
     with session_factory()() as db:
         return robot_attributes(db, process)
 
 
-@app.get("/api/v1/admin/attributes")
+@app.get("/api/v1/admin/attributes", tags=["Админка · продукты"], summary="Характеристики каталога и пометки, используются ли они")
 def admin_attributes() -> list:
     with session_factory()() as db:
         return attributes(db)
 
 
-@app.post("/api/v1/admin/attributes/{key}/usage")
+@app.post("/api/v1/admin/attributes/{key}/usage", tags=["Админка · продукты"], summary="Отложить характеристику или вернуть её в работу")
 def admin_usage(key: str, body: UsageIn) -> dict:
     with session_factory()() as db:
         try:
@@ -333,7 +364,7 @@ def admin_usage(key: str, body: UsageIn) -> dict:
     return {"key": key, "unused": body.unused}
 
 
-@app.post("/api/v1/admin/imports")
+@app.post("/api/v1/admin/imports", tags=["Админка · каталог"], summary="Поставить в очередь импорт CSV каталога или ручной таблицы")
 async def admin_import(kind: str = Form(...), file: UploadFile = File(...)) -> dict:
     if kind not in {"catalog", "manual"}:
         raise HTTPException(422, "Вид файла: catalog или manual")
@@ -351,7 +382,7 @@ async def admin_import(kind: str = Form(...), file: UploadFile = File(...)) -> d
     return {"job_id": str(job.id)}
 
 
-@app.get("/api/v1/admin/jobs/{job_id}")
+@app.get("/api/v1/admin/jobs/{job_id}", tags=["Админка · каталог"], summary="Статус одного прогона импорта или парсера")
 def admin_job(job_id: UUID) -> dict:
     with session_factory()() as db:
         item = get_job(db, job_id)
@@ -360,7 +391,7 @@ def admin_job(job_id: UUID) -> dict:
     return item
 
 
-@app.get("/api/v1/admin/parsers")
+@app.get("/api/v1/admin/parsers", tags=["Админка · каталог"], summary="Парсеры: расписание и последнее состояние")
 def admin_parsers() -> list:
     meta = {code: (title, summary) for code, (title, summary, _runner) in PARSERS.items()}
     with session_factory()() as db:
@@ -372,7 +403,7 @@ def admin_parsers() -> list:
     return result
 
 
-@app.post("/api/v1/admin/parsers/{code}/runs")
+@app.post("/api/v1/admin/parsers/{code}/runs", tags=["Админка · каталог"], summary="Запустить парсер вручную")
 def admin_parser_run(code: str) -> dict:
     if code not in PARSERS:
         raise HTTPException(404, "Парсер не найден")
@@ -383,7 +414,7 @@ def admin_parser_run(code: str) -> dict:
     return {"job_id": str(job.id)}
 
 
-@app.patch("/api/v1/admin/parsers/{code}")
+@app.patch("/api/v1/admin/parsers/{code}", tags=["Админка · каталог"], summary="Включить парсер и задать час запуска по Москве")
 def admin_parser_schedule(code: str, body: ScheduleIn) -> dict:
     if body.hour is not None and not 0 <= body.hour <= 23:
         raise HTTPException(422, "Час от 0 до 23")
@@ -396,7 +427,7 @@ def admin_parser_schedule(code: str, body: ScheduleIn) -> dict:
             raise HTTPException(404, "Парсер не найден") from None
 
 
-@app.get("/api/v1/admin/objects/{code}")
+@app.get("/api/v1/admin/objects/{code}", tags=["Админка · объекты"], summary="Настройка объекта: поля, процессы и привязки")
 def admin_object_read(code: str) -> dict:
     with session_factory()() as db:
         try:
@@ -405,7 +436,7 @@ def admin_object_read(code: str) -> dict:
             raise HTTPException(404, "Объект не найден") from None
 
 
-@app.put("/api/v1/admin/objects/{code}/setup")
+@app.put("/api/v1/admin/objects/{code}/setup", tags=["Админка · объекты"], summary="Сохранить настройку объекта")
 def admin_object_setup(code: str, body: ObjectSetupIn) -> dict:
     with session_factory()() as db:
         try:
@@ -414,20 +445,20 @@ def admin_object_setup(code: str, body: ObjectSetupIn) -> dict:
             raise HTTPException(404, "Объект не найден") from None
 
 
-@app.post("/api/v1/admin/objects")
+@app.post("/api/v1/admin/objects", tags=["Админка · объекты"], summary="Создать объект по коду и названию")
 def admin_object(body: ObjectIn) -> dict:
     with session_factory()() as db:
         save_object(db, code=body.code, name=body.name, industries=body.industries, processes=body.processes)
         return tree(db)
 
 
-@app.get("/api/v1/admin/processes")
+@app.get("/api/v1/admin/processes", tags=["Админка · процессы"], summary="Список процессов и готовность настройки")
 def admin_process_list() -> list:
     with session_factory()() as db:
         return process_list(db)
 
 
-@app.post("/api/v1/admin/processes")
+@app.post("/api/v1/admin/processes", tags=["Админка · процессы"], summary="Создать процесс по названию или добавить по коду")
 def admin_process(body: ProcessIn) -> dict:
     with session_factory()() as db:
         if body.code:
@@ -440,7 +471,7 @@ def admin_process(body: ProcessIn) -> dict:
         return process_setup(db, code)
 
 
-@app.post("/api/v1/admin/processes/{code}/preview")
+@app.post("/api/v1/admin/processes/{code}/preview", tags=["Админка · процессы"], summary="Прогнать подбор на данных площадки, не сохраняя настройку")
 def admin_process_preview(code: str, body: PreviewIn) -> dict:
     with session_factory()() as db:
         try:
@@ -449,7 +480,7 @@ def admin_process_preview(code: str, body: PreviewIn) -> dict:
             raise HTTPException(404, "Процесс или объект не найден") from None
 
 
-@app.get("/api/v1/admin/processes/{code}")
+@app.get("/api/v1/admin/processes/{code}", tags=["Админка · процессы"], summary="Фильтры, количество, ранжирование и схема процесса")
 def admin_process_read(code: str) -> dict:
     with session_factory()() as db:
         try:
@@ -458,12 +489,12 @@ def admin_process_read(code: str) -> dict:
             raise HTTPException(404, "Процесс не найден") from None
 
 
-@app.get("/api/v1/layout-items/dictionary")
+@app.get("/api/v1/layout-items/dictionary", tags=["Схема"], summary="Роли, фигуры и правила количества для элементов схемы")
 def layout_items_dictionary() -> dict:
     return {"roles": ROLES, "shapes": SHAPES, "count_rules": COUNT_RULES}
 
 
-@app.put("/api/v1/admin/processes/{code}/setup")
+@app.put("/api/v1/admin/processes/{code}/setup", tags=["Админка · процессы"], summary="Сохранить настройку процесса")
 def admin_process_setup(code: str, body: ProcessSetupIn) -> dict:
     with session_factory()() as db:
         try:
@@ -472,7 +503,7 @@ def admin_process_setup(code: str, body: ProcessSetupIn) -> dict:
             raise HTTPException(404, "Процесс не найден") from None
 
 
-@app.put("/api/v1/admin/products/{slug}/processes")
+@app.put("/api/v1/admin/products/{slug}/processes", tags=["Админка · продукты"], summary="Назначить карточке список процессов")
 def admin_assign(slug: str, body: AssignIn) -> dict:
     with session_factory()() as db:
         try:
@@ -482,7 +513,7 @@ def admin_assign(slug: str, body: AssignIn) -> dict:
     return {"slug": slug, "processes": body.processes}
 
 
-@app.post("/api/v1/catalog/preview/match")
+@app.post("/api/v1/catalog/preview/match", tags=["Подбор"], summary="Подбор роботов по объекту и площадке без сохранённого проекта")
 def catalog_preview_match(body: PreviewMatchIn) -> dict:
     with session_factory()() as db:
         try:
@@ -491,7 +522,7 @@ def catalog_preview_match(body: PreviewMatchIn) -> dict:
             raise HTTPException(404, "Объект не найден") from None
 
 
-@app.post("/api/v1/catalog/preview/economy")
+@app.post("/api/v1/catalog/preview/economy", tags=["Экономика"], summary="Экономика по объекту и площадке без сохранённого проекта")
 def catalog_preview_economy(body: PreviewEconomyIn) -> dict:
     with session_factory()() as db:
         try:
@@ -500,26 +531,26 @@ def catalog_preview_economy(body: PreviewEconomyIn) -> dict:
             raise HTTPException(404, "Объект не найден") from None
 
 
-@app.get("/api/v1/projects")
+@app.get("/api/v1/projects", tags=["Проекты"], summary="Проекты текущего пользователя")
 def projects(user: SessionUser = Depends(require_user)) -> dict:
     with session_factory()() as db:
         return {"items": list_projects(db, user_id=user.id, role=user.role)}
 
 
-@app.get("/api/v1/projects/demo")
+@app.get("/api/v1/projects/demo", tags=["Проекты"], summary="Опубликованные демо-объекты, доступны без входа")
 def published_demos() -> dict:
     """Опубликованные демо-объекты: видны всем, включая гостей."""
     with session_factory()() as db:
         return {"items": demo_projects(db)}
 
 
-@app.get("/api/v1/admin/projects/demo")
+@app.get("/api/v1/admin/projects/demo", tags=["Админка · демо"], summary="Все демо, включая ещё не опубликованные")
 def admin_demos(_: SessionUser = Depends(require_admin)) -> dict:
     with session_factory()() as db:
         return {"items": demo_projects(db, include_unpublished=True)}
 
 
-@app.post("/api/v1/admin/projects/demo")
+@app.post("/api/v1/admin/projects/demo", tags=["Админка · демо"], summary="Создать демо-проект")
 def admin_demo_create(body: DemoProjectIn, user: SessionUser = Depends(require_admin)) -> dict:
     with session_factory()() as db:
         try:
@@ -530,7 +561,7 @@ def admin_demo_create(body: DemoProjectIn, user: SessionUser = Depends(require_a
             raise HTTPException(422, str(exc)) from None
 
 
-@app.put("/api/v1/admin/projects/{project_id}/demo")
+@app.put("/api/v1/admin/projects/{project_id}/demo", tags=["Админка · демо"], summary="Публикация, адрес и название демо")
 def admin_demo_flags(project_id: UUID, body: DemoFlagsIn, _: SessionUser = Depends(require_admin)) -> dict:
     with session_factory()() as db:
         try:
@@ -541,7 +572,7 @@ def admin_demo_flags(project_id: UUID, body: DemoFlagsIn, _: SessionUser = Depen
             raise HTTPException(422, str(exc)) from None
 
 
-@app.post("/api/v1/projects")
+@app.post("/api/v1/projects", tags=["Проекты"], summary="Создать проект")
 def create(body: ProjectIn, user: SessionUser = Depends(require_user)) -> dict:
     with session_factory()() as db:
         try:
@@ -550,7 +581,7 @@ def create(body: ProjectIn, user: SessionUser = Depends(require_user)) -> dict:
             raise HTTPException(404, "Объект не найден") from None
 
 
-@app.get("/api/v1/projects/{project_key}")
+@app.get("/api/v1/projects/{project_key}", tags=["Проекты"], summary="Площадка проекта, процессы и можно ли его менять")
 def read_project(project_key: str, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
         project = _readable(db, project_key, user)
@@ -559,14 +590,16 @@ def read_project(project_key: str, user: SessionUser | None = Depends(optional_u
         return view
 
 
-@app.patch("/api/v1/projects/{project_key}")
+@app.patch("/api/v1/projects/{project_key}", tags=["Проекты"], summary="Сохранить площадку, задачи и включённые процессы")
 def patch_project(project_key: str, body: ProjectPatch, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
         project = _writable(db, project_key, user)
-        return update_project(db, project.id, site=body.site, enabled=body.enabled, tasks=body.tasks)
+        view = update_project(db, project.id, site=body.site, enabled=body.enabled, tasks=body.tasks, reasons=body.reasons)
+        view["can_edit"] = True
+        return view
 
 
-@app.post("/api/v1/projects/{project_key}/copy")
+@app.post("/api/v1/projects/{project_key}/copy", tags=["Проекты"], summary="Скопировать проект или демо себе")
 def copy(project_key: str, user: SessionUser = Depends(require_user)) -> dict:
     """Копия доступна владельцу, администратору и любому вошедшему — для опубликованного демо."""
     with session_factory()() as db:
@@ -574,7 +607,7 @@ def copy(project_key: str, user: SessionUser = Depends(require_user)) -> dict:
         return copy_project(db, project.id, owner_id=user.id)
 
 
-@app.delete("/api/v1/projects/{project_key}")
+@app.delete("/api/v1/projects/{project_key}", tags=["Проекты"], summary="Удалить проект и неиспользуемые подложки схемы")
 def remove_project(project_key: str, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
         project = _writable(db, project_key, user)
@@ -588,14 +621,14 @@ def remove_project(project_key: str, user: SessionUser | None = Depends(optional
     return {"ok": True}
 
 
-@app.post("/api/v1/projects/{project_key}/match")
+@app.post("/api/v1/projects/{project_key}/match", tags=["Подбор"], summary="Подобрать роботов под процессы проекта")
 def match_project(project_key: str, body: MatchIn | None = None, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
         project = _readable(db, project_key, user)
         return run_match(db, project.id, site=None if body is None else body.site)
 
 
-@app.post("/api/v1/projects/{project_key}/economy")
+@app.post("/api/v1/projects/{project_key}/economy", tags=["Экономика"], summary="Посчитать бюджет и окупаемость по выбранным роботам")
 def economy_project(project_key: str, body: EconomyIn | None = None, user: SessionUser | None = Depends(optional_user)) -> dict:
     body = body or EconomyIn()
     with session_factory()() as db:
@@ -603,14 +636,14 @@ def economy_project(project_key: str, body: EconomyIn | None = None, user: Sessi
         return project_economy(db, project.id, body.site, body.choices, body.tasks, body.preview, body.picks)
 
 
-@app.get("/api/v1/projects/{project_key}/layout")
+@app.get("/api/v1/projects/{project_key}/layout", tags=["Схема"], summary="Схема расстановки проекта")
 def layout_read(project_key: str, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
         project = _readable(db, project_key, user)
         return {"layout": project_layout(db, project.id)}
 
 
-@app.put("/api/v1/projects/{project_key}/layout")
+@app.put("/api/v1/projects/{project_key}/layout", tags=["Схема"], summary="Сохранить схему расстановки")
 def layout_save(project_key: str, body: LayoutIn, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
         project = _writable(db, project_key, user)
@@ -621,7 +654,7 @@ _IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 _LAYOUT_FILE = re.compile(r"^[0-9a-f-]{36}\.(png|jpg|webp)$")
 
 
-@app.post("/api/v1/projects/{project_key}/layout/background")
+@app.post("/api/v1/projects/{project_key}/layout/background", tags=["Схема"], summary="Загрузить подложку схемы: PNG, JPG или WebP до 20 МБ")
 async def layout_background(project_key: str, file: UploadFile = File(...), user: SessionUser | None = Depends(optional_user)) -> dict:
     extension = _IMAGE_TYPES.get(file.content_type or "")
     if extension is None:
@@ -638,7 +671,7 @@ async def layout_background(project_key: str, file: UploadFile = File(...), user
     return {"name": name, "url": f"/api/v1/layout-files/{name}"}
 
 
-@app.get("/api/v1/layout-files/{name}")
+@app.get("/api/v1/layout-files/{name}", tags=["Схема"], summary="Отдать файл подложки схемы")
 def layout_file(name: str) -> FileResponse:
     if not _LAYOUT_FILE.match(name):
         raise HTTPException(404, "Файл не найден")
@@ -648,33 +681,33 @@ def layout_file(name: str) -> FileResponse:
     return FileResponse(path)
 
 
-@app.put("/api/v1/projects/{project_key}/economy/overrides")
+@app.put("/api/v1/projects/{project_key}/economy/overrides", tags=["Экономика"], summary="Сохранить ручные значения экономики проекта")
 def economy_overrides(project_key: str, body: OverridesIn, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
         project = _writable(db, project_key, user)
         return {"values": save_economy_overrides(db, project.id, body.values)}
 
 
-@app.get("/api/v1/economy/norms")
+@app.get("/api/v1/economy/norms", tags=["Экономика"], summary="Общие нормативы экономики")
 def economy_norm_list() -> dict:
     with session_factory()() as db:
         return {"items": economy_norms(db)}
 
 
-@app.put("/api/v1/admin/economy/norms")
+@app.put("/api/v1/admin/economy/norms", tags=["Экономика"], summary="Сохранить нормативы, источники и заметку к изменению")
 def economy_norm_save(body: NormsIn) -> dict:
     with session_factory()() as db:
         sources = {key: item.model_dump() for key, item in body.sources.items()}
         return {"items": save_economy_norms(db, body.values, body.note, sources)}
 
 
-@app.get("/api/v1/admin/economy/type-norms")
+@app.get("/api/v1/admin/economy/type-norms", tags=["Экономика"], summary="Нормативы по типам решений")
 def economy_type_norm_list() -> dict:
     with session_factory()() as db:
         return type_norm_list(db)
 
 
-@app.put("/api/v1/admin/economy/type-norms")
+@app.put("/api/v1/admin/economy/type-norms", tags=["Экономика"], summary="Записать норматив для типа решения")
 def economy_type_norm_save(body: TypeNormIn) -> dict:
     with session_factory()() as db:
         try:
@@ -686,7 +719,7 @@ def economy_type_norm_save(body: TypeNormIn) -> dict:
         return type_norm_list(db)
 
 
-@app.delete("/api/v1/admin/economy/type-norms")
+@app.delete("/api/v1/admin/economy/type-norms", tags=["Экономика"], summary="Удалить норматив типа решения")
 def economy_type_norm_delete(type_code: str, key: str) -> dict:
     with session_factory()() as db:
         try:
@@ -696,7 +729,7 @@ def economy_type_norm_delete(type_code: str, key: str) -> dict:
         return type_norm_list(db)
 
 
-@app.get("/api/v1/admin/economy/norms/log")
+@app.get("/api/v1/admin/economy/norms/log", tags=["Экономика"], summary="Журнал изменений нормативов")
 def economy_norm_history() -> dict:
     with session_factory()() as db:
         return {"items": economy_norm_log(db)}

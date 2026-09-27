@@ -5,6 +5,7 @@ interface ProcessItem {
   code: string
   name: string
   enabled: boolean
+  disabled_reason?: string | null
 }
 interface Project {
   id: string
@@ -62,7 +63,7 @@ onMounted(() => { void load().catch((err) => { notice.value = String(err); notic
         <span class="mono-sm tn">{{ index + 1 }}</span>
         <span class="proc-copy">
           <span class="body-sm strong">{{ process.name }}</span>
-          <span class="caption">{{ process.enabled ? 'в подборе' : 'выключен' }}</span>
+          <span class="caption" :class="{ loss: !process.enabled && process.disabled_reason }" :title="process.enabled ? '' : process.disabled_reason || ''">{{ process.enabled ? 'в подборе' : process.disabled_reason ? 'выключен: невыгоден по экономике' : 'выключен' }}</span>
         </span>
       </button>
     </div>
@@ -79,6 +80,7 @@ onMounted(() => { void load().catch((err) => { notice.value = String(err); notic
 .proc.still { cursor: default; }
 .proc-copy { display: grid; gap: 2px; min-width: 0; }
 .proc-copy .body-sm { color: var(--ink-strong); font-weight: 650; }
+.proc-copy .loss { color: var(--state-danger); }
 .tn { width: 28px; height: 28px; border-radius: 8px; background: var(--surface-graphite); color: var(--brand-300); display: inline-flex; align-items: center; justify-content: center; flex: none; }
 @media (max-width: 1100px) {
   .procs { grid-template-columns: 1fr; }

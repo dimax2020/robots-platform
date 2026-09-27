@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     job_stale_s: int = 1800
     list_page_size: int = 24
     session_secret: str = "platform-demo-session-secret"
+    # Внешний префикс за Traefik. Пустой — если uvicorn открыт напрямую, без /platform.
+    root_path: str = ""
 
 
 @lru_cache

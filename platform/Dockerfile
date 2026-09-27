@@ -28,4 +28,4 @@ RUN mkdir -p /app/uploads
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "python -m app.bootstrap && uvicorn app.api.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "python -m app.bootstrap && exec uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --root-path \"${ROOT_PATH:-}\""]
