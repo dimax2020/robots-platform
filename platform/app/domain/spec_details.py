@@ -53,14 +53,14 @@ def details(key: str, value: object, label: str = '', unit: str | None = None) -
         if match := re.fullmatch(r'Бак (?:для )?воды (.+)', text, re.I):
             a = scalar('water_tank_l', match[1])
             return ({'water_tank_l': a}, None) if a else ({}, 'unparsed_tank')
-        parsed = pair(r'(.+?)\s*\(стоя\)\s*/\s*(.+?)\s*\(в движении\)', 'payload_static_kg', 'payload_kg', ('стоя', 'в движении'))
+        parsed = pair(r'(.+?)\s*(?:\(\s*стоя\s*\)|\bстоя\b)\s*/\s*(.+?)\s*(?:\(\s*в движении\s*\)|\bв движении\b)', 'payload_static_kg', 'payload_kg', ('стоя', 'в движении'))
         if parsed:
             return parsed
         if match := re.fullmatch(r'(.+?)/(?:ярус|уровень)', text, re.I):
             a = scalar('payload_per_level_kg', match[1], 'на один ярус; общая грузоподъёмность не задана')
             return ({'payload_per_level_kg': a}, None) if a else ({}, 'unparsed_per_level')
     if canon == 'work_time_h':
-        parsed = pair(r'(.+?)\s*\(без нагрузки\)\s*[/,]\s*(.+?)\s*\(полная(?: нагрузка)?\)', 'work_time_empty_h', 'work_time_loaded_h', ('без нагрузки', 'полная нагрузка'), 'work_time_loaded_h')
+        parsed = pair(r'(.+?)\s*(?:\(\s*без нагрузки\s*\)|\bбез нагрузки\b)\s*[/,]\s*(.+?)\s*(?:\(\s*(?:(?:с\s+)?полной нагрузкой|полная(?:\s+нагрузка)?)\s*\)|\b(?:(?:с\s+)?полной нагрузкой|при\s+полной нагрузке|полная(?:\s+нагрузка)?)\b)', 'work_time_empty_h', 'work_time_loaded_h', ('без нагрузки', 'полная нагрузка'), 'work_time_loaded_h')
         if parsed:
             return parsed
         parsed = pair(r'(.+?)\s*\(без нагрузки\)\s*/\s*(.+?)\s*\(с 20 кг\)', 'work_time_empty_h', 'work_time_at_20kg_h', ('без нагрузки', 'нагрузка 20 кг'), 'work_time_at_20kg_h')

@@ -161,3 +161,63 @@ def test_formula_uses_upper_bound_and_converts_minutes():
     status, env, _ = build_env('robot.charge_time_h > 1', set(), {}, {}, {'charge_time_h': '120-240 мин'})
     assert status == 'ok'
     assert env['robot.charge_time_h'] == 4
+
+
+def test_work_time_modes_without_parentheses_use_loaded_value_for_calculations():
+    result, issues = normalize_attrs(
+        {'work_time_h': packed('12 ч без нагрузки / 6 ч с полной нагрузкой')}, {})
+    assert not issues
+    assert result['work_time_empty_h']['value'] == 12
+    assert result['work_time_loaded_h']['value'] == 6
+    assert result['work_time_h']['value'] == 6
+
+
+def test_payload_modes_without_parentheses_use_moving_payload_for_calculations():
+    result, issues = normalize_attrs(
+        {'payload_kg': packed('120 кг стоя / 40 кг в движении')}, {})
+    assert not issues
+    assert result['payload_static_kg']['value'] == 120
+    assert result['payload_kg']['value'] == 40
+
+
+@pytest.mark.parametrize('key,value,target,expected', [
+    ('payload_kg', '~35 кг', 'payload_kg', 35),
+    ('work_time_h', 'около 1 ч', 'work_time_h', 1),
+    ('payload_kg', '35кг 35кг 35кг', 'payload_kg', 35),
+    ('charge_time_h', '180 min 180 min', 'charge_time_h', 3),
+    ('max_speed_ms', '2,9 км / час', 'max_speed_ms', 0.8055555556),
+    ('payload_kg', '55 кг\u200b', 'payload_kg', 55),
+    ('payload_kg', 'до 40 кг (4 подноса)', 'payload_kg', 40),
+    ('work_time_h', '5~10 ч (Стандартный режим 8 ч)', 'work_time_h', 10),
+    ('work_time_h', '10 часов, Зарядка 4 часа', 'work_time_h', 10),
+    ('payload_kg', 'Бак для воды 60 л', 'water_tank_l', 60),
+    ('payload_kg', '10 кг/ярус', 'payload_per_level_kg', 10),
+    ('charge_time_h', '2 ч (с 0% до 90%)', 'charge_time_to_90_h', 2),
+])
+def test_catalog_examples_normalize_and_preserve_provenance(key, value, target, expected):
+    result, issues = normalize_attrs({key: {**packed(value), 'quote': 'Источник: значение'}}, {})
+    assert not issues
+    assert result[target]['value'] == expected
+    assert result[target]['source_id'] == 10
+    assert result[target]['quote'] == 'Источник: значение'
+
+
+def test_approximation_and_conditions_are_preserved():
+    approximate, _ = normalize_attrs({'payload_kg': packed('~35 кг')}, {})
+    trays, _ = normalize_attrs({'payload_kg': packed('до 40 кг (4 подноса)')}, {})
+    range_value, _ = normalize_attrs({'work_time_h': packed('5~10 ч (Стандартный режим 8 ч)')}, {})
+    charge, _ = normalize_attrs({'charge_time_h': packed('2 ч (с 0% до 90%)')}, {})
+    assert approximate['payload_kg']['approximate'] is True
+    assert trays['payload_kg']['condition'] == '4 подноса'
+    assert range_value['work_time_h']['condition'] == 'Стандартный режим 8 ч'
+    assert charge['charge_time_to_90_h']['condition'] == 'с 0% до 90%'
+
+
+def test_missing_unit_and_description_are_not_guessed():
+    missing, missing_issues = normalize_attrs({'vremya': packed('120')}, {'vremya': 'Время зарядки'})
+    description, description_issues = normalize_attrs(
+        {'payload_kg': packed('вместительные отсеки')}, {})
+    assert 'charge_time_h' not in missing
+    assert missing_issues[0]['reason'] == 'missing_unit'
+    assert description['payload_kg']['value'] == 'вместительные отсеки'
+    assert description_issues[0]['reason'] == 'no_numeric_value'
