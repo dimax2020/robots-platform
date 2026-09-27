@@ -3,7 +3,7 @@ import { PhCaretRight } from '@phosphor-icons/vue'
 import { countNode, type TreeNode } from '~/data/catalog'
 
 const props = withDefaults(defineProps<{ nodes: TreeNode[]; depth?: number; selected?: string; openAll?: boolean }>(), { depth: 0 })
-const emit = defineEmits<{ select: [label: string, ids: string[]] }>()
+const emit = defineEmits<{ select: [label: string, ids: string[], node: TreeNode] }>()
 
 const open = reactive<Record<string, boolean>>({})
 props.nodes.forEach((n, i) => { open[n.label] = props.openAll || (props.depth < 2 && i === 0) })
@@ -14,7 +14,7 @@ const idsOf = (n: TreeNode): string[] => n.productIds ? n.productIds : Array.fro
 const countOf = countNode
 const toggle = (n: TreeNode) => {
   if (n.children) open[n.label] = !open[n.label]
-  emit('select', n.label, idsOf(n))
+  emit('select', n.label, idsOf(n), n)
 }
 </script>
 
@@ -27,7 +27,7 @@ const toggle = (n: TreeNode) => {
         <span class="t">{{ n.label }}</span>
         <span class="c mono-sm">{{ countOf(n) }}</span>
       </button>
-      <CatalogTree v-if="n.children && open[n.label]" :nodes="n.children" :depth="depth + 1" :selected="selected" :open-all="openAll" @select="(l, ids) => emit('select', l, ids)" />
+      <CatalogTree v-if="n.children && open[n.label]" :nodes="n.children" :depth="depth + 1" :selected="selected" :open-all="openAll" @select="(l, ids, node) => emit('select', l, ids, node)" />
     </li>
   </ul>
 </template>

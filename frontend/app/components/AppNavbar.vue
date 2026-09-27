@@ -3,7 +3,13 @@ import { PhMagnifyingGlass, PhUserCircle, PhSignOut, PhCaretDown } from '@phosph
 import { roleLabel } from '~/composables/useRole'
 import type { MenuId } from '~/components/AppMegaMenu.vue'
 
-const { role, setRole } = useRole()
+const { role } = useRole()
+const { logout } = useAuth()
+const router = useRouter()
+const signOut = async () => {
+  await logout()
+  await router.push('/login')
+}
 const { ids } = useCompare()
 const route = useRoute()
 const isActive = (p: string) => route.path === p || (p !== '/' && route.path.startsWith(p))
@@ -73,7 +79,7 @@ onMounted(() => {
             <span>{{ roleLabel[role] }}</span>
           </div>
           <UiButton v-if="role === 'guest'" to="/login" size="sm">Войти</UiButton>
-          <button v-else type="button" class="icon-btn" aria-label="Выйти" @click="setRole('guest')"><PhSignOut :size="18" /></button>
+          <button v-else type="button" class="icon-btn" aria-label="Выйти" @click="signOut"><PhSignOut :size="18" /></button>
         </div>
       </nav>
 

@@ -1,21 +1,20 @@
 <script setup lang="ts">
 import { PhArrowRight, PhHandshake, PhCheckCircle } from '@phosphor-icons/vue'
-import { projectById, scenarios, isFullPath } from '~/data/projects'
+import { scenarios, isFullPath } from '~/data/projects'
+import { useLiveProject } from '~/composables/useLiveProject'
 import { demoProducts as products } from '~/data/demo'
 
 const route = useRoute()
-const project = computed(() => projectById(route.params.id as string))
-useHead({ title: () => `Состав парка · ${project.value.name}` })
-if (!isFullPath(project.value)) {
-  // Для аэропорта и медучреждения страница в MVP не открывается
-}
+const doc = useLiveProject(computed(() => route.params.id as string))
+const project = computed(() => doc.shell.value)
+useHead({ title: () => `Состав парка · ${project.value?.name ?? 'проект'}` })
 const p = (id: string) => products.find((x) => x.id === id)!
 const chosen = ref('s2')
 const f = (n: number) => n.toLocaleString('ru-RU')
 </script>
 
 <template>
-  <ProjectShell :project="project" current="economics" title="Состав парка" lead="Три способа закрыть объект — часть шага «Экономика». Числа в млн ₽, интервалом: нижняя, центральная и верхняя оценка.">
+  <ProjectShell v-if="project" :project="project" current="economics" title="Состав парка" lead="Три способа закрыть объект — часть шага «Экономика». Числа в млн ₽, интервалом: нижняя, центральная и верхняя оценка.">
     <template #actions>
       <UiButton :to="`/projects/${project.id}/economics`" size="lg">К экономике<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
     </template>

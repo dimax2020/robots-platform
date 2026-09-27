@@ -1,19 +1,19 @@
 <script setup lang="ts">
 import { PhCaretLeft, PhCaretRight, PhArrowLeft, PhScales } from '@phosphor-icons/vue'
-import { projects } from '~/data/projects'
-import { fetchErrorMessage } from '~/composables/useCalc'
-import { platformGet, platformSend } from '~/composables/usePlatform'
+import { fetchErrorMessage } from '~/utils/errors'
+import { platformSend } from '~/composables/usePlatform'
+import { useLiveProject } from '~/composables/useLiveProject'
 import { photoFor } from '~/data/placeholders'
 import { usePlatformCompare, type MatchGroup, type MatchHit, type RobotSpec } from '~/composables/usePlatformCompare'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
-const { project, detail, pending, error } = useCalc(id)
-const demoProject = computed(() => projects.find((p) => p.id === id.value))
-const shell = computed(() => project.value ?? demoProject.value)
+const live = useLiveProject(id)
+const project = computed(() => (live.isDemo.value ? undefined : live.shell.value))
+const shell = live.shell
+const pending = live.pending
+const error = computed(() => (live.isDemo.value ? null : live.error.value))
 useHead({ title: () => `Сравнение · ${shell.value?.name ?? 'проект'}` })
-
-interface PlatformProject { id: string; object_code: string }
 
 const groups = ref<MatchGroup[]>([])
 const loadingMatch = ref(true)
@@ -21,7 +21,7 @@ const matchError = ref('')
 const viewIndex = ref(0)
 const { includedHits, chosenId, remainingHit, choose, isConfirmed } = usePlatformCompare(id)
 
-const live = computed(() => Boolean(project.value))
+const canEdit = computed(() => Boolean(project.value))
 const activeCode = computed(() => {
   const query = typeof route.query.process === 'string' ? route.query.process : ''
   if (groups.value.some((group) => group.process_code === query)) return query
@@ -116,30 +116,15 @@ const takeViewed = () => {
   choose(activeGroup.value.process_code, viewed.value.product_id)
 }
 
-const ensureProject = async () => {
-  const code = project.value?.objectType ?? 'warehouse'
-  const key = `platform-project:${id.value}`
-  const saved = localStorage.getItem(key)
-  if (saved) {
-    try {
-      const current = await platformGet<PlatformProject>(`/projects/${saved}`)
-      if (current.object_code === code) return current.id
-    } catch {
-      localStorage.removeItem(key)
-    }
-  }
-  const created = await platformSend<PlatformProject>('/projects', 'POST', { name: shell.value?.name ?? code, object_code: code, site: {} })
-  localStorage.setItem(key, created.id)
-  return created.id
-}
-
 const load = async () => {
-  if (!project.value) return
+  if (live.pending.value || !shell.value) return
   loadingMatch.value = true
   matchError.value = ''
   try {
-    const projectId = await ensureProject()
-    const result = await platformSend<{ groups: MatchGroup[] }>(`/projects/${projectId}/match`, 'POST', { site: detail.value?.site ?? {} })
+    const site = live.site.value
+    const result = live.isDemo.value
+      ? await platformSend<{ groups: MatchGroup[] }>('/catalog/preview/match', 'POST', { object_code: live.objectCode.value, site })
+      : await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site })
     groups.value = result.groups
     const requested = typeof route.query.process === 'string' ? route.query.process : ''
     if (result.groups[0] && !result.groups.some((group) => group.process_code === requested)) {
@@ -152,7 +137,7 @@ const load = async () => {
   }
 }
 
-watch(() => project.value?.id, () => { void load() }, { immediate: true })
+watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, { immediate: true })
 watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () => {
   const current = chosen.value?.product_id
   const index = pool.value.findIndex((hit) => hit.product_id === current)
@@ -171,11 +156,11 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
     lead="Слева выбранный робот. Его полоски стоят на 50%. Стрелки листают остальных из сравнения и показывают разницу уже от этого выбора."
   >
     <template #actions>
-      <UiButton v-if="live" :to="`/projects/${shell.id}/match`" size="lg" variant="secondary">
+      <UiButton v-if="shell" :to="`/projects/${shell.id}/match`" size="lg" variant="secondary">
         <template #icon><PhArrowLeft :size="16" weight="bold" /></template>
         К подбору
       </UiButton>
-      <UiButton v-if="live" :to="`/projects/${shell.id}/economics`" size="lg" :disabled="!canEconomy">
+      <UiButton v-if="shell" :to="`/projects/${shell.id}/economics`" size="lg" :disabled="!canEconomy">
         <template #icon><PhScales :size="16" weight="bold" /></template>
         К экономике
       </UiButton>

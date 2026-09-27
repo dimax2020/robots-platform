@@ -1,19 +1,67 @@
 <script setup lang="ts">
 import { PhPlus, PhCopy, PhTrash, PhArrowRight, PhLockSimple } from '@phosphor-icons/vue'
-import { projects, objectTypeLabel, objectTypeImage, steps, isFullPath } from '~/data/projects'
-import { fetchErrorMessage } from '~/composables/useCalc'
+import { projects, objectTypeLabel, objectTypeImage, isFullPath, type ObjectType } from '~/data/projects'
+import { fetchErrorMessage } from '~/utils/errors'
+import { platformGet, platformSend } from '~/composables/usePlatform'
+
+interface OwnProject {
+  id: string
+  name: string
+  object_code: string
+  object_name: string
+  industry: string
+}
 
 useHead({ title: 'Проекты' })
 const { role } = useRole()
-const { projects: live, pending, error } = useProjects()
-const own = computed(() => live.value)
-const demo = computed(() => projects.filter((p) => p.isDemo))
-const fmt = (d: string) => {
-  if (!d) return '—'
-  const dt = new Date(d)
-  return Number.isNaN(dt.getTime()) ? '—' : dt.toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+const own = ref<OwnProject[]>([])
+const pending = ref(false)
+const error = ref<unknown>(null)
+const busy = ref('')
+
+const load = async () => {
+  if (role.value === 'guest') { own.value = []; return }
+  pending.value = true
+  error.value = null
+  try {
+    const page = await platformGet<{ items: OwnProject[] }>('/projects')
+    own.value = page.items
+  } catch (err) {
+    error.value = err
+  } finally {
+    pending.value = false
+  }
 }
-const stepLabel = (p: (typeof projects)[number]) => steps[Math.min(p.step, steps.length) - 1]?.label ?? 'Параметры'
+watch(role, () => { void load() }, { immediate: true })
+
+const demo = computed(() => projects.filter((p) => p.isDemo))
+const typeOf = (code: string): ObjectType => code === 'airport' || code === 'hospital' ? code : 'warehouse'
+const labelOf = (row: OwnProject) => objectTypeLabel[typeOf(row.object_code)] ?? row.object_name
+const imageOf = (row: OwnProject) => objectTypeImage[typeOf(row.object_code)] ?? objectTypeImage.warehouse
+
+const copyProject = async (id: string) => {
+  busy.value = id
+  try {
+    await platformSend(`/projects/${id}/copy`, 'POST')
+    await load()
+  } catch (err) {
+    error.value = err
+  } finally {
+    busy.value = ''
+  }
+}
+const removeProject = async (id: string) => {
+  if (!window.confirm('Удалить проект? Файлы схемы этого проекта тоже будут удалены.')) return
+  busy.value = id
+  try {
+    await platformSend(`/projects/${id}`, 'DELETE')
+    await load()
+  } catch (err) {
+    error.value = err
+  } finally {
+    busy.value = ''
+  }
+}
 </script>
 
 <template>
@@ -41,18 +89,16 @@ const stepLabel = (p: (typeof projects)[number]) => steps[Math.min(p.step, steps
       </div>
       <div v-else class="list glass glass-xl">
         <table class="table">
-          <thead><tr><th>Название</th><th>Тип объекта</th><th>Шаг</th><th>Обновлён</th><th>Версия каталога</th><th class="num">Действия</th></tr></thead>
+          <thead><tr><th>Название</th><th>Тип объекта</th><th>Отрасль</th><th class="num">Действия</th></tr></thead>
           <tbody>
             <tr v-for="p in own" :key="p.id">
-              <td><NuxtLink :to="`/projects/${p.id}`" class="strong name">{{ p.name }}</NuxtLink><div class="caption">{{ p.industry }}</div></td>
-              <td><span class="row"><img :src="objectTypeImage[p.objectType]" class="thumb" alt="">{{ objectTypeLabel[p.objectType] }}</span></td>
-              <td><span class="progress"><span class="bar"><span :style="{ width: `${(p.step / steps.length) * 100}%` }" /></span><span class="caption">{{ stepLabel(p) }}</span></span></td>
-              <td class="mono-sm">{{ fmt(p.updatedAt) }}</td>
-              <td class="mono-sm">{{ p.catalogVersion }} · {{ p.modelVersion }}</td>
+              <td><NuxtLink :to="`/projects/${p.id}`" class="strong name">{{ p.name }}</NuxtLink></td>
+              <td><span class="row"><img :src="imageOf(p)" class="thumb" alt="">{{ labelOf(p) }}</span></td>
+              <td class="caption">{{ p.industry || '—' }}</td>
               <td class="num actions">
                 <UiButton :to="`/projects/${p.id}`" size="sm" variant="secondary">Открыть <template #after><PhArrowRight :size="14" weight="bold" /></template></UiButton>
-                <button type="button" class="ic" aria-label="Копировать"><PhCopy :size="16" /></button>
-                <button type="button" class="ic danger" aria-label="Удалить"><PhTrash :size="16" /></button>
+                <button type="button" class="ic" aria-label="Копировать" :disabled="busy === p.id" @click="copyProject(p.id)"><PhCopy :size="16" /></button>
+                <button type="button" class="ic danger" aria-label="Удалить" :disabled="busy === p.id" @click="removeProject(p.id)"><PhTrash :size="16" /></button>
               </td>
             </tr>
           </tbody>

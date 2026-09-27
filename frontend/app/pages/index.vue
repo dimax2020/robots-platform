@@ -1,16 +1,21 @@
 <script setup lang="ts">
 import { PhArrowRight, PhArrowUpRight, PhDatabase, PhGitBranch, PhChartLineUp, PhPlay } from '@phosphor-icons/vue'
 import { projects, objectTypeLabel, objectTypeImage } from '~/data/projects'
+import { cardToProduct, platformGet, type PlatformPage } from '~/composables/usePlatform'
+import type { Product } from '~/data/catalog'
 
 useHead({ title: 'Платформа роботизации. Каталог и подбор решений' })
 
-const { products } = useCatalog()
-// На главной показываем четыре самых зрелых решения каталога
-const featured = computed(() =>
-  [...products.value]
-    .sort((a, b) => b.trl - a.trl || b.marketPotential - a.marketPotential || b.completeness - a.completeness)
-    .slice(0, 4),
-)
+const featured = ref<Product[]>([])
+const catalogTotal = ref(0)
+onMounted(() => {
+  platformGet<PlatformPage>('/catalog/products?limit=24')
+    .then((page) => {
+      catalogTotal.value = page.total
+      featured.value = [...page.items].sort((a, b) => (b.trl ?? 0) - (a.trl ?? 0)).slice(0, 4).map(cardToProduct)
+    })
+    .catch(() => { featured.value = [] })
+})
 const demos = computed(() => projects.filter((p) => p.isDemo))
 
 const rules = [
@@ -206,7 +211,7 @@ const objects = [
     <!-- Каталог -->
     <section class="container section">
       <SectionHead title="Каталог решений" lead="Дерево отрасль → объект → процесс → тип решения → продукт. Один продукт может быть в нескольких ветках без дублей карточек.">
-        <UiButton to="/catalog" variant="secondary">Все 47 решений<template #after><PhArrowRight :size="16" weight="bold" /></template></UiButton>
+        <UiButton to="/catalog" variant="secondary">{{ catalogTotal ? `Все ${catalogTotal} решений` : 'Все решения' }}<template #after><PhArrowRight :size="16" weight="bold" /></template></UiButton>
       </SectionHead>
       <div class="grid grid-4">
         <RobotCard v-for="(p, i) in featured" :key="p.id" :product="p" v-reveal="i" />

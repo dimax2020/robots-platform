@@ -1,24 +1,20 @@
 <script setup lang="ts">
 import { PhArrowRight } from '@phosphor-icons/vue'
-import { projects } from '~/data/projects'
-import { fetchErrorMessage } from '~/composables/useCalc'
-import { platformGet, platformSend } from '~/composables/usePlatform'
+import { fetchErrorMessage } from '~/utils/errors'
+import { platformSend } from '~/composables/usePlatform'
+import { useLiveProject } from '~/composables/useLiveProject'
 import { photoFor } from '~/data/placeholders'
 import { usePlatformCompare, type MatchGroup, type MatchHit } from '~/composables/usePlatformCompare'
 
 const route = useRoute()
 const router = useRouter()
 const id = computed(() => route.params.id as string)
-const { project, detail, pending, error, calculate } = useCalc(id)
-const demoProject = computed(() => projects.find((p) => p.id === id.value))
-const shell = computed(() => project.value ?? demoProject.value)
+const live = useLiveProject(id)
+const project = computed(() => (live.isDemo.value ? undefined : live.shell.value))
+const shell = live.shell
+const pending = live.pending
+const error = computed(() => (live.isDemo.value ? null : live.error.value))
 useHead({ title: () => `Подбор · ${shell.value?.name ?? 'проект'}` })
-
-interface PlatformProject {
-  id: string
-  object_code: string
-  processes: { code: string; enabled: boolean }[]
-}
 
 const groups = ref<MatchGroup[]>([])
 const statusTab = ref('pass')
@@ -31,7 +27,7 @@ const now = ref(0)
 let clock: ReturnType<typeof setInterval> | undefined
 const ranFor = ref('')
 
-const live = computed(() => Boolean(project.value))
+const canRun = computed(() => Boolean(project.value))
 const verdictLabel: Record<string, string> = {
   pass: 'Подходит',
   conditional: 'С условием',
@@ -102,40 +98,24 @@ const stopClock = () => {
   clock = undefined
 }
 
-const ensureProject = async () => {
-  const code = project.value?.objectType ?? 'warehouse'
-  const key = `platform-project:${id.value}`
-  const saved = localStorage.getItem(key)
-    if (saved) {
-      try {
-        const current = await platformGet<PlatformProject>(`/projects/${saved}`)
-        if (current.object_code === code) return current.id
-      } catch {
-        localStorage.removeItem(key)
-      }
-    }
-  const created = await platformSend<PlatformProject>('/projects', 'POST', { name: shell.value?.name ?? code, object_code: code, site: {} })
-  localStorage.setItem(key, created.id)
-  return created.id
-}
-
 const runMatch = async () => {
-  if (!project.value || ranFor.value === project.value.id) return
-  ranFor.value = project.value.id
+  if (live.pending.value || !shell.value || ranFor.value === shell.value.id) return
+  ranFor.value = shell.value.id
   loadingMatch.value = true
   matchError.value = ''
   groups.value = []
   startClock()
   try {
-    const projectId = await ensureProject()
-    const result = await platformSend<{ groups: MatchGroup[] }>(`/projects/${projectId}/match`, 'POST', { site: detail.value?.site ?? {} })
+    const site = live.site.value
+    const result = live.isDemo.value
+      ? await platformSend<{ groups: MatchGroup[] }>('/catalog/preview/match', 'POST', { object_code: live.objectCode.value, site })
+      : await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site })
     groups.value = result.groups
     const requested = typeof route.query.process === 'string' ? route.query.process : ''
     const first = result.groups[0]?.process_code
     if (first && !result.groups.some((group) => group.process_code === requested)) {
       await router.replace({ query: { process: first } })
     }
-    void calculate().catch(() => {})
   } catch (err: unknown) {
     matchError.value = fetchErrorMessage(err, 'Не удалось посчитать подбор')
   } finally {
@@ -159,7 +139,7 @@ watch([activeCode, () => activeGroup.value?.hits.length ?? 0], () => {
   const next = statusOrder.find((code) => hits.some((hit) => hit.verdict === code))
   statusTab.value = next || 'pass'
 })
-watch(() => project.value?.id, () => { void runMatch() }, { immediate: true })
+watch([() => shell.value?.id, () => live.pending.value], () => { void runMatch() }, { immediate: true })
 onBeforeUnmount(stopClock)
 </script>
 
@@ -174,7 +154,7 @@ onBeforeUnmount(stopClock)
     :lead="loadingMatch ? 'Считаем решения по включённым процессам. Время на экране — сколько уже идёт расчёт.' : 'Прошедшие все фильтры уже стоят в сравнении. Роботов с других вкладок можно добавить той же кнопкой.'"
   >
     <template #actions>
-      <UiButton v-if="live" size="lg" :disabled="loadingMatch" @click="goNext">
+      <UiButton v-if="shell" size="lg" :disabled="loadingMatch" @click="goNext">
         {{ buttonLabel }}<template v-if="!loadingMatch" #after><PhArrowRight :size="18" weight="bold" /></template>
       </UiButton>
     </template>

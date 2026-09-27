@@ -67,6 +67,13 @@ def get_job(db: Session, job_id: UUID) -> dict | None:
     return _job(job)
 
 
+def recent_jobs(db: Session, *, prefix: str = "", limit: int = 20) -> list[dict]:
+    stmt = select(JobRow).order_by(JobRow.created_at.desc()).limit(limit)
+    if prefix:
+        stmt = stmt.where(JobRow.kind.startswith(prefix))
+    return [_job(row) for row in db.scalars(stmt)]
+
+
 def due_parsers(db: Session, now: datetime) -> list[str]:
     """Один запуск в сутки, в окне двух часов после назначенного времени по Москве."""
     today = now.date()

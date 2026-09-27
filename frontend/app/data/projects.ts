@@ -118,25 +118,3 @@ export const effectLines: CostLine[] = [
   { label: 'Дополнительный доход', value: 0, sourceId: 's-team', note: 'Интервал 0–9,4 млн ₽: рост пропускной способности' },
   { label: 'Предотвращённые потери', value: 3.8, sourceId: 's-analog', note: 'Бой и пересорт по бенчмарку класса' },
 ]
-
-export interface Norm { key: string; label: string; value: string; unit: string; sourceId: string; editable: boolean; rationale: string }
-
-export const norms: Norm[] = [
-  { key: 'k_reserve', label: 'Резерв парка', value: '1,3', unit: 'коэф.', sourceId: 's-analog', editable: true, rationale: 'Зарядка 15% времени, простой 10%, пиковый запас 5%' },
-  { key: 'k_load', label: 'Коэффициент загрузки', value: '0,85', unit: 'коэф.', sourceId: 's-analog', editable: true, rationale: 'Средняя по 12 внедрениям класса AMR в РФ' },
-  { key: 'fot_year', label: 'ФОТ комплектовщика', value: '3 900 000', unit: '₽/год', sourceId: 's-media', editable: true, rationale: 'HeadHunter, Москва и область, Q2 2026, с налогами' },
-  { key: 'energy_price', label: 'Тариф на электроэнергию', value: '7,2', unit: '₽/кВт·ч', sourceId: 's-team', editable: true, rationale: 'Средний коммерческий тариф Московской области' },
-  { key: 'shift_h', label: 'Длительность смены', value: '8', unit: 'ч', sourceId: 's-team', editable: true, rationale: 'ТК РФ, стандартная смена' },
-  { key: 'horizon', label: 'Горизонт расчёта', value: '5', unit: 'лет', sourceId: 's-team', editable: true, rationale: 'Минимум по ТЗ организатора' },
-  { key: 'service_pct', label: 'Сервис от CAPEX', value: '8', unit: '%/год', sourceId: 's-analog', editable: false, rationale: 'Медиана по 6 вендорам класса' },
-]
-
-export interface Proposal { id: string; product: string; field: string; value: string; quote?: string; url: string; origin: 'import' | 'url' | 'manual'; status: 'pending' | 'accepted' | 'rejected'; at: string }
-
-export const proposals: Proposal[] = [
-  { id: 'q-2201', product: 'DMR 300 Carrier B', field: 'Автономность', value: '6 ч', quote: 'работа без подзарядки до 6 часов', url: 'https://dikom.example/dmr300', origin: 'url', status: 'pending', at: '2026-09-20T10:14:00' },
-  { id: 'q-2200', product: 'Легат Патрол', field: 'Производительность', value: '4,2 км маршрута/ч', url: 'https://mai.example/patrol', origin: 'url', status: 'pending', at: '2026-09-20T09:51:00' },
-  { id: 'q-2199', product: 'Weibot G2P-600', field: 'Класс защиты', value: 'IP20', quote: 'Степень защиты IP20', url: 'https://avtomakon.example/g2p', origin: 'import', status: 'accepted', at: '2026-09-19T17:30:00' },
-  { id: 'q-2198', product: 'Ячейка Q', field: 'Нагрузка на пол', value: '3,6 т/м²', url: '', origin: 'manual', status: 'pending', at: '2026-09-19T15:02:00' },
-  { id: 'q-2197', product: 'Ronavi H1500', field: 'Скорость', value: '2,0 м/с', quote: '', url: 'https://cnews.example/robots-2026', origin: 'url', status: 'rejected', at: '2026-09-18T12:20:00' },
-]

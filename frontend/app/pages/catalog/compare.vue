@@ -1,29 +1,96 @@
 <script setup lang="ts">
-import { PhX, PhPlus, PhWarning, PhDownloadSimple } from '@phosphor-icons/vue'
-import { attrGroups, availabilityLabel, availabilityTone, formatRub, type AttrValue, type Product } from '~/data/catalog'
-
-const { products, ensureCompareData } = useCatalog()
-// Значения характеристик приходят массовой выдачей, её просит тот, кому она нужна
-await ensureCompareData()
+import { PhX, PhPlus } from '@phosphor-icons/vue'
+import { attrGroups, availabilityLabel, availabilityTone, formatRub, type Availability } from '~/data/catalog'
+import { photoFor } from '~/data/placeholders'
+import { platformGet } from '~/composables/usePlatform'
 
 useHead({ title: 'Сравнение решений' })
-const { ids, toggle } = useCompare()
-const items = computed(() => ids.value.map((id) => products.value.find((p) => p.id === id)!).filter(Boolean))
-const candidates = computed(() => products.value.filter((p) => !ids.value.includes(p.id)))
-const adding = ref(false)
+const { picks, toggle } = useCompare()
 
-// Строки из одного справочника: объединение ключей всех выбранных продуктов по группам
+interface CardAttr {
+  key: string
+  label: string
+  group: string
+  status: string
+  value: string | number | null
+  source: { kind: string; publisher: string; url: string | null } | null
+}
+interface Card {
+  slug: string
+  name: string
+  manufacturer: string | null
+  availability: string | null
+  trl: number | null
+  price_rub: number | null
+  image_url: string | null
+  solution_type: { code: string; name: string } | null
+  attrs: CardAttr[]
+}
+
+const items = ref<Card[]>([])
+const loading = ref(false)
+const loadError = ref('')
+
+const load = async () => {
+  loading.value = true
+  loadError.value = ''
+  try {
+    const cards = await Promise.all(picks.value.map(async (pick) => {
+      try {
+        return await platformGet<Card>(`/catalog/products/${pick.slug}`)
+      } catch {
+        return null
+      }
+    }))
+    items.value = cards.filter((card): card is Card => card !== null)
+  } catch (err) {
+    loadError.value = err instanceof Error ? err.message : 'Не удалось открыть карточки'
+  } finally {
+    loading.value = false
+  }
+}
+watch(() => picks.value.map((item) => item.slug).join('|'), () => { void load() }, { immediate: true })
+
+const groupLabel = (code: string) => attrGroups.find((group) => group.code === code)?.label ?? (code || 'Характеристики')
 const rows = computed(() => {
-  const groups = attrGroups.filter((g) => g.code !== 'identification' && g.code !== 'data_quality')
-  return groups.map((g) => {
-    const keys = new Map<string, string>()
-    items.value.forEach((p) => p.attrs.filter((a) => a.group === g.code).forEach((a) => keys.set(a.key, a.label)))
-    return { group: g, keys: Array.from(keys.entries()) }
-  }).filter((g) => g.keys.length)
+  const groups = new Map<string, Map<string, string>>()
+  for (const card of items.value) {
+    for (const attr of card.attrs) {
+      if (!attr.group || attr.group === 'identification' || attr.group === 'data_quality') continue
+      const bucket = groups.get(attr.group) ?? new Map<string, string>()
+      bucket.set(attr.key, attr.label || attr.key)
+      groups.set(attr.group, bucket)
+    }
+  }
+  return [...groups.entries()].map(([code, keys]) => ({ code, label: groupLabel(code), keys: [...keys.entries()] }))
 })
-const cell = (p: Product, key: string, group: AttrValue['group']): AttrValue =>
-  p.attrs.find((a) => a.key === key) ?? { key, label: '', group, status: 'not_applicable' }
-const manual = (p: Product) => !p.autoMatch
+const cell = (card: Card, key: string) => {
+  const attr = card.attrs.find((item) => item.key === key)
+  if (!attr || attr.status !== 'known' || attr.value == null || attr.value === '') return 'нет данных'
+  return String(attr.value)
+}
+const toneOf = (raw: string | null): Availability => {
+  if (raw === 'operation' || raw === 'piloting' || raw === 'rnd') return raw
+  return 'piloting'
+}
+
+const adding = ref(false)
+const pool = ref<{ slug: string; name: string; manufacturer: string | null; trl: number | null; image_url: string | null; solution_type: { name: string } | null }[]>([])
+const openAdd = async () => {
+  adding.value = !adding.value
+  if (!adding.value || pool.value.length) return
+  const page = await platformGet<{ items: typeof pool.value }>('/catalog/products?limit=48')
+  pool.value = page.items
+}
+const candidates = computed(() => pool.value.filter((item) => !picks.value.some((pick) => pick.slug === item.slug)))
+const add = (item: (typeof pool.value)[number]) => {
+  toggle(item.slug, {
+    name: item.name,
+    image: photoFor(item.image_url, item.name),
+    solutionType: item.solution_type?.name ?? '',
+    manufacturer: item.manufacturer ?? '',
+  })
+}
 </script>
 
 <template>
@@ -32,46 +99,46 @@ const manual = (p: Product) => !p.autoMatch
       <div>
         <div class="label">Сравнение</div>
         <h1 class="hero-2">Рядом по одним и тем же полям</h1>
-        <p class="body muted">Строки берутся из справочника характеристик, того же, что и карточка продукта. Пустые значения и «не применимо» показаны явно.</p>
+        <p class="body muted">Строки берутся из характеристик каталога платформы, того же набора, что и карточка продукта. Пустые значения показаны явно.</p>
       </div>
       <div class="row">
-        <UiButton variant="secondary" @click="adding = !adding"><template #icon><PhPlus :size="16" weight="bold" /></template>Добавить продукт</UiButton>
-        <UiButton variant="secondary"><template #icon><PhDownloadSimple :size="16" weight="bold" /></template>Выгрузить CSV</UiButton>
+        <UiButton variant="secondary" @click="openAdd"><template #icon><PhPlus :size="16" weight="bold" /></template>Добавить продукт</UiButton>
       </div>
     </div>
+
+    <p v-if="loadError" class="caption">{{ loadError }}</p>
 
     <Transition name="fade">
       <div v-if="adding" class="picker glass">
         <div class="picker-head between">
           <span class="h4">Добавить в сравнение</span>
-          <span class="caption">Можно вручную добавить продукт с УГТ ниже 5 или со статусом «разработка». Он не участвовал в автоподборе.</span>
+          <span class="caption">Первые карточки каталога платформы.</span>
         </div>
         <div class="picker-grid">
-          <button v-for="p in candidates" :key="p.id" type="button" class="pick" @click="toggle(p.id)">
-            <img :src="p.image" alt="">
-            <span class="pick-text"><span class="body-sm strong">{{ p.name }}</span><span class="caption">{{ p.solutionType }} · УГТ {{ p.trl }}</span></span>
-            <UiBadge v-if="manual(p)" tone="warn" size="sm">вне автоподбора</UiBadge>
+          <button v-for="p in candidates" :key="p.slug" type="button" class="pick" @click="add(p)">
+            <img :src="photoFor(p.image_url, p.name)" alt="">
+            <span class="pick-text"><span class="body-sm strong">{{ p.name }}</span><span class="caption">{{ p.solution_type?.name || 'без типа' }} · УГТ {{ p.trl ?? '—' }}</span></span>
           </button>
         </div>
       </div>
     </Transition>
 
-    <div v-if="items.length" class="table-wrap glass glass-xl" v-reveal="1">
+    <div v-if="loading && !items.length" class="empty glass"><UiSkeleton h="240px" /></div>
+    <div v-else-if="items.length" class="table-wrap glass glass-xl" v-reveal="1">
       <table class="cmp">
         <thead>
           <tr>
             <th class="param-h"><span class="label">Характеристика</span></th>
-            <th v-for="p in items" :key="p.id" class="prod">
+            <th v-for="p in items" :key="p.slug" class="prod">
               <div class="prod-card">
-                <button type="button" class="rm" :aria-label="`Убрать ${p.name}`" @click="toggle(p.id)"><PhX :size="12" weight="bold" /></button>
-                <img :src="p.image" :alt="p.name">
-                <NuxtLink :to="`/catalog/${p.slug}`" class="h4">{{ p.name }}</NuxtLink>
-                <span class="caption">{{ p.manufacturer }}</span>
+                <button type="button" class="rm" :aria-label="`Убрать ${p.name}`" @click="toggle(p.slug)"><PhX :size="12" weight="bold" /></button>
+                <img :src="photoFor(p.image_url, p.name)" :alt="p.name">
+                <NuxtLink :to="`/catalog/card/${p.slug}`" class="h4">{{ p.name }}</NuxtLink>
+                <span class="caption">{{ p.manufacturer || 'Производитель не указан' }}</span>
                 <span class="prod-badges">
-                  <UiBadge :tone="availabilityTone[p.availability]" size="sm">{{ availabilityLabel[p.availability] }}</UiBadge>
-                  <UiBadge tone="neutral" mono size="sm">УГТ {{ p.trl }}</UiBadge>
+                  <UiBadge v-if="p.availability" :tone="availabilityTone[toneOf(p.availability)]" size="sm">{{ availabilityLabel[toneOf(p.availability)] }}</UiBadge>
+                  <UiBadge v-if="p.trl" tone="neutral" mono size="sm">УГТ {{ p.trl }}</UiBadge>
                 </span>
-                <span v-if="manual(p)" class="manual"><PhWarning :size="12" weight="fill" /> Не входил в автоподбор</span>
               </div>
             </th>
           </tr>
@@ -80,13 +147,13 @@ const manual = (p: Product) => !p.autoMatch
           <tr class="sec"><td :colspan="items.length + 1"><span class="label">Цена</span></td></tr>
           <tr>
             <td class="param">Стоимость единицы</td>
-            <td v-for="p in items" :key="p.id" class="val"><span class="mono-md strong">{{ formatRub(p.priceRub) }}</span><span v-if="p.priceNote" class="caption block">{{ p.priceNote }}</span></td>
+            <td v-for="p in items" :key="p.slug" class="val"><span class="mono-md strong">{{ formatRub(p.price_rub ?? undefined) }}</span></td>
           </tr>
-          <template v-for="g in rows" :key="g.group.code">
-            <tr class="sec"><td :colspan="items.length + 1"><span class="label">{{ g.group.label }}</span></td></tr>
+          <template v-for="g in rows" :key="g.code">
+            <tr class="sec"><td :colspan="items.length + 1"><span class="label">{{ g.label }}</span></td></tr>
             <tr v-for="[key, label] in g.keys" :key="key">
               <td class="param">{{ label }}</td>
-              <td v-for="p in items" :key="p.id" class="val"><UiValueCell :attr="cell(p, key, g.group.code)" align="right" /></td>
+              <td v-for="p in items" :key="p.slug" class="val">{{ cell(p, key) }}</td>
             </tr>
           </template>
         </tbody>
@@ -122,12 +189,9 @@ const manual = (p: Product) => !p.autoMatch
 .prod-card .h4 { color: var(--ink-strong); }
 .prod-badges { display: flex; gap: 6px; margin-top: 4px; }
 .rm { position: absolute; top: 18px; right: 18px; z-index: 2; width: 24px; height: 24px; border-radius: 50%; background: var(--surface-graphite); color: #fff; display: inline-flex; align-items: center; justify-content: center; }
-.manual { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; font-size: 12px; font-weight: 600; color: var(--state-warn); }
 .sec td { padding-top: 22px; padding-bottom: 6px; border-bottom: 1px solid rgba(15, 20, 19, 0.08); }
 .param { font-size: 14px; color: var(--ink-body); border-bottom: 1px solid rgba(15, 20, 19, 0.05); }
 .val { text-align: right; border-bottom: 1px solid rgba(15, 20, 19, 0.05); }
-.val :deep(.cell) { justify-content: flex-end; width: 100%; }
-.block { display: block; }
 tbody tr:nth-child(odd):not(.sec) td { background: rgba(15, 20, 19, 0.018); }
 .empty { padding: var(--space-12); text-align: center; display: grid; gap: var(--space-3); justify-items: center; }
 .empty > * { position: relative; z-index: 1; }

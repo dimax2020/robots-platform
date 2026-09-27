@@ -1,7 +1,7 @@
 import type { Ref } from 'vue'
-import { projects } from '~/data/projects'
-import { fetchErrorMessage } from '~/composables/useCalc'
-import { platformGet, platformSend } from '~/composables/usePlatform'
+import { fetchErrorMessage } from '~/utils/errors'
+import { platformSend } from '~/composables/usePlatform'
+import { useLiveProject } from '~/composables/useLiveProject'
 import { usePlatformCompare } from '~/composables/usePlatformCompare'
 
 export type EconSource = 'card' | 'fleet' | 'site' | 'norm' | 'project' | 'calc'
@@ -133,8 +133,6 @@ export const SOURCE_TONE: Record<EconSource, 'ok' | 'warn' | 'info' | 'neutral' 
   calc: 'neutral',
 }
 
-interface PlatformProject { id: string; object_code: string }
-
 export const rubles = (value: number | null | undefined) => value == null ? '—' : `${Math.round(value).toLocaleString('ru-RU')} ₽`
 
 export const millions = (value: number | null | undefined) =>
@@ -150,56 +148,37 @@ export const figValue = (value: number | null | undefined, unit: string) => {
 }
 
 export function usePlatformEconomy(id: Ref<string>) {
-  const { project: liveProject, detail, pending: livePending, error: liveError } = useCalc(id)
-  const demoProject = computed(() => projects.find((item) => item.id === id.value))
-  const project = computed(() => liveProject.value ?? demoProject.value)
-  const isDemo = computed(() => !liveProject.value && Boolean(demoProject.value))
-  const objectCode = computed(() => liveProject.value?.objectType ?? demoProject.value?.objectType ?? '')
-  const { profile, pending: profilePending } = useSiteProfile(computed(() => (isDemo.value ? objectCode.value : '')))
+  const live = useLiveProject(id)
   const { choices } = usePlatformCompare(id)
+  const project = live.shell
+  const isDemo = live.isDemo
+  const objectCode = live.objectCode
 
   const source = computed(() => {
-    if (liveProject.value && detail.value) return { site: detail.value.site ?? {}, tasks: detail.value.tasks ?? [] }
-    if (isDemo.value && profile.value) return { site: profile.value.site ?? {}, tasks: profile.value.tasks ?? [] }
-    return null
+    if (!project.value) return null
+    return { site: live.site.value, tasks: live.tasks.value }
   })
 
   const report = ref<EconReport | null>(null)
   const loading = ref(false)
   const failure = ref('')
-  const platformId = ref<string | null>(null)
   let token = 0
 
-  const ensureProject = async () => {
-    if (platformId.value) return platformId.value
-    const key = `platform-project:${id.value}`
-    const saved = localStorage.getItem(key)
-    if (saved) {
-      try {
-        const current = await platformGet<PlatformProject>(`/projects/${saved}`)
-        if (current.object_code === objectCode.value) {
-          platformId.value = current.id
-          return current.id
-        }
-      } catch {
-        localStorage.removeItem(key)
-      }
-    }
-    const created = await platformSend<PlatformProject>('/projects', 'POST', { name: project.value?.name ?? objectCode.value, object_code: objectCode.value, site: {} })
-    localStorage.setItem(key, created.id)
-    platformId.value = created.id
-    return created.id
-  }
+  const ensureProject = async () => (isDemo.value ? null : id.value)
 
   const request = async (preview: Record<string, number> | null = null) => {
-    if (!source.value) throw new Error('Нет параметров площадки')
-    const projectId = await ensureProject()
-    return await platformSend<EconReport>(`/projects/${projectId}/economy`, 'POST', {
+    if (!source.value || !objectCode.value) throw new Error('Нет параметров площадки')
+    const body: Record<string, unknown> = {
       site: source.value.site,
       tasks: source.value.tasks,
       choices: choices.value,
-      preview,
-    })
+    }
+    if (preview) body.preview = preview
+    if (isDemo.value) {
+      body.object_code = objectCode.value
+      return await platformSend<EconReport>('/catalog/preview/economy', 'POST', body)
+    }
+    return await platformSend<EconReport>(`/projects/${id.value}/economy`, 'POST', body)
   }
 
   const load = async (preview: Record<string, number> | null = null) => {
@@ -218,8 +197,8 @@ export function usePlatformEconomy(id: Ref<string>) {
   }
 
   const saveOverrides = async (values: Record<string, number>) => {
-    const projectId = await ensureProject()
-    await platformSend(`/projects/${projectId}/economy/overrides`, 'PUT', { values })
+    if (isDemo.value) return
+    await platformSend(`/projects/${id.value}/economy/overrides`, 'PUT', { values })
   }
 
   return {
@@ -228,10 +207,11 @@ export function usePlatformEconomy(id: Ref<string>) {
     report,
     loading,
     failure,
-    pending: computed(() => livePending.value || profilePending.value),
-    error: computed(() => (demoProject.value ? null : liveError.value)),
+    pending: live.pending,
+    error: computed(() => (isDemo.value ? null : live.error.value)),
     source,
     choices,
+    objectCode,
     ensureProject,
     load,
     request,

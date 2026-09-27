@@ -1,24 +1,42 @@
 <script setup lang="ts">
 import { PhPencilSimple, PhArrowRight } from '@phosphor-icons/vue'
-import { objectTypeLabel, projects, type ObjectType } from '~/data/projects'
+import { objectTypeLabel, type ObjectType } from '~/data/projects'
 import { fieldSources, labelProcess, processesByObject, siteFieldMeta, warehouseDatasetGroups } from '~/data/siteFields'
-import { asObjectType, fetchErrorMessage } from '~/composables/useCalc'
+import { fetchErrorMessage } from '~/utils/errors'
+import { platformGet } from '~/composables/usePlatform'
+import { asObjectType, useLiveProject } from '~/composables/useLiveProject'
 import type { ApiSiteProfile, ApiTask } from '~/types/api'
+
+interface FormField {
+  key: string
+  label: string
+  unit: string
+  kind: 'number' | 'int' | 'bool' | 'text'
+  min: number | null
+  max: number | null
+  hint: string
+  group: string
+  required: boolean
+  default: number | boolean | string | null
+  source: string
+}
 
 const route = useRoute()
 const router = useRouter()
 const id = computed(() => route.params.id as string)
-const { project, detail, pending, error, refresh, update } = useCalc(id)
-const demoProject = computed(() => projects.find((p) => p.id === id.value))
-const shell = computed(() => project.value ?? demoProject.value)
+const doc = useLiveProject(id)
+const project = computed(() => (doc.isDemo.value ? undefined : doc.shell.value))
+const shell = doc.shell
+const pending = doc.pending
+const error = computed(() => (doc.isDemo.value ? null : doc.error.value))
+const live = computed(() => Boolean(project.value))
+const detail = computed(() => doc.record.value
+  ? { id: doc.record.value.id, object_type_code: doc.record.value.object_code, site: doc.record.value.site, tasks: doc.record.value.tasks }
+  : null)
 useHead({ title: () => `Параметры · ${shell.value?.name ?? 'проект'}` })
 
 const objectType = computed<ObjectType>(() => asObjectType(detail.value?.object_type_code ?? shell.value?.objectType ?? 'warehouse'))
-const { profile } = useSiteProfile(computed(() => detail.value?.object_type_code ?? ''))
-const sources = computed(() => ({
-  ...(fieldSources[objectType.value] ?? {}),
-  ...(profile.value?.field_sources ?? {}),
-}))
+const sources = computed(() => fieldSources[objectType.value] ?? {})
 
 const emptySite = (code: string): ApiSiteProfile => ({
   object_type_code: code,
@@ -93,18 +111,26 @@ const hydrated = ref('')
 
 const applyDetail = () => {
   const p = detail.value
-  if (!p) return
-  Object.assign(site, emptySite(p.object_type_code), p.site)
-  tasks.value = p.tasks.map((t) => ({
-    ...emptyTask(t.process_code),
-    ...t,
-    container_types: [...(t.container_types ?? [])],
-  }))
-  hydrated.value = String(p.id)
+  if (p) {
+    Object.assign(site, emptySite(p.object_type_code), p.site)
+    tasks.value = (p.tasks as unknown as ApiTask[]).map((t) => ({
+      ...emptyTask(t.process_code),
+      ...t,
+      container_types: [...(t.container_types ?? [])],
+    }))
+    hydrated.value = String(p.id)
+    return
+  }
+  if (doc.isDemo.value && shell.value) {
+    Object.assign(site, emptySite(shell.value.objectType), doc.site.value)
+    hydrated.value = shell.value.id
+  }
 }
 
-watch(detail, (p) => {
-  if (p && hydrated.value !== String(p.id)) applyDetail()
+watch([detail, () => doc.pending.value], () => {
+  if (doc.pending.value) return
+  const key = detail.value?.id ?? (doc.isDemo.value ? shell.value?.id : '')
+  if (key && hydrated.value !== String(key)) applyDetail()
 }, { immediate: true })
 
 const sameNum = (a: unknown, b: unknown) => {
@@ -114,19 +140,63 @@ const sameNum = (a: unknown, b: unknown) => {
   return a === b
 }
 
-const profileVal = (key: keyof ApiSiteProfile) => profile.value?.site?.[key]
-const siteEdited = (key: keyof ApiSiteProfile) => !sameNum(site[key], profileVal(key))
-const siteSource = (key: string) => sources.value[key]
+/* Поля формы ведёт админка платформы. Если платформа не ответила, форма собирается из прежнего справочника. */
+const formFields = ref<FormField[] | null>(null)
+const formFallback = ref(false)
+watch(objectType, async (code) => {
+  if (!code) return
+  try {
+    const form = await platformGet<{ fields: FormField[] }>(`/catalog/objects/${code}/fields`)
+    formFields.value = form.fields
+    formFallback.value = false
+  } catch {
+    formFields.value = null
+    formFallback.value = true
+  }
+}, { immediate: true })
+const fieldMeta = (key: string) => formFields.value?.find((f) => f.key === key)
+
+const siteValue = (key: string) => (site as unknown as Record<string, unknown>)[key]
+const profileVal = (key: string) => fieldMeta(key)?.default
+const siteEdited = (key: string) => {
+  const base = profileVal(key)
+  const value = siteValue(key)
+  if (base === undefined || base === null) return false
+  return !sameNum(value, base)
+}
+const siteSource = (key: string) => fieldMeta(key)?.source || sources.value[key]
+const defaultHint = (f: FormField) => {
+  const base = profileVal(f.key)
+  if (base === undefined || base === null || base === '') return ''
+  if (typeof base === 'boolean') return base ? 'да' : 'нет'
+  return typeof base === 'number' ? `${base.toLocaleString('ru-RU')}${f.unit ? ` ${f.unit}` : ''}` : String(base)
+}
+const rangeHint = (f: FormField) => {
+  if (f.min == null && f.max == null) return ''
+  if (f.min != null && f.max != null) return `от ${f.min.toLocaleString('ru-RU')} до ${f.max.toLocaleString('ru-RU')}`
+  return f.min != null ? `не меньше ${f.min.toLocaleString('ru-RU')}` : `не больше ${f.max!.toLocaleString('ru-RU')}`
+}
+
+/** Проверка до отправки: обязательные поля и границы из справочника (ТЗ 3.2.4). Сервер проверяет ещё раз. */
+const validateSite = () => {
+  for (const k of Object.keys(siteErrors)) delete siteErrors[k]
+  for (const f of formFields.value ?? []) {
+    const value = siteValue(f.key)
+    const empty = value === null || value === undefined || value === ''
+    if (empty) {
+      if (f.required) siteErrors[f.key] = 'Обязательное поле: укажите значение.'
+      continue
+    }
+    if ((f.kind === 'number' || f.kind === 'int') && typeof value === 'number') {
+      if (f.min != null && value < f.min) siteErrors[f.key] = `Меньше допустимого: минимум ${f.min.toLocaleString('ru-RU')}${f.unit ? ` ${f.unit}` : ''}.`
+      else if (f.max != null && value > f.max) siteErrors[f.key] = `Больше допустимого: максимум ${f.max.toLocaleString('ru-RU')}${f.unit ? ` ${f.unit}` : ''}.`
+    }
+  }
+  return Object.keys(siteErrors).length === 0
+}
 const taskSource = (process: string, field?: string) =>
   (field && sources.value[`tasks.${process}.${field}`]) || sources.value[`tasks.${process}`]
-const taskEdited = (t: ApiTask, field: keyof ApiTask) => {
-  const orig = profile.value?.tasks.find((x) => x.process_code === t.process_code)
-  if (!orig) return true
-  if (field === 'container_types') {
-    return (t.container_types ?? []).join('|') !== (orig.container_types ?? []).join('|')
-  }
-  return !sameNum(t[field], orig[field])
-}
+const taskEdited = (_t: ApiTask, _field: keyof ApiTask) => false
 
 const parseNum = (raw: string, asInt = false): number | null => {
   const t = raw.trim().replace(/\s/g, '').replace(',', '.')
@@ -134,12 +204,15 @@ const parseNum = (raw: string, asInt = false): number | null => {
   const n = asInt ? Number.parseInt(t, 10) : Number(t)
   return Number.isFinite(n) ? n : null
 }
-const setSiteNum = (key: keyof ApiSiteProfile, raw: string, asInt = false) => {
-  ;(site as Record<string, unknown>)[key] = parseNum(raw, asInt)
+const setSiteNum = (key: string, raw: string, asInt = false) => {
+  ;(site as unknown as Record<string, unknown>)[key] = parseNum(raw, asInt)
 }
-const setSiteText = (key: keyof ApiSiteProfile, raw: string) => {
+const setSiteText = (key: string, raw: string) => {
   const t = raw.trim()
-  ;(site as Record<string, unknown>)[key] = t || null
+  ;(site as unknown as Record<string, unknown>)[key] = t || null
+}
+const setSiteBool = (key: string, raw: string) => {
+  ;(site as unknown as Record<string, unknown>)[key] = raw === '' ? null : raw === 'true'
 }
 const setTaskNum = (t: ApiTask, key: keyof ApiTask, raw: string, asInt = false) => {
   ;(t as unknown as Record<string, unknown>)[key] = parseNum(raw, asInt)
@@ -208,7 +281,7 @@ const applyFieldErrors = (e: unknown): boolean => {
 }
 
 const payload = (): { site: ApiSiteProfile; tasks: ApiTask[] } => ({
-  site: { ...site, object_type_code: detail.value?.object_type_code ?? objectType.value },
+  site: { ...site },
   tasks: tasks.value.map((t) => ({
     ...t,
     name: t.name || labelProcess(t.process_code),
@@ -218,11 +291,17 @@ const payload = (): { site: ApiSiteProfile; tasks: ApiTask[] } => ({
 
 const save = async (quiet = false) => {
   if (!project.value || saving.value) return false
+  if (!validateSite()) {
+    const n = Object.keys(siteErrors).length
+    notice.value = { ok: false, text: `На форме ${n} ${n === 1 ? 'проблема' : n < 5 ? 'проблемы' : 'проблем'} — исправьте поля ниже` }
+    focusErrorPane()
+    return false
+  }
   saving.value = true
   notice.value = null
   try {
-    await update(payload())
-    await refresh()
+    const body = payload()
+    await doc.save(body.site as unknown as Record<string, unknown>, body.tasks)
     applyDetail()
     clearFieldErrors()
     if (!quiet) notice.value = { ok: true, text: 'Параметры сохранены' }
@@ -242,7 +321,6 @@ const save = async (quiet = false) => {
   }
 }
 
-const live = computed(() => Boolean(project.value))
 const part = computed<'object' | 'processes'>(() => route.query.part === 'processes' ? 'processes' : 'object')
 const setupRef = ref<{ save: () => Promise<void> } | null>(null)
 const substages = computed(() => [
@@ -305,46 +383,54 @@ const fieldGroups: { title: string; hint: string; keys: (keyof ApiSiteProfile)[]
   },
 ]
 
-const sharedKeys = new Set(fieldGroups.flatMap((g) => g.keys))
-
-const groups = computed(() => {
-  const pick = (keys: (keyof ApiSiteProfile)[]) =>
+const EXTRA_GROUP = 'Дополнительно'
+const legacyField = (f: (typeof siteFieldMeta)[number], group: string): FormField => ({
+  key: f.key,
+  label: objectType.value === 'warehouse' ? f.label : (f.plain ?? f.label),
+  unit: f.unit ?? '',
+  kind: f.kind,
+  min: null,
+  max: null,
+  hint: '',
+  group,
+  required: false,
+  default: null,
+  source: '',
+})
+const legacyFields = (): FormField[] => {
+  const pick = (keys: (keyof ApiSiteProfile)[], group: string) =>
     keys
       .map((k) => siteFieldMeta.find((f) => f.key === k))
       .filter((f): f is (typeof siteFieldMeta)[number] => Boolean(f))
-
+      .map((f) => legacyField(f, group))
   if (objectType.value === 'warehouse') {
-    const out = warehouseDatasetGroups.map((g) => ({
-      title: g.title,
-      hint: g.hint,
-      fields: pick(g.keys),
-      extra: false,
-    }))
-    const extra = siteFieldMeta.filter((f) => f.tier === 'extra')
-    if (extra.length) {
-      out.push({
-        title: 'Дополнительно',
-        hint: 'Этих параметров нет в листе «Склад». Они остаются для расчёта и других типов объектов.',
-        fields: extra,
-        extra: true,
-      })
-    }
-    return out
+    return [
+      ...warehouseDatasetGroups.flatMap((g) => pick(g.keys, g.title)),
+      ...siteFieldMeta.filter((f) => f.tier === 'extra').map((f) => legacyField(f, EXTRA_GROUP)),
+    ]
   }
+  return fieldGroups.flatMap((g) => pick(g.keys, g.title))
+}
 
-  const used = new Set<string>()
-  const out = fieldGroups.map((g) => {
-    const items = pick(g.keys)
-    items.forEach((f) => used.add(f.key))
-    return { title: g.title, hint: g.hint, fields: items, extra: false }
-  })
-  const rest = siteFieldMeta.filter((f) => !used.has(f.key) && sharedKeys.has(f.key))
-  if (rest.length) out.push({ title: 'Прочее', hint: '', fields: rest, extra: false })
+const groups = computed(() => {
+  const fields = formFields.value ?? legacyFields()
+  const out: { title: string; hint: string; fields: FormField[]; extra: boolean }[] = []
+  for (const f of fields) {
+    const title = f.group || 'Параметры'
+    let group = out.find((g) => g.title === title)
+    if (!group) {
+      group = {
+        title,
+        hint: title === EXTRA_GROUP ? 'Этих параметров нет в исходном листе датасета. Они остаются для расчёта.' : '',
+        fields: [],
+        extra: title === EXTRA_GROUP,
+      }
+      out.push(group)
+    }
+    group.fields.push(f)
+  }
   return out
 })
-
-const fieldLabel = (f: (typeof siteFieldMeta)[number]) =>
-  objectType.value === 'warehouse' ? f.label : (f.plain ?? f.label)
 
 const siteErrorCount = computed(() => Object.keys(siteErrors).length)
 const currentTask = computed(() => tasks.value[activeTask.value] ?? null)
@@ -403,23 +489,24 @@ watch(() => tasks.value.length, (n) => {
       <UiCallout v-if="notice" :tone="notice.ok ? 'ok' : 'danger'" :title="!notice.ok && fieldErrorCount ? `${fieldErrorCount} ${fieldErrorCount === 1 ? 'проблема' : fieldErrorCount < 5 ? 'проблемы' : 'проблем'} на форме` : undefined">{{ notice.text }}</UiCallout>
 
       <div v-if="part === 'object'" class="groups">
-        <section v-for="g in groups" :key="g.title" class="group" :class="g.extra ? 'extra' : 'glass'">
+        <UiCallout v-if="formFallback" tone="warn">Справочник полей платформы не ответил: форма собрана из встроенного набора, без границ и значений по умолчанию.</UiCallout>
+        <section v-for="(g, gi) in groups" :key="g.title" class="group" :class="g.extra ? 'extra' : 'glass'">
           <div class="sec-head">
             <div>
               <div class="h3">{{ g.title }}</div>
               <div v-if="g.hint" class="caption">{{ g.hint }}</div>
             </div>
-            <UiBadge v-if="g.title === 'Общие параметры объекта' || g.title === 'Площадь и геометрия'" tone="info" size="sm">{{ objectTypeLabel[objectType] }}</UiBadge>
+            <UiBadge v-if="gi === 0" tone="info" size="sm">{{ objectTypeLabel[objectType] ?? detail?.object_type_code }}</UiBadge>
           </div>
           <div class="fields">
-            <label v-for="f in g.fields" :key="f.key" class="fld" :class="{ edited: siteEdited(f.key), err: !!siteError(f.key) }">
-              <span class="fld-label body-sm">{{ fieldLabel(f) }}<span v-if="f.unit" class="muted"> · {{ f.unit }}</span></span>
+            <label v-for="f in g.fields" :key="f.key" class="fld" :class="{ edited: siteEdited(f.key), err: !!siteError(f.key) }" :title="f.hint || undefined">
+              <span class="fld-label body-sm">{{ f.label }}<span v-if="f.required" class="req" title="Обязательное поле"> *</span><span v-if="f.unit" class="muted"> · {{ f.unit }}</span></span>
               <span class="fld-in">
                 <select
                   v-if="f.kind === 'bool'"
                   class="select"
-                  :value="site[f.key] === true ? 'true' : site[f.key] === false ? 'false' : ''"
-                  @change="(site as Record<string, unknown>)[f.key] = ($event.target as HTMLSelectElement).value === '' ? null : ($event.target as HTMLSelectElement).value === 'true'"
+                  :value="siteValue(f.key) === true ? 'true' : siteValue(f.key) === false ? 'false' : ''"
+                  @change="setSiteBool(f.key, ($event.target as HTMLSelectElement).value)"
                 >
                   <option value="">не задано</option>
                   <option value="true">Да</option>
@@ -428,22 +515,23 @@ watch(() => tasks.value.length, (n) => {
                 <input
                   v-else-if="f.kind === 'text'"
                   class="input"
-                  :value="typeof site[f.key] === 'string' ? site[f.key] : ''"
-                  placeholder="не задано"
+                  :value="typeof siteValue(f.key) === 'string' ? siteValue(f.key) : ''"
+                  :placeholder="defaultHint(f) ? `по умолчанию ${defaultHint(f)}` : 'не задано'"
                   @input="setSiteText(f.key, ($event.target as HTMLInputElement).value)"
                 >
                 <input
                   v-else
                   class="input input-mono"
-                  :value="fmt(site[f.key] as number | null)"
-                  placeholder="не задано"
+                  :value="fmt(siteValue(f.key) as number | null)"
+                  :placeholder="defaultHint(f) ? `по умолчанию ${defaultHint(f)}` : 'не задано'"
                   @input="setSiteNum(f.key, ($event.target as HTMLInputElement).value, f.kind === 'int')"
                 >
                 <PhPencilSimple v-if="siteEdited(f.key)" :size="14" weight="bold" class="edit-ic" />
               </span>
               <span v-if="siteError(f.key)" class="caption err-note">{{ siteError(f.key) }}</span>
-              <span v-else-if="siteEdited(f.key)" class="caption edited-note">Правка вручную. Значение из профиля не используется.</span>
+              <span v-else-if="siteEdited(f.key)" class="caption edited-note">Правка вручную. По умолчанию {{ defaultHint(f) }}.</span>
               <span v-else-if="siteSource(f.key)" class="caption src-note">{{ siteSource(f.key) }}</span>
+              <span v-if="rangeHint(f) && !siteError(f.key)" class="caption range-note">Допустимо {{ rangeHint(f) }}</span>
             </label>
           </div>
         </section>
@@ -486,6 +574,8 @@ watch(() => tasks.value.length, (n) => {
 .edited-note { color: var(--state-warn); }
 .err-note { color: var(--state-danger); }
 .src-note { color: var(--ink-muted); }
+.range-note { color: var(--ink-faint); }
+.req { color: var(--state-danger); }
 .upload-note { margin: 0; }
 .pane-foot { display: flex; flex-wrap: wrap; gap: 10px; }
 .proc-col { display: grid; gap: var(--space-5); }

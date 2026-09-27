@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     upload_dir: Path = Path("uploads")
     job_stale_s: int = 1800
     list_page_size: int = 24
+    session_secret: str = "platform-demo-session-secret"
 
 
 @lru_cache

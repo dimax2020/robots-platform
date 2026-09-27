@@ -1,9 +1,11 @@
+import json
+import re
 from uuid import UUID, uuid4
 
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 
-from app.domain.economy import NORM_BY_KEY, NORMS, calculate, scale_load
+from app.domain.economy import NORM_BY_KEY, NORMS, TYPE_NORMS, blend_by_type, calculate, scale_load
 from app.domain.layout_items import clean_items, default_items
 from app.domain.formula import _number, identifiers
 from app.domain.specs import CANON_LABELS
@@ -11,6 +13,7 @@ from app.domain.match import FilterRule, RobotView, match_robots, robot_count, u
 from app.infrastructure.db.models import (
     AttributeDefRow,
     EconomyNormLogRow,
+    EconomyNormOverrideRow,
     EconomyNormRow,
     IndustryRow,
     ObjectIndustryRow,
@@ -23,6 +26,15 @@ from app.infrastructure.db.models import (
     ProductRow,
     ProjectProcessRow,
     ProjectRow,
+    SolutionTypeRow,
+)
+from app.infrastructure.db.catalog_repo import make_code
+from app.infrastructure.db.object_repo import (
+    object_fields,
+    object_industries,
+    process_inputs,
+    replace_object_fields,
+    set_object_identity,
 )
 from app.infrastructure.db.product_repo import products_for_process
 
@@ -146,10 +158,16 @@ def process_setup(db: Session, process_code: str) -> dict:
                 ObjectInputBindingRow.process_id == process.id,
             ))
         }
-        objects.append({"code": obj.code, "name": obj.name, "bindings": bindings})
+        fields = [
+            {"key": item["key"], "label": item["label"], "unit": item["unit"], "default": item["default"]}
+            for item in object_fields(db, obj.id)
+        ]
+        objects.append({"code": obj.code, "name": obj.name, "bindings": bindings, "fields": fields})
+    product_count = db.scalar(select(func.count()).select_from(ProductProcessRow).where(ProductProcessRow.process_id == process.id)) or 0
     return {
         "code": process.code,
         "name": process.name,
+        "product_count": product_count,
         "filters": filters,
         "count_inputs": process.count_inputs or [],
         "count_formula": process.count_formula or "",
@@ -165,12 +183,16 @@ def save_process_setup(db: Session, process_code: str, payload: dict) -> dict:
     process = db.scalar(select(ProcessRow).where(ProcessRow.code == process_code))
     if process is None:
         raise KeyError(process_code)
+    if (payload.get("name") or "").strip():
+        process.name = payload["name"].strip()
     process.count_formula = payload.get("count_formula") or ""
     process.count_inputs = payload.get("count_inputs") or []
     process.rank_key = payload.get("rank_key") or ""
     process.rank_order = payload.get("rank_order") or "asc"
     if "layout_items" in payload and payload["layout_items"] is not None:
         process.layout_items = clean_items(payload["layout_items"])
+    if payload.get("bindings"):
+        _save_process_bindings(db, process, payload["bindings"])
     db.execute(delete(ProcessFilterRow).where(ProcessFilterRow.process_id == process.id))
     for item in payload.get("filters") or []:
         db.add(ProcessFilterRow(
@@ -189,6 +211,146 @@ def save_process_setup(db: Session, process_code: str, payload: dict) -> dict:
     return process_setup(db, process_code)
 
 
+def _save_process_bindings(db: Session, process: ProcessRow, rows: list[dict]) -> None:
+    """Привязки из редактора процесса. Пустое поле снимает привязку; чужие величины объекта не трогаются."""
+    objects = {row.code: row.id for row in db.scalars(select(ObjectTypeRow))}
+    for item in rows:
+        object_id = objects.get(item.get("object_code") or "")
+        input_key = item.get("input_key") or ""
+        if object_id is None or not input_key:
+            continue
+        link = db.get(ObjectInputBindingRow, (object_id, process.id, input_key))
+        site_key = item.get("site_key") or ""
+        if not site_key:
+            if link is not None:
+                db.delete(link)
+            continue
+        if link is None:
+            db.add(ObjectInputBindingRow(object_type_id=object_id, process_id=process.id, input_key=input_key, site_key=site_key))
+        else:
+            link.site_key = site_key
+
+
+def create_process(db: Session, *, name: str, objects: list[str]) -> str:
+    name = name.strip()
+    if not name:
+        raise ValueError("Нужно название процесса")
+    code = make_code(name, set(db.scalars(select(ProcessRow.code))))
+    process = ProcessRow(code=code, name=name)
+    db.add(process)
+    db.flush()
+    for object_code in dict.fromkeys(objects):
+        obj = db.scalar(select(ObjectTypeRow).where(ObjectTypeRow.code == object_code))
+        if obj is not None:
+            db.add(ObjectProcessRow(object_type_id=obj.id, process_id=process.id))
+    db.commit()
+    return code
+
+
+def process_list(db: Session) -> list[dict]:
+    """Процессы со статусом настройки: без роботов, без условий, без схемы."""
+    counts = dict(db.execute(select(ProductProcessRow.process_id, func.count()).group_by(ProductProcessRow.process_id)).all())
+    filters = dict(db.execute(select(ProcessFilterRow.process_id, func.count()).group_by(ProcessFilterRow.process_id)).all())
+    names = {row.id: (row.code, row.name) for row in db.scalars(select(ObjectTypeRow))}
+    by_process: dict[int, list[str]] = {}
+    for link in db.scalars(select(ObjectProcessRow)):
+        if link.object_type_id in names:
+            by_process.setdefault(link.process_id, []).append(link.object_type_id)
+    result = []
+    for process in db.scalars(select(ProcessRow).order_by(ProcessRow.name)):
+        object_ids = by_process.get(process.id, [])
+        result.append({
+            "code": process.code,
+            "name": process.name,
+            "product_count": int(counts.get(process.id, 0)),
+            "filter_count": int(filters.get(process.id, 0)),
+            "has_count": bool((process.count_formula or "").strip()),
+            "has_layout": bool(process.layout_items) or bool(default_items(process.code)),
+            "objects": [{"code": names[oid][0], "name": names[oid][1]} for oid in object_ids],
+        })
+    return result
+
+
+def preview_process(db: Session, process_code: str, payload: dict) -> dict:
+    """Подбор одного процесса на значениях площадки до сохранения: те же фильтры и формула, что в run_match."""
+    process = db.scalar(select(ProcessRow).where(ProcessRow.code == process_code))
+    if process is None:
+        raise KeyError(process_code)
+    obj = db.scalar(select(ObjectTypeRow).where(ObjectTypeRow.code == payload.get("object_code")))
+    if obj is None:
+        raise KeyError(payload.get("object_code") or "")
+    site = {item["key"]: item["default"] for item in object_fields(db, obj.id) if item["default"] not in (None, "")}
+    site.update({key: value for key, value in (payload.get("site") or {}).items() if value not in (None, "")})
+    bindings = {
+        row.input_key: row.site_key
+        for row in db.scalars(select(ObjectInputBindingRow).where(
+            ObjectInputBindingRow.object_type_id == obj.id,
+            ObjectInputBindingRow.process_id == process.id,
+        ))
+    }
+    for item in payload.get("bindings") or []:
+        if item.get("object_code") == obj.code and item.get("input_key"):
+            if item.get("site_key"):
+                bindings[item["input_key"]] = item["site_key"]
+            else:
+                bindings.pop(item["input_key"], None)
+    rules = tuple(
+        FilterRule(
+            item.get("name") or "",
+            (),
+            (),
+            "formula",
+            item.get("mode") or "hard",
+            tuple((row.get("key", ""), row.get("label", "")) for row in (item.get("inputs") or []) if isinstance(row, dict)),
+            item.get("formula") or "",
+        )
+        for item in payload.get("filters") or []
+        if (item.get("formula") or "").strip()
+    )
+    rows = products_for_process(db, process.id)
+    robots = tuple(RobotView(str(row.id), row.name, row.slug, _values(row), row.image_url) for row in rows)
+    hits = match_robots(process_code=process.code, process_name=process.name, site=site, rules=rules, robots=robots, bindings=bindings)
+    by_id = {str(row.id): _values(row) for row in rows}
+    count_inputs = tuple((row.get("key", ""), row.get("label", "")) for row in (payload.get("count_inputs") or []) if isinstance(row, dict))
+    counted = []
+    for hit in hits:
+        amount, note = robot_count(payload.get("count_formula") or "", count_inputs, bindings, site, by_id.get(hit.product_id, {}))
+        counted.append((hit, amount, note))
+    best = _best(counted, by_id, payload.get("rank_key") or "", payload.get("rank_order") or "asc")
+    tally = {"pass": 0, "conditional": 0, "unknown": 0, "fail": 0}
+    reasons: dict[str, int] = {}
+    for hit, _amount, _note in counted:
+        tally[hit.verdict] = tally.get(hit.verdict, 0) + 1
+        for note in hit.notes:
+            reason = note.split(":", 1)[0]
+            reasons[f"{hit.verdict}:{reason}"] = reasons.get(f"{hit.verdict}:{reason}", 0) + 1
+    order = {"pass": 0, "conditional": 1, "unknown": 2, "fail": 3}
+    counted.sort(key=lambda item: (item[0].product_id != best, order.get(item[0].verdict, 4), item[0].name))
+    used_keys = sorted({value for value in bindings.values() if value})
+    return {
+        "object": {"code": obj.code, "name": obj.name},
+        "site": {key: site.get(key) for key in used_keys},
+        "tally": tally,
+        "reasons": [
+            {"verdict": key.split(":", 1)[0], "reason": key.split(":", 1)[1], "count": count}
+            for key, count in sorted(reasons.items(), key=lambda pair: -pair[1])
+        ],
+        "best_product_id": best,
+        "robots": [
+            {
+                "product_id": hit.product_id,
+                "name": hit.name,
+                "slug": hit.slug,
+                "verdict": hit.verdict,
+                "notes": list(hit.notes),
+                "count": amount,
+                "count_note": note,
+            }
+            for hit, amount, note in counted[:40]
+        ],
+    }
+
+
 def object_setup(db: Session, object_code: str) -> dict:
     obj = db.scalar(select(ObjectTypeRow).where(ObjectTypeRow.code == object_code))
     if obj is None:
@@ -202,41 +364,31 @@ def object_setup(db: Session, object_code: str) -> dict:
         bindings_by_process.setdefault(row.process_id, {})[row.input_key] = row.site_key
     processes = []
     for process in db.scalars(select(ProcessRow).order_by(ProcessRow.name)):
-        filters = list(db.scalars(select(ProcessFilterRow).where(ProcessFilterRow.process_id == process.id).order_by(ProcessFilterRow.id)))
-        inputs: list[dict] = []
-        seen: set[str] = set()
-        for item in filters:
-            for row in item.inputs or []:
-                if not isinstance(row, dict):
-                    continue
-                key = str(row.get("key") or "")
-                if not key or key in seen:
-                    continue
-                seen.add(key)
-                inputs.append({"key": key, "label": item.name or row.get("label") or key, "kind": "filter"})
-        for row in process.count_inputs or []:
-            if not isinstance(row, dict):
-                continue
-            key = str(row.get("key") or "")
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            inputs.append({"key": key, "label": row.get("label") or key, "kind": "count"})
         processes.append({
             "code": process.code,
             "name": process.name,
             "product_count": int(counts.get(process.id, 0)),
             "enabled": process.id in enabled_ids,
-            "inputs": inputs,
+            "inputs": process_inputs(db, process),
             "bindings": bindings_by_process.get(process.id, {}),
         })
-    return {"code": obj.code, "name": obj.name, "processes": processes}
+    return {
+        "code": obj.code,
+        "name": obj.name,
+        "industries": object_industries(db, obj.id),
+        "fields": object_fields(db, obj.id),
+        "projects": db.scalar(select(func.count()).select_from(ProjectRow).where(ProjectRow.object_type_id == obj.id)) or 0,
+        "processes": processes,
+    }
 
 
 def save_object_setup(db: Session, object_code: str, payload: dict) -> dict:
     obj = db.scalar(select(ObjectTypeRow).where(ObjectTypeRow.code == object_code))
     if obj is None:
         raise KeyError(object_code)
+    set_object_identity(db, obj, name=payload.get("name"), industries=payload.get("industries"))
+    if payload.get("fields") is not None:
+        replace_object_fields(db, obj, payload["fields"])
     db.execute(delete(ObjectProcessRow).where(ObjectProcessRow.object_type_id == obj.id))
     for code in payload.get("processes") or []:
         process = db.scalar(select(ProcessRow).where(ProcessRow.code == code))
@@ -330,11 +482,44 @@ def robot_attributes(db: Session, process_code: str | None = None) -> list[dict]
     return items
 
 
-def create_project(db: Session, *, name: str, object_code: str, site: dict) -> dict:
+def _public_site(site: dict | None) -> dict:
+    return {key: value for key, value in (site or {}).items() if not str(key).startswith("__")}
+
+
+def _split_site(site: dict | None) -> tuple[dict, list]:
+    raw = dict(site or {})
+    tasks = raw.pop("__tasks", [])
+    public = _public_site(raw)
+    return public, tasks if isinstance(tasks, list) else []
+
+
+def _store_site(site: dict | None, tasks: list | None, previous: dict | None) -> dict:
+    stored = _public_site(site if site is not None else previous)
+    if tasks is None:
+        old = (previous or {}).get("__tasks")
+        if old is not None:
+            stored["__tasks"] = old
+    else:
+        stored["__tasks"] = tasks
+    return stored
+
+
+def owned_project(db: Session, project_id: UUID, *, user_id: UUID, role: str) -> ProjectRow:
+    project = db.get(ProjectRow, project_id)
+    if project is None:
+        raise KeyError(str(project_id))
+    if role == "admin":
+        return project
+    if project.owner_id is None or project.owner_id != user_id:
+        raise KeyError(str(project_id))
+    return project
+
+
+def create_project(db: Session, *, name: str, object_code: str, site: dict, owner_id: UUID | None = None) -> dict:
     obj = db.scalar(select(ObjectTypeRow).where(ObjectTypeRow.code == object_code))
     if obj is None:
         raise KeyError(object_code)
-    project = ProjectRow(id=uuid4(), name=name, object_type_id=obj.id, site=site)
+    project = ProjectRow(id=uuid4(), name=name, object_type_id=obj.id, site=_store_site(site, None, None), owner_id=owner_id)
     db.add(project)
     db.flush()
     process_ids = list(db.scalars(select(ObjectProcessRow.process_id).where(ObjectProcessRow.object_type_id == obj.id)))
@@ -344,12 +529,19 @@ def create_project(db: Session, *, name: str, object_code: str, site: dict) -> d
     return project_view(db, project.id)
 
 
-def update_project(db: Session, project_id: UUID, *, site: dict | None, enabled: dict[str, bool] | None) -> dict:
+def update_project(
+    db: Session,
+    project_id: UUID,
+    *,
+    site: dict | None,
+    enabled: dict[str, bool] | None,
+    tasks: list | None = None,
+) -> dict:
     project = db.get(ProjectRow, project_id)
     if project is None:
         raise KeyError(str(project_id))
-    if site is not None:
-        project.site = site
+    if site is not None or tasks is not None:
+        project.site = _store_site(site, tasks, project.site)
     if enabled is not None:
         for code, flag in enabled.items():
             process = db.scalar(select(ProcessRow).where(ProcessRow.code == code))
@@ -387,33 +579,134 @@ def project_view(db: Session, project_id: UUID) -> dict:
                 for item in filters
             ],
         })
+    site, tasks = _split_site(project.site)
+    industry = None
+    if obj is not None:
+        industry = db.scalar(
+            select(IndustryRow.name)
+            .join(ObjectIndustryRow, ObjectIndustryRow.industry_id == IndustryRow.id)
+            .where(ObjectIndustryRow.object_type_id == obj.id)
+            .limit(1)
+        )
     return {
         "id": str(project.id),
         "name": project.name,
         "object_code": obj.code if obj else None,
-        "site": project.site,
+        "object_name": obj.name if obj else None,
+        "industry": industry or "",
+        "site": site,
+        "tasks": tasks,
         "economy_overrides": project.economy_overrides or {},
         "processes": processes,
     }
+
+
+def list_projects(db: Session, *, user_id: UUID, role: str) -> list[dict]:
+    stmt = (
+        select(ProjectRow, ObjectTypeRow)
+        .join(ObjectTypeRow, ObjectTypeRow.id == ProjectRow.object_type_id)
+        .order_by(ProjectRow.name)
+    )
+    if role != "admin":
+        stmt = stmt.where(ProjectRow.owner_id == user_id)
+    items = []
+    for project, obj in db.execute(stmt):
+        industry = db.scalar(
+            select(IndustryRow.name)
+            .join(ObjectIndustryRow, ObjectIndustryRow.industry_id == IndustryRow.id)
+            .where(ObjectIndustryRow.object_type_id == obj.id)
+            .limit(1)
+        )
+        items.append({
+            "id": str(project.id),
+            "name": project.name,
+            "object_code": obj.code,
+            "object_name": obj.name,
+            "industry": industry or "",
+        })
+    return items
+
+
+def copy_project(db: Session, project_id: UUID, *, owner_id: UUID) -> dict:
+    src = db.get(ProjectRow, project_id)
+    if src is None:
+        raise KeyError(str(project_id))
+    project = ProjectRow(
+        id=uuid4(),
+        name=f"{src.name} (копия)",
+        object_type_id=src.object_type_id,
+        owner_id=owner_id,
+        site=dict(src.site or {}),
+        economy_overrides=dict(src.economy_overrides or {}),
+        layout=dict(src.layout or {}),
+    )
+    db.add(project)
+    db.flush()
+    for link in db.scalars(select(ProjectProcessRow).where(ProjectProcessRow.project_id == src.id)):
+        db.add(ProjectProcessRow(project_id=project.id, process_id=link.process_id, enabled=link.enabled))
+    db.commit()
+    return project_view(db, project.id)
+
+
+_LAYOUT_FILE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:png|jpg|webp)")
+
+
+def layout_file_names(layout: dict | None) -> set[str]:
+    return set(_LAYOUT_FILE.findall(json.dumps(layout or {}, ensure_ascii=False)))
+
+
+def delete_project(db: Session, project_id: UUID) -> set[str]:
+    project = db.get(ProjectRow, project_id)
+    if project is None:
+        raise KeyError(str(project_id))
+    names = layout_file_names(project.layout)
+    db.execute(delete(ProjectProcessRow).where(ProjectProcessRow.project_id == project.id))
+    db.delete(project)
+    db.commit()
+    return names
+
+
+def layout_files_in_use(db: Session) -> set[str]:
+    used: set[str] = set()
+    for layout in db.scalars(select(ProjectRow.layout)):
+        used |= layout_file_names(layout)
+    return used
 
 
 def run_match(db: Session, project_id: UUID, site: dict | None = None) -> dict:
     project = db.get(ProjectRow, project_id)
     if project is None:
         raise KeyError(str(project_id))
-    values = site if site is not None else (project.site or {})
-    groups = []
-    stmt = (
+    values = _public_site(site if site is not None else (project.site or {}))
+    processes = list(db.scalars(
         select(ProcessRow)
         .join(ProjectProcessRow, ProjectProcessRow.process_id == ProcessRow.id)
         .where(ProjectProcessRow.project_id == project.id, ProjectProcessRow.enabled.is_(True))
         .order_by(ProcessRow.name)
-    )
-    for process in db.scalars(stmt):
+    ))
+    return {"project_id": str(project.id), "groups": _match_groups(db, project.object_type_id, processes, values)}
+
+
+def match_object(db: Session, object_code: str, site: dict | None) -> dict:
+    obj = db.scalar(select(ObjectTypeRow).where(ObjectTypeRow.code == object_code))
+    if obj is None:
+        raise KeyError(object_code)
+    processes = list(db.scalars(
+        select(ProcessRow)
+        .join(ObjectProcessRow, ObjectProcessRow.process_id == ProcessRow.id)
+        .where(ObjectProcessRow.object_type_id == obj.id)
+        .order_by(ProcessRow.name)
+    ))
+    return {"project_id": None, "groups": _match_groups(db, obj.id, processes, _public_site(site))}
+
+
+def _match_groups(db: Session, object_type_id: int, processes: list, values: dict) -> list:
+    groups = []
+    for process in processes:
         bindings = {
             row.input_key: row.site_key
             for row in db.scalars(select(ObjectInputBindingRow).where(
-                ObjectInputBindingRow.object_type_id == project.object_type_id,
+                ObjectInputBindingRow.object_type_id == object_type_id,
                 ObjectInputBindingRow.process_id == process.id,
             ))
         }
@@ -471,18 +764,100 @@ def run_match(db: Session, project_id: UUID, site: dict | None = None) -> dict:
                 for hit, amount, note in counted
             ],
         })
-    return {"project_id": str(project.id), "groups": groups}
+    return groups
 
 
 def economy_standards(db: Session) -> dict[str, float]:
     return {row.key: float(row.value) for row in db.scalars(select(EconomyNormRow))}
 
 
+def economy_type_norms(db: Session) -> tuple[dict[str, dict[str, float]], dict[str, str]]:
+    types = {row.id: (row.code, row.name) for row in db.scalars(select(SolutionTypeRow))}
+    by_type: dict[str, dict[str, float]] = {}
+    for row in db.scalars(select(EconomyNormOverrideRow)):
+        if row.solution_type_id in types:
+            by_type.setdefault(types[row.solution_type_id][0], {})[row.norm_key] = float(row.value)
+    return by_type, {code: name for code, name in types.values()}
+
+
+def type_norm_list(db: Session) -> dict:
+    """Нормативы по типам: какие ключи можно переопределить и что уже переопределено."""
+    types = {row.id: row for row in db.scalars(select(SolutionTypeRow))}
+    counts = dict(db.execute(select(ProductRow.solution_type_id, func.count()).where(ProductRow.solution_type_id.is_not(None)).group_by(ProductRow.solution_type_id)).all())
+    standard = economy_standards(db)
+    overrides = []
+    for row in db.scalars(select(EconomyNormOverrideRow).order_by(EconomyNormOverrideRow.solution_type_id, EconomyNormOverrideRow.norm_key)):
+        kind = types.get(row.solution_type_id)
+        if kind is None or row.norm_key not in NORM_BY_KEY:
+            continue
+        norm = NORM_BY_KEY[row.norm_key]
+        overrides.append({
+            "type_code": kind.code,
+            "type_name": kind.name,
+            "type_group": kind.group_name,
+            "products": int(counts.get(kind.id, 0)),
+            "key": row.norm_key,
+            "label": norm.label,
+            "unit": norm.unit,
+            "value": float(row.value),
+            "standard": standard.get(row.norm_key, norm.value),
+            "rationale": row.rationale,
+            "origin": row.origin,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        })
+    norms = [
+        {"key": key, "label": NORM_BY_KEY[key].label, "unit": NORM_BY_KEY[key].unit, "group": NORM_BY_KEY[key].group,
+         "standard": standard.get(key, NORM_BY_KEY[key].value), "min": NORM_BY_KEY[key].min, "max": NORM_BY_KEY[key].max, "step": NORM_BY_KEY[key].step}
+        for key in TYPE_NORMS
+    ]
+    return {"norms": norms, "overrides": overrides}
+
+
+def save_type_norm(db: Session, *, type_code: str, key: str, value: float, rationale: str, origin: str) -> None:
+    if key not in TYPE_NORMS:
+        raise ValueError("Этот норматив по типам не переопределяется: он не доля от стоимости оборудования")
+    if not rationale.strip():
+        raise ValueError("Нужно обоснование: почему у этого типа своё значение")
+    norm = NORM_BY_KEY[key]
+    if not norm.min <= value <= norm.max:
+        raise ValueError(f"Значение вне границ {norm.min}–{norm.max}")
+    type_id = db.scalar(select(SolutionTypeRow.id).where(SolutionTypeRow.code == type_code))
+    if type_id is None:
+        raise KeyError(type_code)
+    row = db.get(EconomyNormOverrideRow, (key, type_id))
+    if row is None:
+        row = EconomyNormOverrideRow(norm_key=key, solution_type_id=type_id, value=value)
+        db.add(row)
+    row.value = value
+    row.rationale = rationale.strip()
+    row.origin = origin.strip()
+    db.commit()
+
+
+def delete_type_norm(db: Session, *, type_code: str, key: str) -> None:
+    type_id = db.scalar(select(SolutionTypeRow.id).where(SolutionTypeRow.code == type_code))
+    if type_id is None:
+        raise KeyError(type_code)
+    db.execute(delete(EconomyNormOverrideRow).where(EconomyNormOverrideRow.norm_key == key, EconomyNormOverrideRow.solution_type_id == type_id))
+    db.commit()
+
+
+def economy_meta(db: Session) -> dict[str, dict]:
+    """Обоснование и источник из базы. Пустое поле значит «как в коде»."""
+    return {
+        row.key: {"rationale": row.rationale or "", "origin": row.origin or "", "url": row.url or ""}
+        for row in db.scalars(select(EconomyNormRow))
+    }
+
+
 def economy_norms(db: Session) -> list[dict]:
     stored = economy_standards(db)
+    meta = economy_meta(db)
     updated = {row.key: row.updated_at for row in db.scalars(select(EconomyNormRow))}
+    projects = list(db.scalars(select(ProjectRow.economy_overrides)))
     items = []
     for norm in NORMS:
+        own = meta.get(norm.key) or {}
         items.append({
             "key": norm.key,
             "group": norm.group,
@@ -491,32 +866,52 @@ def economy_norms(db: Session) -> list[dict]:
             "unit": norm.unit,
             "value": stored.get(norm.key, norm.value),
             "default": norm.value,
-            "rationale": norm.rationale,
-            "origin": norm.source,
+            "rationale": own.get("rationale") or norm.rationale,
+            "origin": own.get("origin") or norm.source,
+            "url": own.get("url") or "",
+            "default_rationale": norm.rationale,
+            "default_origin": norm.source,
             "min": norm.min,
             "max": norm.max,
             "step": norm.step,
+            "site_key": {"energy_tariff": "energy_tariff_rub_kwh", "horizon_years": "payback_years"}.get(norm.key, ""),
+            "projects_custom": sum(1 for item in projects if norm.key in (item or {})),
+            "projects_total": len(projects),
             "updated_at": updated[norm.key].isoformat() if norm.key in updated and updated[norm.key] else None,
         })
     return items
 
 
-def save_economy_norms(db: Session, values: dict[str, float], note: str) -> list[dict]:
+def save_economy_norms(db: Session, values: dict[str, float], note: str, sources: dict[str, dict] | None = None) -> list[dict]:
     current = economy_standards(db)
-    for key, raw in values.items():
+    sources = sources or {}
+    for key in set(values) | set(sources):
         norm = NORM_BY_KEY.get(key)
         if norm is None:
             continue
-        value = float(raw)
         old = current.get(key, norm.value)
-        if abs(old - value) < 1e-12:
-            continue
+        value = float(values[key]) if key in values else old
         row = db.get(EconomyNormRow, key)
         if row is None:
-            db.add(EconomyNormRow(key=key, value=value))
-        else:
+            row = EconomyNormRow(key=key, value=old)
+            db.add(row)
+        before = (row.rationale or "", row.origin or "", row.url or "")
+        if key in sources:
+            item = sources[key]
+            rationale = (item.get("rationale") or "").strip()
+            origin = (item.get("origin") or "").strip()
+            row.rationale = rationale if rationale and rationale != norm.rationale else None
+            row.origin = origin if origin and origin != norm.source else None
+            row.url = (item.get("url") or "").strip() or None
+        after = (row.rationale or "", row.origin or "", row.url or "")
+        value_changed = abs(old - value) >= 1e-12
+        if value_changed:
             row.value = value
-        db.add(EconomyNormLogRow(key=key, old_value=old, new_value=value, note=note))
+        if value_changed or before != after:
+            log_note = note
+            if before != after and not value_changed:
+                log_note = f"Изменён источник. {note}".strip()
+            db.add(EconomyNormLogRow(key=key, old_value=old, new_value=value, note=log_note, origin=row.origin or norm.source))
     db.commit()
     return economy_norms(db)
 
@@ -531,6 +926,7 @@ def economy_norm_log(db: Session, limit: int = 50) -> list[dict]:
             "old_value": float(row.old_value) if row.old_value is not None else None,
             "new_value": float(row.new_value),
             "note": row.note,
+            "origin": row.origin,
             "at": row.at.isoformat() if row.at else None,
         }
         for row in rows
@@ -574,18 +970,41 @@ def project_economy(
     project = db.get(ProjectRow, project_id)
     if project is None:
         raise KeyError(str(project_id))
-    site = site if site is not None else (project.site or {})
+    site = _public_site(site if site is not None else (project.site or {}))
     overrides = dict(preview) if preview is not None else dict(project.economy_overrides or {})
     standard = economy_standards(db)
     load = overrides.get("load_factor", standard.get("load_factor", NORM_BY_KEY["load_factor"].value))
     matched = run_match(db, project_id, scale_load(site, float(load)))
+    return _economy_report(db, matched, site, choices, tasks, overrides, dict(project.economy_overrides or {}))
+
+
+def preview_economy(
+    db: Session,
+    object_code: str,
+    site: dict | None,
+    choices: dict[str, str] | None,
+    tasks: list[dict] | None = None,
+    preview: dict | None = None,
+) -> dict:
+    values = _public_site(site)
+    overrides = dict(preview or {})
+    standard = economy_standards(db)
+    load = overrides.get("load_factor", standard.get("load_factor", NORM_BY_KEY["load_factor"].value))
+    matched = match_object(db, object_code, scale_load(values, float(load)))
+    return _economy_report(db, matched, values, choices, tasks, overrides, {})
+
+
+def _economy_report(db: Session, matched: dict, site: dict, choices, tasks, overrides: dict, saved: dict) -> dict:
     picked = []
     for group in matched["groups"]:
         hit = _economy_hit(group, (choices or {}).get(group["process_code"]))
         if hit is not None:
             picked.append((group, hit))
     ids = [UUID(hit["product_id"]) for _group, hit in picked]
-    attrs = {str(row.id): _values(row) for row in db.scalars(select(ProductRow).where(ProductRow.id.in_(ids)))} if ids else {}
+    products = list(db.scalars(select(ProductRow).where(ProductRow.id.in_(ids)))) if ids else []
+    attrs = {str(row.id): _values(row) for row in products}
+    type_codes = {row.id: row.code for row in db.scalars(select(SolutionTypeRow))}
+    product_types = {str(row.id): type_codes.get(row.solution_type_id, "") for row in products}
     rows = []
     for group, hit in picked:
         values = attrs.get(hit["product_id"], {})
@@ -601,10 +1020,15 @@ def project_economy(
             "count": hit.get("count"),
             "power_w": _number(values.get("power_watt")) if values.get("power_watt") is not None else None,
             "raas_available": raas,
+            "solution_type": product_types.get(hit["product_id"], ""),
         })
-    report = calculate(rows, site, standard=standard, overrides=overrides, tasks=tasks)
+    meta = economy_meta(db)
+    by_type, type_names = economy_type_norms(db)
+    standard, type_meta = blend_by_type(standard, rows, by_type, type_names, meta)
+    meta.update(type_meta)
+    report = calculate(rows, site, standard=standard, overrides=overrides, tasks=tasks, meta=meta)
     report["project_id"] = matched["project_id"]
-    report["saved_overrides"] = project.economy_overrides or {}
+    report["saved_overrides"] = saved
     return report
 
 

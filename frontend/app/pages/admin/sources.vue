@@ -1,69 +1,107 @@
 <script setup lang="ts">
-import { PhArrowsClockwise, PhArrowSquareOut, PhWarningCircle, PhCheckCircle, PhFile } from '@phosphor-icons/vue'
-import { sourceKindLabel, confidenceByKind } from '~/data/catalog'
+import { PhArrowSquareOut, PhMagnifyingGlass } from '@phosphor-icons/vue'
+import { platformGet } from '~/composables/usePlatform'
+import { fetchErrorMessage } from '~/utils/errors'
+import { confidenceOf, platformSourceKinds, sourceKindName } from '~/data/adminLabels'
 
-const { sources } = useCatalog()
-
-definePageMeta({ layout: 'admin' })
+definePageMeta({ layout: 'admin', middleware: 'admin', pageTransition: false })
 useHead({ title: 'Админка · Источники' })
 
-// Плановая перепроверка источников ещё не запускалась: отмечать изменившиеся пока нечем (§9.4)
-const changed = new Set<string>()
-const usage = (id: string) => sources.value.find((s) => s.id === id)?.usageCount ?? 0
-const fmt = (d: string) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
-const kinds = Object.entries(sourceKindLabel) as [keyof typeof sourceKindLabel, string][]
+interface Source { id: number; kind: string; publisher: string; url: string | null; title: string | null; parser_code: string | null; values: number; products: number; updated_at: string | null }
+
+const items = ref<Source[]>([])
+const notice = ref('')
+const q = ref('')
+const kind = ref('')
+const noUrl = ref(false)
+const unused = ref(false)
+const limit = ref(100)
+
+onMounted(async () => {
+  try {
+    items.value = await platformGet<Source[]>('/admin/sources')
+  } catch (err) {
+    notice.value = fetchErrorMessage(err, 'Реестр не загрузился')
+  }
+})
+
+const shown = computed(() => {
+  const text = q.value.trim().toLowerCase()
+  return items.value
+    .filter((item) => (!kind.value || item.kind === kind.value)
+      && (!noUrl.value || !item.url)
+      && (!unused.value || !item.values)
+      && (!text || `${item.publisher} ${item.url ?? ''} ${item.title ?? ''}`.toLowerCase().includes(text)))
+    .sort((a, b) => b.values - a.values)
+})
+const counts = computed(() => {
+  const out: Record<string, number> = {}
+  for (const item of items.value) out[item.kind] = (out[item.kind] ?? 0) + 1
+  return out
+})
+watch([q, kind, noUrl, unused], () => { limit.value = 100 })
+const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }) : '—')
+const manual = (item: Source) => item.parser_code === 'manual'
 </script>
 
 <template>
   <div class="admin-page">
-    <AdminHead label="Источники" title="Реестр источников" lead="Для каждого источника: тип, издатель, ссылка, дата получения, дата проверки и число значений в каталоге, которые на него ссылаются. Буква достоверности выводится из типа.">
-      <UiButton variant="secondary"><template #icon><PhArrowsClockwise :size="16" weight="bold" /></template>Перепроверить все</UiButton>
-    </AdminHead>
+    <AdminHead label="Импорт данных" title="Реестр источников" lead="Откуда пришло каждое значение каталога (ТЗ 3.3.4): тип источника, издатель, ссылка, сколько значений и карточек на него ссылается и когда эти карточки обновлялись. Буква достоверности выводится из типа." />
+    <UiCallout v-if="notice" tone="danger">{{ notice }}</UiCallout>
 
-    <div class="legend" v-reveal>
-      <div v-for="[k, l] in kinds" :key="k" class="lg glass">
-        <span class="lg-in"><span class="letter" :class="`c-${confidenceByKind[k]}`">{{ confidenceByKind[k] }}</span><span class="body-sm">{{ l }}</span></span>
+    <div class="legend">
+      <button v-for="item in platformSourceKinds" :key="item.code" type="button" class="glass lg" :class="{ on: kind === item.code }" @click="kind = kind === item.code ? '' : item.code">
+        <span class="lg-in"><span class="a-letter" :class="`c-${item.confidence}`">{{ item.confidence }}</span><span class="body-sm">{{ item.label }}</span><span class="mono-sm muted">{{ counts[item.code] ?? 0 }}</span></span>
+      </button>
+    </div>
+
+    <section class="glass a-panel filters">
+      <label class="search"><PhMagnifyingGlass :size="16" weight="bold" /><input v-model="q" class="s-in" placeholder="Издатель, домен или документ"></label>
+      <label class="tg"><input v-model="noUrl" type="checkbox"> <span class="body-sm">только без ссылки</span></label>
+      <label class="tg"><input v-model="unused" type="checkbox"> <span class="body-sm">ни на что не ссылаются</span></label>
+    </section>
+
+    <section class="glass glass-xl a-panel">
+      <div class="caption">Найдено {{ shown.length }} из {{ items.length }}. Ручные правки из карточек помечены «вручную».</div>
+      <div class="a-tbl">
+        <table class="table">
+          <thead><tr><th>Источник</th><th>Тип</th><th>Ссылка</th><th class="num">Значений</th><th class="num">Карточек</th><th class="num">Обновлено</th></tr></thead>
+          <tbody>
+            <tr v-for="item in shown.slice(0, limit)" :key="item.id">
+              <td>
+                <span class="strong">{{ item.publisher }}</span>
+                <span v-if="item.title && item.title !== item.publisher" class="caption block">{{ item.title }}</span>
+                <span class="caption block">{{ manual(item) ? 'вручную' : item.parser_code ? `парсер ${item.parser_code}` : 'импорт таблицы' }}</span>
+              </td>
+              <td><span class="kind"><span class="a-letter" :class="`c-${confidenceOf(item.kind)}`">{{ confidenceOf(item.kind) }}</span><span class="body-sm">{{ sourceKindName(item.kind) }}</span></span></td>
+              <td>
+                <a v-if="item.url" :href="item.url" target="_blank" rel="noreferrer" class="link mono-sm url">{{ item.url.replace(/^https?:\/\//, '') }} <PhArrowSquareOut :size="12" /></a>
+                <span v-else class="a-pill warn">без ссылки</span>
+              </td>
+              <td class="num mono-sm">{{ item.values }}</td>
+              <td class="num mono-sm">{{ item.products }}</td>
+              <td class="num mono-sm">{{ when(item.updated_at) }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-    </div>
-
-    <div class="tbl glass glass-xl" v-reveal="1">
-      <table class="table">
-        <thead><tr><th>Источник</th><th>Тип</th><th>Ссылка</th><th class="num">Получено</th><th class="num">Проверено</th><th class="num">Значений</th><th>Состояние</th></tr></thead>
-        <tbody>
-          <tr v-for="s in sources" :key="s.id" :class="{ hot: changed.has(s.id) }">
-            <td><span class="strong">{{ s.publisher }}</span><span class="caption block mono-sm">{{ s.id }}</span></td>
-            <td><span class="kind"><span class="letter sm" :class="`c-${confidenceByKind[s.kind]}`">{{ confidenceByKind[s.kind] }}</span><span class="body-sm">{{ sourceKindLabel[s.kind] }}</span></span></td>
-            <td><a v-if="s.url.startsWith('http')" :href="s.url" target="_blank" rel="noreferrer" class="link mono-sm">{{ s.url.replace('https://', '') }} <PhArrowSquareOut :size="12" /></a><span v-else-if="s.url" class="mono-sm muted"><PhFile :size="12" /> {{ s.url.replace('file://', '') }}</span><span v-else class="caption">без ссылки</span></td>
-            <td class="num mono-sm">{{ fmt(s.fetchedAt) }}</td>
-            <td class="num mono-sm">{{ fmt(s.checkedAt) }}</td>
-            <td class="num mono-sm">{{ usage(s.id) }}</td>
-            <td><span v-if="changed.has(s.id)" class="state warn"><PhWarningCircle :size="14" weight="fill" /> Изменился</span><span v-else class="state ok"><PhCheckCircle :size="14" weight="fill" /> Без изменений</span></td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+      <UiButton v-if="shown.length > limit" size="sm" variant="secondary" @click="limit += 100">Показать ещё {{ Math.min(100, shown.length - limit) }}</UiButton>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.legend { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
-.lg-in { position: relative; z-index: 1; display: flex; gap: 10px; align-items: center; padding: 12px 14px; }
-.letter { width: 28px; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-weight: 700; font-size: 13px; flex: none; }
-.letter.sm { width: 22px; height: 22px; font-size: 11px; border-radius: 6px; }
-.c-A { background: var(--surface-graphite); color: var(--brand-300); }
-.c-B { background: var(--surface-brand-tint); color: var(--brand-ink); }
-.c-C { background: var(--state-warn-tint); color: var(--state-warn); }
-.c-D { background: rgba(15, 20, 19, 0.08); color: var(--ink-muted); }
-.tbl { padding: var(--space-3); }
-.tbl table { position: relative; z-index: 1; }
+.legend { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+.lg { text-align: left; border-radius: var(--radius-md); }
+.lg.on { box-shadow: inset 0 0 0 2px var(--brand-400); }
+.lg-in { position: relative; z-index: 1; display: flex; gap: 8px; align-items: center; padding: 10px 12px; }
+.lg-in .mono-sm { margin-left: auto; }
+.filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 10px; }
+.search { flex: 1; min-width: 260px; display: flex; align-items: center; gap: 10px; padding: 0 14px; border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--border-hairline); color: var(--ink-muted); }
+.s-in { flex: 1; background: none; border: 0; outline: none; min-height: 42px; font-weight: 600; color: var(--ink-strong); }
+.tg { display: inline-flex; gap: 8px; align-items: center; }
 .block { display: block; }
 .kind { display: inline-flex; gap: 8px; align-items: center; }
-tr.hot td { background: var(--state-warn-tint); }
-tr.hot td:first-child { border-radius: 10px 0 0 10px; }
-tr.hot td:last-child { border-radius: 0 10px 10px 0; }
-.tbl td.num, .tbl th.num { white-space: nowrap; }
-.state { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; font-weight: 600; white-space: nowrap; }
-.state.warn { color: var(--state-warn); }
-.state.ok { color: var(--state-ok); }
-@media (max-width: 1100px) { .legend { grid-template-columns: repeat(3, 1fr); } }
+.url { word-break: break-all; }
+@media (max-width: 1100px) { .legend { grid-template-columns: repeat(2, 1fr); } }
 </style>

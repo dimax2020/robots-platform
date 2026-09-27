@@ -26,6 +26,48 @@ class AttributeDefRow(Base):
     label: Mapped[str] = mapped_column(Text, nullable=False)
     unit: Mapped[str | None] = mapped_column(Text)
     usage: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    group_code: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    datatype: Mapped[str] = mapped_column(Text, nullable=False, default="text")
+    sort: Mapped[int] = mapped_column(Integer, nullable=False, default=1000)
+
+
+class SolutionTypeRow(Base):
+    __tablename__ = "solution_type"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    code: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    group_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    family: Mapped[str] = mapped_column(Text, nullable=False, default="")
+
+
+class SolutionTypeRuleRow(Base):
+    __tablename__ = "solution_type_rule"
+    raw_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    solution_type_id: Mapped[int] = mapped_column(ForeignKey("solution_type.id", ondelete="CASCADE"), nullable=False)
+
+
+class SiteFieldRow(Base):
+    __tablename__ = "site_field"
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    unit: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    kind: Mapped[str] = mapped_column(Text, nullable=False, default="number")
+    min_value: Mapped[float | None] = mapped_column(Numeric)
+    max_value: Mapped[float | None] = mapped_column(Numeric)
+    hint: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    sort: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class ObjectFieldRow(Base):
+    __tablename__ = "object_field"
+    object_type_id: Mapped[int] = mapped_column(ForeignKey("object_type.id", ondelete="CASCADE"), primary_key=True)
+    field_key: Mapped[str] = mapped_column(ForeignKey("site_field.key", ondelete="CASCADE"), primary_key=True)
+    group_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    label: Mapped[str | None] = mapped_column(Text)
+    required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    default_value: Mapped[object | None] = mapped_column(JSONB)
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    sort: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class ProductRow(Base):
@@ -42,6 +84,7 @@ class ProductRow(Base):
     raw_catalog: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     attrs: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     column_sources: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    solution_type_id: Mapped[int | None] = mapped_column(ForeignKey("solution_type.id", ondelete="SET NULL"))
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -118,11 +161,20 @@ class ObjectInputBindingRow(Base):
     site_key: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class AppUserRow(Base):
+    __tablename__ = "app_user"
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    login: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class ProjectRow(Base):
     __tablename__ = "project"
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     object_type_id: Mapped[int] = mapped_column(ForeignKey("object_type.id"), nullable=False)
+    owner_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True), ForeignKey("app_user.id", ondelete="SET NULL"), nullable=True)
     site: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     economy_overrides: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     layout: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
@@ -132,6 +184,9 @@ class EconomyNormRow(Base):
     __tablename__ = "economy_norm"
     key: Mapped[str] = mapped_column(Text, primary_key=True)
     value: Mapped[float] = mapped_column(Numeric, nullable=False)
+    rationale: Mapped[str | None] = mapped_column(Text)
+    origin: Mapped[str | None] = mapped_column(Text)
+    url: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
@@ -142,7 +197,18 @@ class EconomyNormLogRow(Base):
     old_value: Mapped[float | None] = mapped_column(Numeric)
     new_value: Mapped[float] = mapped_column(Numeric, nullable=False)
     note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    origin: Mapped[str | None] = mapped_column(Text)
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class EconomyNormOverrideRow(Base):
+    __tablename__ = "economy_norm_override"
+    norm_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    solution_type_id: Mapped[int] = mapped_column(ForeignKey("solution_type.id", ondelete="CASCADE"), primary_key=True)
+    value: Mapped[float] = mapped_column(Numeric, nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    origin: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class ProjectProcessRow(Base):

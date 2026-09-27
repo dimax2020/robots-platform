@@ -5,7 +5,7 @@ import {
 } from '@phosphor-icons/vue'
 import type PlanEditor from '~/components/PlanEditor.vue'
 import type { EditorMode, EditorTool, PlanSelection } from '~/components/PlanEditor.vue'
-import { fetchErrorMessage } from '~/composables/useCalc'
+import { fetchErrorMessage } from '~/utils/errors'
 import { platformGet, platformSend, usePlatformBase } from '~/composables/usePlatform'
 import { usePlatformCompare, type MatchGroup } from '~/composables/usePlatformCompare'
 import { PRELIMINARY, usePlatformEconomy } from '~/composables/usePlatformEconomy'
@@ -17,7 +17,7 @@ import type { WorkerResponse } from '~/sim/worker'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
-const { project, isDemo, source, pending, error, ensureProject } = usePlatformEconomy(id)
+const { project, isDemo, source, pending, error, objectCode } = usePlatformEconomy(id)
 const { remainingHit } = usePlatformCompare(id)
 useHead({ title: () => `Визуализация · ${project.value?.name ?? 'проект'}` })
 
@@ -301,7 +301,22 @@ const loadAll = async () => {
   loading.value = true
   loadError.value = ''
   try {
-    platformId.value = await ensureProject()
+    if (isDemo.value) {
+      platformId.value = ''
+      const match = await platformSend<{ groups: GroupWithItems[] }>('/catalog/preview/match', 'POST', { object_code: objectCode.value, site: source.value.site })
+      groups.value = match.groups
+      layout.value = emptyLayout(site.value)
+      floorId.value = layout.value.floors[0]?.id ?? ''
+      toolProcess.value = guide.value.process || (stageProcesses.value[0]?.code ?? '')
+      peak.value = Number(site.value.peak_factor) > 1 ? Number(site.value.peak_factor) : 1.5
+      snapshot = JSON.stringify(layout.value)
+      past.value = []
+      future.value = []
+      resetSim()
+      scheduleCheck(50)
+      return
+    }
+    platformId.value = id.value
     const [match, stored] = await Promise.all([
       platformSend<{ groups: GroupWithItems[] }>(`/projects/${platformId.value}/match`, 'POST', { site: source.value.site }),
       platformGet<{ layout: Partial<Layout> }>(`/projects/${platformId.value}/layout`),
@@ -552,7 +567,7 @@ const uploadBackground = async (event: Event) => {
   const body = new FormData()
   body.append('file', file)
   try {
-    const result = await $fetch<{ name: string }>(`${usePlatformBase()}/projects/${platformId.value}/layout/background`, { method: 'POST', body })
+    const result = await $fetch<{ name: string }>(`${usePlatformBase()}/projects/${platformId.value}/layout/background`, { method: 'POST', body, credentials: 'include' })
     const url = `${usePlatformBase()}/layout-files/${result.name}`
     const img = new window.Image()
     img.onload = () => {

@@ -564,10 +564,7 @@ const toCarouselItem = (
 export const useCompareGrid = (input: UseCompareGridInput) => {
   const route = useRoute()
   const router = useRouter()
-  const { confidenceOf: catalogConfidence } = useCatalog()
-
-  const confidenceOf =
-    input.confidenceOf ?? ((id?: string) => catalogConfidence(id))
+  const confidenceOf = input.confidenceOf ?? (() => undefined)
 
   const detail = computed(() => toValue(input.detail) ?? null)
   const run = computed(() => toValue(input.run) ?? null)

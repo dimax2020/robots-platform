@@ -1,13 +1,10 @@
 <script setup lang="ts">
 import { PhArrowSquareOut, PhQuotes } from '@phosphor-icons/vue'
-import { confidenceByKind, sourceKindLabel, type Confidence } from '~/data/catalog'
+import { confidenceByKind, sourceKindLabel, type Confidence, type Source } from '~/data/catalog'
 import { demoSourceById } from '~/data/demo'
 
-const props = defineProps<{ sourceId?: string; quote?: string; align?: 'left' | 'right'; text?: string }>()
-const { sourceById } = useCatalog()
-// Источники каталога приходят из API, демонстрационные — из моков страниц проекта.
-// text — строка трассировки вида «[A] ronavi-robotics.ru/…», если отдельного source_id нет.
-const src = computed(() => sourceById(props.sourceId) ?? demoSourceById(props.sourceId))
+const props = defineProps<{ sourceId?: string; quote?: string; align?: 'left' | 'right'; text?: string; source?: Source }>()
+const src = computed(() => props.source ?? demoSourceById(props.sourceId))
 const parsed = computed(() => {
   if (!props.text) return undefined
   const m = props.text.match(/^\[([A-D])\]\s*(.*)$/i)

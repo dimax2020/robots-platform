@@ -1,48 +1,76 @@
 <script setup lang="ts">
 import { PhMagnifyingGlass, PhSlidersHorizontal, PhFunnelSimple, PhCheckSquare, PhSquare } from '@phosphor-icons/vue'
-import { availabilityLabel, type Availability, type Product } from '~/data/catalog'
+import { availabilityLabel, type Availability, type Product, type TreeNode } from '~/data/catalog'
+import { platformGet } from '~/composables/usePlatform'
 
-const { products, catalogTree, pending, error } = useCatalog()
+interface PlatformTree {
+  industries: { code: string; name: string }[]
+  objects: { code: string; name: string; industries: string[]; processes: string[] }[]
+  processes: { code: string; name: string; product_count: number }[]
+}
+
+const catalogTree = ref<TreeNode[]>([])
+const processCode = ref('')
+const objectCode = ref('')
+onMounted(() => {
+  platformGet<PlatformTree>('/catalog/tree').then((tree) => {
+    const byCode = new Map(tree.processes.map((item) => [item.code, item]))
+    catalogTree.value = tree.industries.map((industry) => ({
+      label: industry.name,
+      token: '',
+      children: tree.objects
+        .filter((object) => object.industries.includes(industry.code))
+        .map((object) => ({
+          label: object.name,
+          token: `object:${object.code}`,
+          children: object.processes
+            .map((code) => byCode.get(code))
+            .filter((item): item is PlatformTree['processes'][number] => Boolean(item))
+            .map((process) => ({ label: process.name, token: `process:${process.code}`, count: process.product_count })),
+        })),
+    })).filter((industry) => industry.children.length)
+  }).catch(() => { catalogTree.value = [] })
+})
 
 useHead({ title: 'Каталог решений' })
 
 const q = ref('')
 const sort = ref<'relevance' | 'price' | 'trl' | 'name'>('relevance')
 const selectedNode = ref<string>('')
-const nodeIds = ref<string[] | null>(null)
 const avail = ref<Availability[]>([])
 const onlyAuto = ref(false)
 const minTrl = ref(1)
+const solutionType = ref('')
+const solutionTypes = ref<{ code: string; name: string; products: number }[]>([])
+onMounted(() => {
+  platformGet<{ code: string; name: string; products: number }[]>('/catalog/solution-types')
+    .then((items) => { solutionTypes.value = items })
+    .catch(() => { solutionTypes.value = [] })
+})
 
-const onSelect = (label: string, ids: string[]) => {
-  if (selectedNode.value === label) { selectedNode.value = ''; nodeIds.value = null; return }
+const onSelect = (label: string, _ids: string[], node: TreeNode) => {
+  if (selectedNode.value === label) {
+    selectedNode.value = ''
+    processCode.value = ''
+    objectCode.value = ''
+    return
+  }
   selectedNode.value = label
-  nodeIds.value = ids
+  processCode.value = node.token?.startsWith('process:') ? node.token.slice('process:'.length) : ''
+  objectCode.value = node.token?.startsWith('object:') ? node.token.slice('object:'.length) : ''
 }
 const toggleAvail = (a: Availability) => {
   avail.value = avail.value.includes(a) ? avail.value.filter((x) => x !== a) : [...avail.value, a]
 }
-const reset = () => { q.value = ''; selectedNode.value = ''; nodeIds.value = null; avail.value = []; onlyAuto.value = false; minTrl.value = 1 }
-
-const filtered = computed(() => {
-  let list = products.value.slice()
-  if (nodeIds.value) list = list.filter((p) => nodeIds.value!.includes(p.id))
-  if (avail.value.length) list = list.filter((p) => avail.value.includes(p.availability))
-  if (onlyAuto.value) list = list.filter((p) => p.autoMatch)
-  if (minTrl.value > 1) list = list.filter((p) => p.trl >= minTrl.value)
-  if (q.value.trim()) {
-    const s = q.value.trim().toLowerCase()
-    list = list.filter((p) => [p.name, p.manufacturer, p.solutionType, ...p.processes].join(' ').toLowerCase().includes(s))
-  }
-  if (sort.value === 'price') list.sort((a, b) => (a.priceRub ?? 1e12) - (b.priceRub ?? 1e12))
-  if (sort.value === 'trl') list.sort((a, b) => b.trl - a.trl)
-  if (sort.value === 'name') list.sort((a, b) => a.name.localeCompare(b.name, 'ru'))
-  return list
-})
+const reset = () => { q.value = ''; selectedNode.value = ''; processCode.value = ''; objectCode.value = ''; avail.value = []; onlyAuto.value = false; minTrl.value = 1; solutionType.value = '' }
 
 const activeChips = computed(() => {
   const chips: { key: string; label: string; clear: () => void }[] = []
-  if (selectedNode.value) chips.push({ key: 'node', label: selectedNode.value, clear: () => { selectedNode.value = ''; nodeIds.value = null } })
+  if (selectedNode.value) chips.push({ key: 'node', label: selectedNode.value, clear: () => { selectedNode.value = ''; processCode.value = ''; objectCode.value = '' } })
+  if (solutionType.value) {
+    const name = solutionTypes.value.find((item) => item.code === solutionType.value)?.name ?? solutionType.value
+    chips.push({ key: 'type', label: name, clear: () => { solutionType.value = '' } })
+  }
   avail.value.forEach((a) => chips.push({ key: `a-${a}`, label: availabilityLabel[a], clear: () => toggleAvail(a) }))
   if (onlyAuto.value) chips.push({ key: 'auto', label: 'Готов к автоподбору', clear: () => { onlyAuto.value = false } })
   if (minTrl.value > 1) chips.push({ key: 'trl', label: `УГТ от ${minTrl.value}`, clear: () => { minTrl.value = 1 } })
@@ -64,7 +92,6 @@ const filterFeed = (items: Product[]) => {
   if (sort.value === 'name') list.sort((a, b) => a.name.localeCompare(b.name, 'ru'))
   return list
 }
-const countOf = (a: Availability) => products.value.filter((p) => p.availability === a).length
 const plural = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'модель' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'модели' : 'моделей')
 const emptyHint = computed(() => {
   if (avail.value.length && avail.value.length < 3) return `Снимите фильтр по статусу «${availabilityLabel[avail.value[0]!]}»`
@@ -99,11 +126,18 @@ const emptyHint = computed(() => {
           <div class="hairline" />
           <div class="side-block">
             <div class="side-head"><PhSlidersHorizontal :size="16" weight="bold" /> <span class="label">Фильтры</span></div>
+            <div v-if="solutionTypes.length" class="f-group">
+              <div class="f-title">Тип решения</div>
+              <select v-model="solutionType" class="select" aria-label="Тип решения">
+                <option value="">все типы</option>
+                <option v-for="item in solutionTypes" :key="item.code" :value="item.code">{{ item.name }} · {{ item.products }}</option>
+              </select>
+            </div>
             <div class="f-group">
               <div class="f-title">Статус</div>
               <button v-for="a in (['operation', 'piloting', 'rnd'] as Availability[])" :key="a" type="button" class="check" :class="{ on: avail.includes(a) }" @click="toggleAvail(a)">
                 <PhCheckSquare v-if="avail.includes(a)" :size="18" weight="fill" /><PhSquare v-else :size="18" />
-                <span>{{ availabilityLabel[a] }}</span><span class="mono-sm muted">{{ countOf(a) }}</span>
+                <span>{{ availabilityLabel[a] }}</span>
               </button>
             </div>
             <div class="f-group">
@@ -122,7 +156,7 @@ const emptyHint = computed(() => {
         </div>
       </aside>
 
-      <PlatformFeed v-slot="{ items, loading, error, done }" class="results">
+      <PlatformFeed v-slot="{ items, loading, error, done }" class="results" :solution-type="solutionType" :process="processCode" :object-code="objectCode">
         <div class="results-head">
           <div class="chips">
             <span class="count h4">В списке {{ filterFeed(items).length }} {{ plural(filterFeed(items).length) }}</span>
@@ -139,7 +173,7 @@ const emptyHint = computed(() => {
             </select>
           </label>
         </div>
-        <p class="caption">Список подгружается по прокрутке, без номеров страниц. {{ done ? 'Это все карточки новой базы.' : 'Дальше подгрузится само.' }}</p>
+        <p class="caption">Список подгружается по прокрутке, без номеров страниц. {{ done ? 'Это все карточки каталога.' : 'Дальше подгрузится само.' }}</p>
         <p v-if="error" class="caption">{{ error }}</p>
 
         <div v-if="filterFeed(items).length" class="grid grid-cards cards">
@@ -147,8 +181,8 @@ const emptyHint = computed(() => {
         </div>
         <div v-else-if="!loading" class="empty glass">
           <div class="h3">В новой базе пока нет карточек под эти условия</div>
-          <p class="body muted">Загрузите каталог в админке платформы. Старый каталог по-прежнему открывается из меню сравнения.</p>
-          <UiButton to="/admin/platform" variant="secondary">К загрузке</UiButton>
+          <p class="body muted">Снимите фильтр или выберите другую ветку дерева. Карточки берутся из каталога платформы.</p>
+          <UiButton to="/admin/tables" variant="secondary">К загрузке</UiButton>
         </div>
         <p v-if="loading" class="caption">Загрузка следующей порции…</p>
       </PlatformFeed>

@@ -1,0 +1,109 @@
+{
+  "_note": "Пары (Тип, Подтип) из catalog_export_v4.csv в типы решений. Ключ сопоставления — каноническая форма обоих полей: trim, ё→е, нижний регистр, сжатые пробелы и дефисы. За счёт этого «Робот-уборщик» и «Робот уборщик», «Робот-штабелер» и «Робот-штабелёр» склеиваются сами.",
+
+  "_family_note": "family — семейство формул расчёта количества (§7.3). Пять семейств покрывают складскую технику буквально; для остального взято ближайшее по характеру работы: манипуляторы и стационарные ячейки → station_robots, облёты и обходы маршрута (БАС, морские, внутритрубные) → perimeter_rounds, работа по площади за окно времени (агротехника, уборка, дорожные катки) → area_window. Формулы под эти семейства появляются на этапе E3; пока rule_spec — плейсхолдер.",
+
+  "fallback": {
+    "_note": "Для строк, где Тип и Подтип пустые (59 строк, из них 66 позиций класса bas). Классифицируется по колонке «тип». Админ переклассифицирует позже через справочники.",
+    "bas": { "code": "bas_unspecified", "name": "БАС, тип не уточнён", "family": "perimeter_rounds" },
+    "brs": { "code": "brs_unspecified", "name": "БРС, тип не уточнён", "family": "flow_cycle" },
+    "software": { "code": "software_unspecified", "name": "ПО, тип не уточнён", "family": "station_robots" }
+  },
+
+  "by_pair": [
+    { "type": "", "subtype": "VTOL", "code": "uav_vtol", "name": "БАС вертикального взлёта (VTOL)", "family": "perimeter_rounds" },
+    { "type": "", "subtype": "Мультиротор", "code": "uav_multirotor", "name": "БАС мультироторного типа", "family": "perimeter_rounds" },
+    { "type": "", "subtype": "Самолет", "code": "uav_fixed_wing", "name": "БАС самолётного типа", "family": "perimeter_rounds" },
+
+    { "type": "Автономные наземные транспортные средства", "subtype": "", "code": "ugv_generic", "name": "Автономное наземное транспортное средство", "family": "flow_cycle" },
+    { "type": "Автономные наземные транспортные средства", "subtype": "FMR", "code": "fmr_vehicle", "name": "FMR, мобильный вилочный робот", "family": "flow_cycle" },
+    { "type": "Автономные наземные транспортные средства", "subtype": "Агробот", "code": "agrobot", "name": "Агробот", "family": "area_window" },
+    { "type": "Автономные наземные транспортные средства", "subtype": "Беспилотное метро", "code": "autonomous_metro", "name": "Беспилотное метро", "family": "flow_cycle" },
+    { "type": "Автономные наземные транспортные средства", "subtype": "Беспилотное такси", "code": "robotaxi", "name": "Беспилотное такси", "family": "flow_cycle" },
+    { "type": "Автономные наземные транспортные средства", "subtype": "Беспилотный асфальтоукладчик", "code": "autonomous_paver", "name": "Беспилотный асфальтоукладчик", "family": "area_window" },
+    { "type": "Автономные наземные транспортные средства", "subtype": "Беспилотный бульдозер", "code": "autonomous_bulldozer", "name": "Беспилотный бульдозер", "family": "area_window" },
+    { "type": "Автономные наземные транспортные средства", "subtype": "Беспилотный грузовик", "code": "autonomous_truck", "name": "Беспилотный грузовик", "family": "flow_cycle" },
+    { "type": "Автономные наземные транспортные средства", "subtype": "Беспилотный каток", "code": "autonomous_roller", "name": "Беспилотный каток", "family": "area_window" },
+    { "type": "Автономные наземные транспортные средства", "subtype": "Беспилотный трактор", "code": "autonomous_tractor", "name": "Беспилотный трактор", "family": "area_window" },
+    { "type": "Автономные наземные транспортные средства", "subtype": "Беспилотный трамвай", "code": "autonomous_tram", "name": "Беспилотный трамвай", "family": "flow_cycle" },
+    { "type": "Автономные наземные транспортные средства", "subtype": "Беспилотный тягач", "code": "autonomous_tug", "name": "Беспилотный тягач", "family": "flow_cycle" },
+    { "type": "Автономные наземные транспортные средства", "subtype": "Интеллектуальный автобус — вендинговый аппарат", "code": "smart_vending_bus", "name": "Интеллектуальный автобус — вендинговый аппарат", "family": "flow_cycle" },
+    { "type": "Автономные наземные транспортные средства", "subtype": "Робот для сбора плодов", "code": "fruit_picker_ugv", "name": "Робот для сбора плодов на наземной платформе", "family": "area_window" },
+
+    { "type": "Антропоморфные роботы", "subtype": "Антропоморфный робот", "code": "humanoid_robot", "name": "Антропоморфный робот", "family": "station_robots" },
+
+    { "type": "БАС", "subtype": "", "code": "bas_generic", "name": "БАС", "family": "perimeter_rounds" },
+    { "type": "БАС", "subtype": "БАС мультироторного типа", "code": "bas_multirotor", "name": "БАС мультироторного типа", "family": "perimeter_rounds" },
+
+    { "type": "Другое", "subtype": "Привязной робот на базе октокоптера", "code": "tethered_octocopter", "name": "Привязной робот на базе октокоптера", "family": "perimeter_rounds" },
+    { "type": "Другое", "subtype": "Робот для сбора плодов", "code": "fruit_picker_other", "name": "Робот для сбора плодов, прочее исполнение", "family": "area_window" },
+
+    { "type": "Мобильные манипуляторы", "subtype": "", "code": "mobile_manipulator", "name": "Мобильный манипулятор", "family": "flow_cycle" },
+    { "type": "Мобильные манипуляторы", "subtype": "Робот", "code": "mobile_manipulator_robot", "name": "Мобильный манипулятор, универсальный", "family": "flow_cycle" },
+    { "type": "Мобильные манипуляторы", "subtype": "Робот для сбора плодов", "code": "fruit_picker_mobile_manipulator", "name": "Мобильный манипулятор для сбора плодов", "family": "area_window" },
+    { "type": "Мобильные манипуляторы", "subtype": "Робот-расцепщик", "code": "uncoupling_robot", "name": "Робот-расцепщик вагонов", "family": "station_robots" },
+
+    { "type": "Мобильные роботы", "subtype": "", "code": "mobile_robot_generic", "name": "Мобильный робот", "family": "flow_cycle" },
+    { "type": "Мобильные роботы", "subtype": "AMR", "code": "amr", "name": "AMR, автономный мобильный робот", "family": "flow_cycle" },
+    { "type": "Мобильные роботы", "subtype": "FMR", "code": "fmr", "name": "FMR, мобильный вилочный робот", "family": "flow_cycle" },
+    { "type": "Мобильные роботы", "subtype": "Беспилотный погрузчик", "code": "autonomous_forklift", "name": "Беспилотный погрузчик", "family": "flow_cycle" },
+    { "type": "Мобильные роботы", "subtype": "Внутритрубные роботизированные системы", "code": "in_pipe_system", "name": "Внутритрубная роботизированная система", "family": "perimeter_rounds" },
+    { "type": "Мобильные роботы", "subtype": "Демонтажный робот", "code": "demolition_robot", "name": "Демонтажный робот", "family": "area_window" },
+    { "type": "Мобильные роботы", "subtype": "Колесный робот", "code": "wheeled_robot", "name": "Колёсный робот", "family": "flow_cycle" },
+    { "type": "Мобильные роботы", "subtype": "Мобильный робот-комплектовщик", "code": "mobile_picker", "name": "Мобильный робот-комплектовщик", "family": "flow_cycle" },
+    { "type": "Мобильные роботы", "subtype": "Мобильный робототехнический комплекс высокой проходимости", "code": "offroad_mobile_complex", "name": "Мобильный робототехнический комплекс высокой проходимости", "family": "perimeter_rounds" },
+    { "type": "Мобильные роботы", "subtype": "Охранный робот", "code": "security_robot", "name": "Охранный робот", "family": "perimeter_rounds" },
+    { "type": "Мобильные роботы", "subtype": "Робо-кафе", "code": "robo_cafe_mobile", "name": "Робо-кафе на мобильной платформе", "family": "station_robots" },
+    { "type": "Мобильные роботы", "subtype": "Робот-инвентаризатор", "code": "inventory_robot", "name": "Робот-инвентаризатор", "family": "count_window" },
+    { "type": "Мобильные роботы", "subtype": "Робот-курьер", "code": "courier_robot", "name": "Робот-курьер", "family": "flow_cycle" },
+    { "type": "Мобильные роботы", "subtype": "Робот-паук", "code": "spider_robot", "name": "Робот-паук для мойки фасадов", "family": "area_window" },
+    { "type": "Мобильные роботы", "subtype": "Робот-ровер", "code": "rover_robot", "name": "Робот-ровер", "family": "perimeter_rounds" },
+    { "type": "Мобильные роботы", "subtype": "Робот-уборщик", "code": "cleaning_robot", "name": "Робот-уборщик", "family": "area_window" },
+    { "type": "Мобильные роботы", "subtype": "Робот-штабелер", "code": "mobile_stacker", "name": "Робот-штабелёр мобильный", "family": "station_robots" },
+    { "type": "Мобильные роботы", "subtype": "Роботизированная тележка", "code": "robotic_cart", "name": "Роботизированная тележка", "family": "flow_cycle" },
+    { "type": "Мобильные роботы", "subtype": "Роботизированная теплоинспекция трубопроводов", "code": "pipe_thermal_inspection", "name": "Роботизированная теплоинспекция трубопроводов", "family": "perimeter_rounds" },
+    { "type": "Мобильные роботы", "subtype": "Роботы для диагностики теплосетей", "code": "heating_network_diagnostics", "name": "Робот для диагностики теплосетей", "family": "perimeter_rounds" },
+    { "type": "Мобильные роботы", "subtype": "Ровер", "code": "rover_platform", "name": "Ровер", "family": "perimeter_rounds" },
+    { "type": "Мобильные роботы", "subtype": "Универсальная автономная роботизированная платформа", "code": "universal_platform", "name": "Универсальная автономная роботизированная платформа", "family": "flow_cycle" },
+
+    { "type": "Морские роботы", "subtype": "", "code": "marine_robot_generic", "name": "Морской робот", "family": "perimeter_rounds" },
+    { "type": "Морские роботы", "subtype": "Безэкипажный катер", "code": "usv_boat", "name": "Безэкипажный катер", "family": "perimeter_rounds" },
+    { "type": "Морские роботы", "subtype": "Беспилотный катамаран", "code": "usv_catamaran", "name": "Беспилотный катамаран", "family": "perimeter_rounds" },
+    { "type": "Морские роботы", "subtype": "Беспилотный катер", "code": "usv_boat_light", "name": "Беспилотный катер", "family": "perimeter_rounds" },
+    { "type": "Морские роботы", "subtype": "Беспилотный сервисный катамаран", "code": "usv_service_catamaran", "name": "Беспилотный сервисный катамаран", "family": "perimeter_rounds" },
+    { "type": "Морские роботы", "subtype": "Многофункциональный бэзэкипажный катер", "code": "usv_multipurpose", "name": "Многофункциональный безэкипажный катер", "family": "perimeter_rounds" },
+    { "type": "Морские роботы", "subtype": "Модульная надводная многофункциональная платформа", "code": "usv_modular_platform", "name": "Модульная надводная многофункциональная платформа", "family": "perimeter_rounds" },
+    { "type": "Морские роботы", "subtype": "Модульная наводная многофункциональная платформа", "code": "usv_modular_platform", "name": "Модульная надводная многофункциональная платформа", "family": "perimeter_rounds" },
+    { "type": "Морские роботы", "subtype": "ТНПА", "code": "rov_underwater", "name": "ТНПА, телеуправляемый необитаемый подводный аппарат", "family": "perimeter_rounds" },
+
+    { "type": "ПО", "subtype": "ПО для сортировки товаров", "code": "software_sorting", "name": "ПО для сортировки товаров", "family": "station_robots" },
+
+    { "type": "ПО БРС", "subtype": "Робот для анализа сельхозземель", "code": "software_farmland_analysis", "name": "ПО БРС для анализа сельхозземель", "family": "area_window" },
+    { "type": "ПО БРС", "subtype": "Роботизированные погрузочные краны", "code": "software_loading_cranes", "name": "ПО БРС для роботизированных погрузочных кранов", "family": "station_robots" },
+
+    { "type": "Роботы-манипуляторы", "subtype": "", "code": "manipulator_generic", "name": "Робот-манипулятор, исполнение не уточнено", "family": "station_robots" },
+    { "type": "Роботы-манипуляторы", "subtype": "Коллаборативный робот-манипулятор", "code": "cobot", "name": "Коллаборативный робот-манипулятор", "family": "station_robots" },
+    { "type": "Роботы-манипуляторы", "subtype": "Манипулятор", "code": "manipulator", "name": "Манипулятор", "family": "station_robots" },
+    { "type": "Роботы-манипуляторы", "subtype": "Робот для сбора плодов", "code": "fruit_picker_manipulator", "name": "Манипулятор для сбора плодов", "family": "area_window" },
+    { "type": "Роботы-манипуляторы", "subtype": "Робот-манипулятор", "code": "robot_manipulator", "name": "Робот-манипулятор", "family": "station_robots" },
+    { "type": "Роботы-манипуляторы", "subtype": "Робот-укладчик", "code": "palletizing_robot", "name": "Робот-укладчик", "family": "station_robots" },
+    { "type": "Роботы-манипуляторы", "subtype": "Сварочный робот", "code": "welding_robot", "name": "Сварочный робот", "family": "station_robots" },
+
+    { "type": "Стационарные роботизированные системы", "subtype": "", "code": "stationary_system_generic", "name": "Стационарная роботизированная система", "family": "station_robots" },
+    { "type": "Стационарные роботизированные системы", "subtype": "Дельта-робот", "code": "delta_robot", "name": "Дельта-робот", "family": "station_robots" },
+    { "type": "Стационарные роботизированные системы", "subtype": "Конвейер автоматизированной вакцинации", "code": "vaccination_conveyor", "name": "Конвейер автоматизированной вакцинации", "family": "station_robots" },
+    { "type": "Стационарные роботизированные системы", "subtype": "Кран-штабелёр", "code": "stacker_crane", "name": "Кран-штабелёр", "family": "station_robots" },
+    { "type": "Стационарные роботизированные системы", "subtype": "Робо-кафе", "code": "robo_cafe", "name": "Робо-кафе", "family": "station_robots" },
+    { "type": "Стационарные роботизированные системы", "subtype": "Робот-сортировщик", "code": "sorting_robot", "name": "Робот-сортировщик", "family": "station_robots" },
+    { "type": "Стационарные роботизированные системы", "subtype": "Робот-штабелёр", "code": "stacker_robot", "name": "Робот-штабелёр стационарный", "family": "station_robots" },
+    { "type": "Стационарные роботизированные системы", "subtype": "Роботизированная доильная установка", "code": "milking_system", "name": "Роботизированная доильная установка", "family": "station_robots" },
+    { "type": "Стационарные роботизированные системы", "subtype": "Роботизированная пристаночная ячейка", "code": "machine_tending_cell", "name": "Роботизированная пристаночная ячейка", "family": "station_robots" },
+    { "type": "Стационарные роботизированные системы", "subtype": "Роботизированная установка", "code": "robotic_installation", "name": "Роботизированная установка", "family": "station_robots" },
+    { "type": "Стационарные роботизированные системы", "subtype": "Роботизированные погрузочные краны", "code": "loading_cranes", "name": "Роботизированные погрузочные краны", "family": "station_robots" },
+    { "type": "Стационарные роботизированные системы", "subtype": "Роботизированный 3D принтер", "code": "robotic_3d_printer", "name": "Роботизированный 3D-принтер", "family": "station_robots" },
+    { "type": "Стационарные роботизированные системы", "subtype": "Роботизированный лафетный ствол", "code": "robotic_fire_monitor", "name": "Роботизированный лафетный ствол", "family": "station_robots" },
+    { "type": "Стационарные роботизированные системы", "subtype": "Роботизированный сварочный комплекс", "code": "welding_complex", "name": "Роботизированный сварочный комплекс", "family": "station_robots" },
+    { "type": "Стационарные роботизированные системы", "subtype": "Умная система хранения", "code": "smart_storage", "name": "Умная система хранения", "family": "station_robots" },
+    { "type": "Стационарные роботизированные системы", "subtype": "Шаттл", "code": "shuttle", "name": "Шаттл", "family": "station_robots" }
+  ]
+}

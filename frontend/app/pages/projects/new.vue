@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { PhCheck, PhArrowRight, PhSparkle } from '@phosphor-icons/vue'
 import { objectTypeLabel, objectTypeImage, type ObjectType, projects } from '~/data/projects'
-import { fetchErrorMessage } from '~/composables/useCalc'
+import { fetchErrorMessage } from '~/utils/errors'
+import { platformGet, platformSend } from '~/composables/usePlatform'
 
 useHead({ title: 'Новый проект' })
 const route = useRoute()
 const router = useRouter()
-const { create, refresh } = useProjects()
+const { role } = useRole()
+const canSave = computed(() => role.value === 'user' || role.value === 'admin')
 
 const industries = [
   { code: 'logistics', label: 'Логистика и торговля', objects: ['warehouse'] as ObjectType[] },
@@ -38,13 +40,22 @@ const submit = async () => {
   creating.value = true
   createError.value = ''
   try {
-    const project = await create({
+    if (!canSave.value) {
+      await router.push('/login')
+      return
+    }
+    const site: Record<string, unknown> = {}
+    if (useDemo.value) {
+      const form = await platformGet<{ fields: { key: string; default: unknown }[] }>(`/catalog/objects/${type.value}/fields`)
+      for (const field of form.fields) {
+        if (field.default !== null && field.default !== undefined && field.default !== '') site[field.key] = field.default
+      }
+    }
+    const project = await platformSend<{ id: string }>('/projects', 'POST', {
       name: name.value.trim() || demoFor.value.name,
-      object_type_code: type.value,
-      industry_code: industry.value.code,
-      use_demo: useDemo.value,
+      object_code: type.value,
+      site,
     })
-    await refresh()
     await router.push(`/projects/${project.id}/params`)
   } catch (e: unknown) {
     createError.value = fetchErrorMessage(e, 'Не удалось создать проект. Проверьте, что API запущен.')
@@ -114,7 +125,8 @@ const submit = async () => {
               <PhCheck v-if="useDemo" :size="16" weight="bold" class="ok" />
             </button>
             <div class="caption">Без демо-набора параметры площадки придётся заполнить вручную.</div>
-            <UiButton type="submit" size="lg" block :disabled="creating">{{ creating ? 'Создаём…' : 'Создать и перейти к параметрам' }}<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
+            <UiButton v-if="canSave" type="submit" size="lg" block :disabled="creating">{{ creating ? 'Создаём…' : 'Создать и перейти к параметрам' }}<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
+            <UiButton v-else to="/login" size="lg" block>Войти, чтобы создать проект<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
             <div class="caption">Проект сохраняется на версии каталога v2026.09.3 и модели m1.4.</div>
           </div>
         </div>

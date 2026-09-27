@@ -2,10 +2,12 @@ import re
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+from app.api import admin_catalog, admin_objects, admin_products
+from app.api.auth import SessionUser, load_user, require_user
 from app.config import get_settings
 from app.domain.layout_items import COUNT_RULES, ROLES, SHAPES
 from app.infrastructure.db.job_repo import enqueue, get_job, parser_settings, set_schedule
@@ -15,16 +17,28 @@ from app.infrastructure.db.taxonomy_repo import (
     add_process,
     assign_processes,
     attributes,
+    create_process,
+    copy_project,
     create_project,
+    delete_project,
+    delete_type_norm,
+    save_type_norm,
+    type_norm_list,
     economy_norm_log,
+    owned_project,
+    preview_economy,
+    preview_process,
+    process_list,
     economy_norms,
+    layout_files_in_use,
+    list_projects,
     mark_unused,
+    match_object,
     project_layout,
     save_project_layout,
     process_setup,
     project_economy,
     project_view,
-    replace_filters,
     robot_attributes,
     run_match,
     object_setup,
@@ -39,6 +53,31 @@ from app.infrastructure.db.taxonomy_repo import (
 from app.parsers import PARSERS
 
 app = FastAPI(title="Платформа каталога", version="0.1.0")
+app.include_router(admin_catalog.router)
+app.include_router(admin_objects.router)
+app.include_router(admin_products.router)
+
+from app.api.auth import router as auth_router
+
+app.include_router(auth_router)
+
+
+@app.middleware("http")
+async def admin_session(request: Request, call_next):
+    if request.url.path.startswith("/api/v1/admin"):
+        user = load_user(request.cookies.get("platform_session"))
+        if user is None:
+            return JSONResponse({"detail": "Нужна авторизация"}, status_code=401)
+        if user.role != "admin":
+            return JSONResponse({"detail": "Нужны права администратора"}, status_code=403)
+    return await call_next(request)
+
+
+def _owned(db, project_id: UUID, user: SessionUser):
+    try:
+        return owned_project(db, project_id, user_id=user.id, role=user.role)
+    except KeyError:
+        raise HTTPException(404, "Проект не найден") from None
 
 
 class ObjectIn(BaseModel):
@@ -49,20 +88,9 @@ class ObjectIn(BaseModel):
 
 
 class ProcessIn(BaseModel):
-    code: str
+    code: str | None = None
     name: str
-
-
-class FilterIn(BaseModel):
-    name: str
-    object_keys: list[str]
-    robot_keys: list[str]
-    op: str
-    mode: str
-
-
-class FiltersIn(BaseModel):
-    filters: list[FilterIn]
+    objects: list[str] = Field(default_factory=list)
 
 
 class InputIn(BaseModel):
@@ -89,7 +117,19 @@ class ObjectBindingIn(BaseModel):
     site_key: str
 
 
+class ObjectFieldIn(BaseModel):
+    key: str
+    label: str = ""
+    group: str = ""
+    required: bool = False
+    default: float | int | bool | str | None = None
+    source: str = ""
+
+
 class ObjectSetupIn(BaseModel):
+    name: str | None = None
+    industries: list[str] | None = None
+    fields: list[ObjectFieldIn] | None = None
     processes: list[str] = Field(default_factory=list)
     bindings: list[ObjectBindingIn] = Field(default_factory=list)
 
@@ -105,6 +145,7 @@ class LayoutItemIn(BaseModel):
 
 
 class ProcessSetupIn(BaseModel):
+    name: str | None = None
     filters: list[FormulaFilterIn] = Field(default_factory=list)
     count_inputs: list[InputIn] = Field(default_factory=list)
     count_formula: str = ""
@@ -112,6 +153,17 @@ class ProcessSetupIn(BaseModel):
     rank_order: str = "asc"
     bindings: list[BindingIn] = Field(default_factory=list)
     layout_items: list[LayoutItemIn] | None = None
+
+
+class PreviewIn(BaseModel):
+    object_code: str
+    site: dict = Field(default_factory=dict)
+    filters: list[FormulaFilterIn] = Field(default_factory=list)
+    count_inputs: list[InputIn] = Field(default_factory=list)
+    count_formula: str = ""
+    rank_key: str = ""
+    rank_order: str = "asc"
+    bindings: list[BindingIn] = Field(default_factory=list)
 
 
 class MatchIn(BaseModel):
@@ -133,8 +185,23 @@ class OverridesIn(BaseModel):
     values: dict[str, float] = Field(default_factory=dict)
 
 
+class TypeNormIn(BaseModel):
+    type_code: str
+    key: str
+    value: float
+    rationale: str = ""
+    origin: str = ""
+
+
+class NormSourceIn(BaseModel):
+    rationale: str = ""
+    origin: str = ""
+    url: str = ""
+
+
 class NormsIn(BaseModel):
-    values: dict[str, float]
+    values: dict[str, float] = Field(default_factory=dict)
+    sources: dict[str, NormSourceIn] = Field(default_factory=dict)
     note: str = ""
 
 
@@ -154,7 +221,21 @@ class ProjectIn(BaseModel):
 
 class ProjectPatch(BaseModel):
     site: dict | None = None
+    tasks: list | None = None
     enabled: dict[str, bool] | None = None
+
+
+class PreviewMatchIn(BaseModel):
+    object_code: str
+    site: dict = Field(default_factory=dict)
+
+
+class PreviewEconomyIn(BaseModel):
+    object_code: str
+    site: dict = Field(default_factory=dict)
+    choices: dict[str, str] = Field(default_factory=dict)
+    tasks: list[dict] = Field(default_factory=list)
+    preview: dict[str, float] | None = None
 
 
 class ScheduleIn(BaseModel):
@@ -169,11 +250,17 @@ def health() -> dict:
 
 
 @app.get("/api/v1/catalog/products")
-def catalog_products(cursor: str | None = None, limit: int | None = None) -> dict:
+def catalog_products(
+    cursor: str | None = None,
+    limit: int | None = None,
+    solution_type: str | None = None,
+    process: str | None = None,
+    object_code: str | None = None,
+) -> dict:
     size = limit or get_settings().list_page_size
     size = max(1, min(size, 100))
     with session_factory()() as db:
-        return list_products(db, cursor=cursor, limit=size)
+        return list_products(db, cursor=cursor, limit=size, solution_type=solution_type, process=process, object_code=object_code)
 
 
 @app.get("/api/v1/catalog/products/{slug}")
@@ -301,11 +388,32 @@ def admin_object(body: ObjectIn) -> dict:
         return tree(db)
 
 
+@app.get("/api/v1/admin/processes")
+def admin_process_list() -> list:
+    with session_factory()() as db:
+        return process_list(db)
+
+
 @app.post("/api/v1/admin/processes")
 def admin_process(body: ProcessIn) -> dict:
     with session_factory()() as db:
-        add_process(db, code=body.code, name=body.name)
-        return tree(db)
+        if body.code:
+            add_process(db, code=body.code, name=body.name)
+            return process_setup(db, body.code)
+        try:
+            code = create_process(db, name=body.name, objects=body.objects)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        return process_setup(db, code)
+
+
+@app.post("/api/v1/admin/processes/{code}/preview")
+def admin_process_preview(code: str, body: PreviewIn) -> dict:
+    with session_factory()() as db:
+        try:
+            return preview_process(db, code, body.model_dump())
+        except KeyError:
+            raise HTTPException(404, "Процесс или объект не найден") from None
 
 
 @app.get("/api/v1/admin/processes/{code}")
@@ -331,16 +439,6 @@ def admin_process_setup(code: str, body: ProcessSetupIn) -> dict:
             raise HTTPException(404, "Процесс не найден") from None
 
 
-@app.put("/api/v1/admin/processes/{code}/filters")
-def admin_filters(code: str, body: FiltersIn) -> dict:
-    with session_factory()() as db:
-        try:
-            replace_filters(db, code, [item.model_dump() for item in body.filters])
-        except KeyError:
-            raise HTTPException(404, "Процесс не найден") from None
-        return tree(db)
-
-
 @app.put("/api/v1/admin/products/{slug}/processes")
 def admin_assign(slug: str, body: AssignIn) -> dict:
     with session_factory()() as db:
@@ -351,18 +449,43 @@ def admin_assign(slug: str, body: AssignIn) -> dict:
     return {"slug": slug, "processes": body.processes}
 
 
-@app.post("/api/v1/projects")
-def create(body: ProjectIn) -> dict:
+@app.post("/api/v1/catalog/preview/match")
+def catalog_preview_match(body: PreviewMatchIn) -> dict:
     with session_factory()() as db:
         try:
-            return create_project(db, name=body.name, object_code=body.object_code, site=body.site)
+            return match_object(db, body.object_code, body.site)
+        except KeyError:
+            raise HTTPException(404, "Объект не найден") from None
+
+
+@app.post("/api/v1/catalog/preview/economy")
+def catalog_preview_economy(body: PreviewEconomyIn) -> dict:
+    with session_factory()() as db:
+        try:
+            return preview_economy(db, body.object_code, body.site, body.choices, body.tasks, body.preview)
+        except KeyError:
+            raise HTTPException(404, "Объект не найден") from None
+
+
+@app.get("/api/v1/projects")
+def projects(user: SessionUser = Depends(require_user)) -> dict:
+    with session_factory()() as db:
+        return {"items": list_projects(db, user_id=user.id, role=user.role)}
+
+
+@app.post("/api/v1/projects")
+def create(body: ProjectIn, user: SessionUser = Depends(require_user)) -> dict:
+    with session_factory()() as db:
+        try:
+            return create_project(db, name=body.name, object_code=body.object_code, site=body.site, owner_id=user.id)
         except KeyError:
             raise HTTPException(404, "Объект не найден") from None
 
 
 @app.get("/api/v1/projects/{project_id}")
-def read_project(project_id: UUID) -> dict:
+def read_project(project_id: UUID, user: SessionUser = Depends(require_user)) -> dict:
     with session_factory()() as db:
+        _owned(db, project_id, user)
         try:
             return project_view(db, project_id)
         except KeyError:
@@ -370,17 +493,46 @@ def read_project(project_id: UUID) -> dict:
 
 
 @app.patch("/api/v1/projects/{project_id}")
-def patch_project(project_id: UUID, body: ProjectPatch) -> dict:
+def patch_project(project_id: UUID, body: ProjectPatch, user: SessionUser = Depends(require_user)) -> dict:
     with session_factory()() as db:
+        _owned(db, project_id, user)
         try:
-            return update_project(db, project_id, site=body.site, enabled=body.enabled)
+            return update_project(db, project_id, site=body.site, enabled=body.enabled, tasks=body.tasks)
         except KeyError:
             raise HTTPException(404, "Проект не найден") from None
 
 
-@app.post("/api/v1/projects/{project_id}/match")
-def match_project(project_id: UUID, body: MatchIn | None = None) -> dict:
+@app.post("/api/v1/projects/{project_id}/copy")
+def copy(project_id: UUID, user: SessionUser = Depends(require_user)) -> dict:
     with session_factory()() as db:
+        _owned(db, project_id, user)
+        try:
+            return copy_project(db, project_id, owner_id=user.id)
+        except KeyError:
+            raise HTTPException(404, "Проект не найден") from None
+
+
+@app.delete("/api/v1/projects/{project_id}")
+def remove_project(project_id: UUID, user: SessionUser = Depends(require_user)) -> dict:
+    with session_factory()() as db:
+        _owned(db, project_id, user)
+        try:
+            names = delete_project(db, project_id)
+            used = layout_files_in_use(db)
+        except KeyError:
+            raise HTTPException(404, "Проект не найден") from None
+    folder = Path(get_settings().upload_dir) / "layouts"
+    for name in names - used:
+        path = folder / name
+        if path.is_file():
+            path.unlink()
+    return {"ok": True}
+
+
+@app.post("/api/v1/projects/{project_id}/match")
+def match_project(project_id: UUID, body: MatchIn | None = None, user: SessionUser = Depends(require_user)) -> dict:
+    with session_factory()() as db:
+        _owned(db, project_id, user)
         try:
             return run_match(db, project_id, site=None if body is None else body.site)
         except KeyError:
@@ -388,9 +540,10 @@ def match_project(project_id: UUID, body: MatchIn | None = None) -> dict:
 
 
 @app.post("/api/v1/projects/{project_id}/economy")
-def economy_project(project_id: UUID, body: EconomyIn | None = None) -> dict:
+def economy_project(project_id: UUID, body: EconomyIn | None = None, user: SessionUser = Depends(require_user)) -> dict:
     body = body or EconomyIn()
     with session_factory()() as db:
+        _owned(db, project_id, user)
         try:
             return project_economy(db, project_id, body.site, body.choices, body.tasks, body.preview)
         except KeyError:
@@ -398,8 +551,9 @@ def economy_project(project_id: UUID, body: EconomyIn | None = None) -> dict:
 
 
 @app.get("/api/v1/projects/{project_id}/layout")
-def layout_read(project_id: UUID) -> dict:
+def layout_read(project_id: UUID, user: SessionUser = Depends(require_user)) -> dict:
     with session_factory()() as db:
+        _owned(db, project_id, user)
         try:
             return {"layout": project_layout(db, project_id)}
         except KeyError:
@@ -407,8 +561,9 @@ def layout_read(project_id: UUID) -> dict:
 
 
 @app.put("/api/v1/projects/{project_id}/layout")
-def layout_save(project_id: UUID, body: LayoutIn) -> dict:
+def layout_save(project_id: UUID, body: LayoutIn, user: SessionUser = Depends(require_user)) -> dict:
     with session_factory()() as db:
+        _owned(db, project_id, user)
         try:
             return {"layout": save_project_layout(db, project_id, body.layout)}
         except KeyError:
@@ -420,7 +575,7 @@ _LAYOUT_FILE = re.compile(r"^[0-9a-f-]{36}\.(png|jpg|webp)$")
 
 
 @app.post("/api/v1/projects/{project_id}/layout/background")
-async def layout_background(project_id: UUID, file: UploadFile = File(...)) -> dict:
+async def layout_background(project_id: UUID, file: UploadFile = File(...), user: SessionUser = Depends(require_user)) -> dict:
     extension = _IMAGE_TYPES.get(file.content_type or "")
     if extension is None:
         raise HTTPException(422, "Нужна картинка PNG, JPG или WebP")
@@ -428,6 +583,7 @@ async def layout_background(project_id: UUID, file: UploadFile = File(...)) -> d
     if len(payload) > 20 * 1024 * 1024:
         raise HTTPException(413, "Картинка больше 20 МБ")
     with session_factory()() as db:
+        _owned(db, project_id, user)
         try:
             project_layout(db, project_id)
         except KeyError:
@@ -450,8 +606,9 @@ def layout_file(name: str) -> FileResponse:
 
 
 @app.put("/api/v1/projects/{project_id}/economy/overrides")
-def economy_overrides(project_id: UUID, body: OverridesIn) -> dict:
+def economy_overrides(project_id: UUID, body: OverridesIn, user: SessionUser = Depends(require_user)) -> dict:
     with session_factory()() as db:
+        _owned(db, project_id, user)
         try:
             return {"values": save_economy_overrides(db, project_id, body.values)}
         except KeyError:
@@ -467,7 +624,36 @@ def economy_norm_list() -> dict:
 @app.put("/api/v1/admin/economy/norms")
 def economy_norm_save(body: NormsIn) -> dict:
     with session_factory()() as db:
-        return {"items": save_economy_norms(db, body.values, body.note)}
+        sources = {key: item.model_dump() for key, item in body.sources.items()}
+        return {"items": save_economy_norms(db, body.values, body.note, sources)}
+
+
+@app.get("/api/v1/admin/economy/type-norms")
+def economy_type_norm_list() -> dict:
+    with session_factory()() as db:
+        return type_norm_list(db)
+
+
+@app.put("/api/v1/admin/economy/type-norms")
+def economy_type_norm_save(body: TypeNormIn) -> dict:
+    with session_factory()() as db:
+        try:
+            save_type_norm(db, type_code=body.type_code, key=body.key, value=body.value, rationale=body.rationale, origin=body.origin)
+        except KeyError:
+            raise HTTPException(404, "Тип решения не найден") from None
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        return type_norm_list(db)
+
+
+@app.delete("/api/v1/admin/economy/type-norms")
+def economy_type_norm_delete(type_code: str, key: str) -> dict:
+    with session_factory()() as db:
+        try:
+            delete_type_norm(db, type_code=type_code, key=key)
+        except KeyError:
+            raise HTTPException(404, "Тип решения не найден") from None
+        return type_norm_list(db)
 
 
 @app.get("/api/v1/admin/economy/norms/log")

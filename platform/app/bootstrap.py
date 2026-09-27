@@ -7,6 +7,7 @@ import psycopg
 from alembic import command
 from alembic.config import Config
 
+from app.application.reference_data import seed_reference
 from app.application.seed_warehouse import seed
 from app.config import get_settings
 from app.infrastructure.db.session import session_factory
@@ -33,6 +34,7 @@ def main() -> None:
             _migrate(settings)
             with session_factory()() as db:
                 seed(db)
+                seed_reference(db)
         finally:
             conn.execute("SELECT pg_advisory_unlock(%s)", (_LOCK,))
 

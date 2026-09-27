@@ -1,0 +1,61 @@
+{
+  "_note": "Справочник характеристик (attribute_def, §6.2). Из него генерируются карточка продукта, таблица сравнения, форма редактирования в админке и JSON-схема извлечения по ссылке. Новый параметр — строка здесь, а не миграция (ТЗ 3.2.6, 4.2.6). Группы соответствуют обязательной таблице ТЗ 3.3 буквально.",
+
+  "_ttx_note": "В catalog_export_v4.csv технических характеристик нет ни одной, поэтому после сида заполнены только price_rub, region и system_class. Остальные ключи существуют как пустые поля формы — под них и заводится справочник (§12.4).",
+
+  "attributes": [
+    { "key": "region", "group_code": "identification", "label": "Регион", "datatype": "text", "sort": 10 },
+    { "key": "system_class", "group_code": "identification", "label": "Класс системы", "datatype": "enum", "enum_values": ["brs", "bas", "software"], "sort": 20 },
+    { "key": "purpose", "group_code": "identification", "label": "Назначение", "datatype": "text", "sort": 30 },
+
+    { "key": "payload_kg", "group_code": "technical", "label": "Грузоподъёмность", "unit": "кг", "datatype": "number", "sort": 100 },
+    { "key": "dimensions_mm", "group_code": "technical", "label": "Габариты, Д×Ш×В", "unit": "мм", "datatype": "text", "sort": 110 },
+    { "key": "mass_kg", "group_code": "technical", "label": "Масса", "unit": "кг", "datatype": "number", "sort": 120 },
+    { "key": "speed_loaded_ms", "group_code": "technical", "label": "Скорость с грузом", "unit": "м/с", "datatype": "number", "sort": 130 },
+    { "key": "speed_empty_ms", "group_code": "technical", "label": "Скорость без груза", "unit": "м/с", "datatype": "number", "sort": 140 },
+    { "key": "speed_vertical_ms", "group_code": "technical", "label": "Скорость вертикальная", "unit": "м/с", "datatype": "number", "sort": 150 },
+    { "key": "lift_height_mm", "group_code": "technical", "label": "Высота подъёма", "unit": "мм", "datatype": "number", "sort": 160 },
+    { "key": "throughput", "group_code": "technical", "label": "Производительность", "datatype": "number", "sort": 170 },
+    { "key": "throughput_unit", "group_code": "technical", "label": "Единица производительности", "datatype": "text", "sort": 180 },
+    { "key": "work_time_h", "group_code": "technical", "label": "Время работы", "unit": "ч", "datatype": "number", "sort": 190 },
+    { "key": "charge_time_h", "group_code": "technical", "label": "Время зарядки", "unit": "ч", "datatype": "number", "sort": 200 },
+    { "key": "battery_swap_min", "group_code": "technical", "label": "Замена АКБ", "unit": "мин", "datatype": "number", "sort": 210 },
+    { "key": "accuracy_mm", "group_code": "technical", "label": "Точность позиционирования", "unit": "мм", "datatype": "text", "sort": 220 },
+    { "key": "navigation", "group_code": "technical", "label": "Навигация", "datatype": "text", "sort": 230 },
+    { "key": "temp_min_c", "group_code": "technical", "label": "Температура, минимум", "unit": "°C", "datatype": "number", "sort": 240 },
+    { "key": "temp_max_c", "group_code": "technical", "label": "Температура, максимум", "unit": "°C", "datatype": "number", "sort": 250 },
+    { "key": "humidity_max_pct", "group_code": "technical", "label": "Влажность, максимум", "unit": "%", "datatype": "number", "sort": 260 },
+    { "key": "enclosure", "group_code": "technical", "label": "Исполнение", "datatype": "text", "sort": 270 },
+    { "key": "ip_rating", "group_code": "technical", "label": "Класс защиты IP", "datatype": "text", "sort": 280 },
+    { "key": "axes", "group_code": "technical", "label": "Число осей", "datatype": "number", "sort": 290 },
+    { "key": "reach_mm", "group_code": "technical", "label": "Вылет", "unit": "мм", "datatype": "number", "sort": 300 },
+
+    { "key": "min_aisle_width_m", "group_code": "infrastructure", "label": "Минимальная ширина прохода", "unit": "м", "datatype": "number", "sort": 400 },
+    { "key": "floor_load_kg_m2", "group_code": "infrastructure", "label": "Нагрузка на пол", "unit": "кг/м²", "datatype": "number", "sort": 410 },
+    { "key": "charging_type", "group_code": "infrastructure", "label": "Тип зарядки", "datatype": "text", "sort": 420 },
+    { "key": "robots_per_station", "group_code": "infrastructure", "label": "Роботов на зарядную станцию", "datatype": "number", "sort": 430 },
+    { "key": "connectivity", "group_code": "infrastructure", "label": "Требования к связи", "datatype": "text", "sort": 440 },
+    { "key": "software_integration", "group_code": "infrastructure", "label": "Интеграция с ПО", "datatype": "text", "sort": 450 },
+    { "key": "service_regulation", "group_code": "infrastructure", "label": "Регламент сервиса", "datatype": "text", "sort": 460 },
+    { "key": "infrastructure_req", "group_code": "infrastructure", "label": "Требования к инфраструктуре", "datatype": "text", "sort": 470 },
+    { "key": "container_type", "group_code": "infrastructure", "label": "Тип тары", "datatype": "text", "sort": 480 },
+    { "key": "container_dimensions_mm", "group_code": "infrastructure", "label": "Габариты тары", "unit": "мм", "datatype": "text", "sort": 490 },
+    { "key": "power_supply", "group_code": "infrastructure", "label": "Питание", "datatype": "text", "sort": 500 },
+    { "key": "power_watt", "group_code": "infrastructure", "label": "Потребляемая мощность", "unit": "Вт", "datatype": "number", "sort": 510 },
+
+    { "key": "price_rub", "group_code": "economics", "label": "Цена за единицу", "unit": "₽", "datatype": "number", "sort": 600 },
+    { "key": "price_includes", "group_code": "economics", "label": "Что входит в цену", "datatype": "text", "sort": 610 },
+    { "key": "software_price_rub", "group_code": "economics", "label": "Стоимость ПО", "unit": "₽", "datatype": "number", "sort": 620 },
+    { "key": "deployment_price_rub", "group_code": "economics", "label": "Стоимость внедрения", "unit": "₽", "datatype": "number", "sort": 630 },
+    { "key": "service_pct_year", "group_code": "economics", "label": "Сервис", "unit": "% в год", "datatype": "number", "sort": 640 },
+    { "key": "raas_available", "group_code": "economics", "label": "Доступен как услуга (RaaS)", "datatype": "bool", "sort": 650 },
+    { "key": "lifetime_years", "group_code": "economics", "label": "Срок службы", "unit": "лет", "datatype": "number", "sort": 660 },
+    { "key": "warranty", "group_code": "economics", "label": "Гарантия", "datatype": "text", "sort": 670 },
+    { "key": "deployment_time", "group_code": "economics", "label": "Срок внедрения", "datatype": "text", "sort": 680 },
+
+    { "key": "risks", "group_code": "applicability", "label": "Риски и ограничения", "datatype": "text", "sort": 700 },
+    { "key": "not_to_confuse_with", "group_code": "applicability", "label": "Не путать с", "datatype": "text", "sort": 710 },
+
+    { "key": "ready_for_automatch", "group_code": "data_quality", "label": "Готов к автоподбору", "datatype": "bool", "sort": 800 }
+  ]
+}

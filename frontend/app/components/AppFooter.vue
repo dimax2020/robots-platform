@@ -23,7 +23,7 @@
           <div class="label">Данные</div>
           <NuxtLink to="/admin/sources">Источники</NuxtLink>
           <NuxtLink to="/admin/norms">Нормативы</NuxtLink>
-          <NuxtLink to="/admin/publish">Версии каталога</NuxtLink>
+          <NuxtLink to="/admin/catalog">Дерево каталога</NuxtLink>
         </div>
       </div>
     </div>

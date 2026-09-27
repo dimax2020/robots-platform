@@ -3,6 +3,7 @@ import { platformGet, type PlatformCard, type PlatformPage } from '~/composables
 import type { Product } from '~/data/catalog'
 import { photoFor } from '~/data/placeholders'
 
+const props = defineProps<{ solutionType?: string; process?: string; objectCode?: string }>()
 const pageSize = 24
 const items = ref<Product[]>([])
 const cursor = ref<string | null>(null)
@@ -43,8 +44,8 @@ const toProduct = (card: PlatformCard): Product => {
     trl: card.trl ?? 0,
     marketPotential: 0,
     autoMatch: (card.trl ?? 0) >= 5 && card.availability !== 'rnd' && card.availability != null,
-    solutionType: '',
-    solutionTypeCode: '',
+    solutionType: card.solution_type?.name ?? '',
+    solutionTypeCode: card.solution_type?.code ?? '',
     family: '',
     processes: [],
     objects: [],
@@ -67,7 +68,12 @@ const loadMore = async () => {
   try {
     const query = new URLSearchParams({ limit: String(pageSize) })
     if (cursor.value) query.set('cursor', cursor.value)
+    if (props.solutionType) query.set('solution_type', props.solutionType)
+    if (props.process) query.set('process', props.process)
+    if (props.objectCode) query.set('object_code', props.objectCode)
+    const asked = `${props.solutionType ?? ''}|${props.process ?? ''}|${props.objectCode ?? ''}`
     const page = await platformGet<PlatformPage>(`/catalog/products?${query}`)
+    if (asked !== `${props.solutionType ?? ''}|${props.process ?? ''}|${props.objectCode ?? ''}`) return
     items.value = items.value.concat(page.items.map(toProduct))
     cursor.value = page.next_cursor
     done.value = !page.next_cursor
@@ -85,6 +91,14 @@ onMounted(async () => {
     if (entries.some((entry) => entry.isIntersecting)) void loadMore()
   }, { rootMargin: '240px' })
   if (sentinel.value) observer.observe(sentinel.value)
+})
+
+watch([() => props.solutionType, () => props.process, () => props.objectCode], async () => {
+  items.value = []
+  cursor.value = null
+  done.value = false
+  loading.value = false
+  await loadMore()
 })
 
 onBeforeUnmount(() => observer?.disconnect())

@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { PhScales, PhX } from '@phosphor-icons/vue'
-const { products } = useCatalog()
-const { ids, clear, toggle } = useCompare()
+const { picks, clear, toggle } = useCompare()
 const route = useRoute()
-const items = computed(() => ids.value.map((id) => products.value.find((p) => p.id === id)!).filter(Boolean))
-const visible = computed(() => ids.value.length >= 2 && route.path.startsWith('/catalog') && route.path !== '/catalog/compare')
+const visible = computed(() => picks.value.length >= 2 && route.path.startsWith('/catalog') && route.path !== '/catalog/compare')
 </script>
 
 <template>
@@ -12,13 +10,13 @@ const visible = computed(() => ids.value.length >= 2 && route.path.startsWith('/
     <div v-if="visible" class="bar-wrap no-print">
       <div class="bar glass-graphite">
         <div class="thumbs">
-          <span v-for="p in items.slice(0, 4)" :key="p.id" class="thumb" :title="p.name">
+          <span v-for="p in picks.slice(0, 4)" :key="p.slug" class="thumb" :title="p.name">
             <img :src="p.image" :alt="p.name">
-            <button type="button" class="rm" :aria-label="`Убрать ${p.name}`" @click="toggle(p.id)"><PhX :size="10" weight="bold" /></button>
+            <button type="button" class="rm" :aria-label="`Убрать ${p.name}`" @click="toggle(p.slug)"><PhX :size="10" weight="bold" /></button>
           </span>
         </div>
         <div class="text">
-          <div class="h4">К сравнению: {{ items.length }} {{ items.length === 1 ? 'модель' : items.length < 5 ? 'модели' : 'моделей' }}</div>
+          <div class="h4">К сравнению: {{ picks.length }} {{ picks.length === 1 ? 'модель' : picks.length < 5 ? 'модели' : 'моделей' }}</div>
           <div class="caption">Таблица по одним и тем же полям справочника</div>
         </div>
         <div class="actions">
@@ -39,9 +37,7 @@ const visible = computed(() => ids.value.length >= 2 && route.path.startsWith('/
 .thumb img { width: 100%; height: 100%; object-fit: cover; }
 .rm { position: absolute; top: 2px; right: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface-graphite); color: #fff; display: inline-flex; align-items: center; justify-content: center; opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
 .thumb:hover .rm { opacity: 1; }
-.text .h4 { color: var(--ink-on-graphite); }
-.text .caption { color: var(--ink-muted-graphite); }
+.text { display: grid; gap: 2px; }
+.text .h4 { color: #fff; }
 .actions { display: flex; gap: 8px; }
-.bar-enter-active, .bar-leave-active { transition: opacity var(--dur-mid) var(--ease), transform var(--dur-mid) var(--ease); }
-.bar-enter-from, .bar-leave-to { opacity: 0; transform: translateY(12px); }
 </style>

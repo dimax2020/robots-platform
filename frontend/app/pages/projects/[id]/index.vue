@@ -1,17 +1,22 @@
 <script setup lang="ts">
 import { PhArrowRight, PhArrowLeft, PhLock, PhCheck, PhClockCounterClockwise, PhCopy } from '@phosphor-icons/vue'
-import { projectById, objectTypeLabel, objectTypeImage, steps, isFullPath, scenarios } from '~/data/projects'
+import { objectTypeLabel, objectTypeImage, steps, isFullPath, scenarios } from '~/data/projects'
+import { useLiveProject } from '~/composables/useLiveProject'
 import { demoProducts as products } from '~/data/demo'
 
 const route = useRoute()
-const project = computed(() => projectById(route.params.id as string))
-useHead({ title: () => `${project.value.name} · Кабинет проекта` })
-const full = computed(() => isFullPath(project.value))
+const doc = useLiveProject(computed(() => route.params.id as string))
+const project = computed(() => doc.shell.value)
+useHead({ title: () => `${project.value?.name ?? 'Проект'} · Кабинет проекта` })
+const full = computed(() => (project.value ? isFullPath(project.value) : false))
 const available = computed(() => (full.value ? steps.length : 2))
-const nextStep = computed(() => steps[Math.min(project.value.step, steps.length) - 1]!)
+const nextStep = computed(() => {
+  const step = project.value?.step ?? 1
+  return steps[Math.min(step, steps.length) - 1]!
+})
 const best = scenarios[2]!
 const fleet = best.fleet.map((f) => ({ ...f, p: products.find((x) => x.id === f.productId)! }))
-const fmt = (d: string) => new Date(d).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
+const fmt = (d: string) => d ? new Date(d).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '—'
 const stepDesc: Record<string, string> = {
   params: 'Профиль площадки и список задач',
   match: 'Подходит, требует проверки, исключён',
@@ -24,7 +29,7 @@ const stepDesc: Record<string, string> = {
 </script>
 
 <template>
-  <section class="container cab">
+  <section v-if="project" class="container cab">
     <NuxtLink to="/projects" class="back body-sm"><PhArrowLeft :size="14" weight="bold" /> Проекты</NuxtLink>
 
     <div class="hero glass glass-xl" v-reveal>

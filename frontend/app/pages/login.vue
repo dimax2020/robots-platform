@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { PhUser, PhUserGear, PhEye, PhArrowRight } from '@phosphor-icons/vue'
+import { fetchErrorMessage } from '~/utils/errors'
 import { roleLabel, type Role } from '~/composables/useRole'
 
 useHead({ title: 'Вход по роли' })
-const { setRole } = useRole()
+const { login: signIn } = useAuth()
 const router = useRouter()
 
 const accounts: { role: Role; login: string; icon: any; text: string; goes: string }[] = [
@@ -16,12 +17,15 @@ const login = ref('user')
 const password = ref('demo-2026')
 const error = ref('')
 
-const submit = () => {
-  const acc = accounts.find((a) => a.login === login.value.trim())
-  if (!acc) { error.value = 'Такой учётки нет. Используйте guest, user или admin.'; return }
+const submit = async () => {
   error.value = ''
-  setRole(acc.role)
-  router.push(acc.role === 'guest' ? '/projects/demo-warehouse' : acc.role === 'admin' ? '/admin' : '/projects')
+  try {
+    const user = await signIn(login.value.trim(), password.value)
+    const role = user?.role ?? 'guest'
+    await router.push(role === 'guest' ? '/projects/demo-warehouse' : role === 'admin' ? '/admin' : '/projects')
+  } catch (err) {
+    error.value = fetchErrorMessage(err, 'Не удалось войти')
+  }
 }
 const pick = (a: typeof accounts[number]) => { login.value = a.login; error.value = '' }
 </script>
@@ -50,7 +54,7 @@ const pick = (a: typeof accounts[number]) => { login.value = a.login; error.valu
           <Logo :size="44" :wordmark="false" />
           <div>
             <div class="h2">Войти</div>
-            <div class="caption">JWT выдаётся на сессию. Сид-аккаунты одинаковы для всех стендов.</div>
+            <div class="caption">Сессия хранится в cookie браузера. Сид-аккаунты одинаковы для всех стендов.</div>
           </div>
           <label class="field">
             <span class="field-label">Логин</span>

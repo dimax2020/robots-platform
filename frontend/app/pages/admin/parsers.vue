@@ -2,7 +2,7 @@
 import { PhCheckSquare, PhSquare } from '@phosphor-icons/vue'
 import { platformGet, platformSend } from '~/composables/usePlatform'
 
-definePageMeta({ layout: 'admin' })
+definePageMeta({ layout: 'admin', middleware: 'admin', pageTransition: false })
 useHead({ title: 'Парсеры' })
 
 interface Job {
@@ -100,10 +100,10 @@ onBeforeUnmount(() => clearInterval(timer))
 
 <template>
   <div class="admin-page">
-    <AdminHead label="Парсеры" title="Расписание обхода сайтов" lead="Каждый парсер запускается сам раз в сутки в выбранное московское время. Окно — два часа: если воркер был выключен в эту минуту, запуск всё ещё произойдёт в течение двух часов. Ручной запуск не ждёт расписания." />
+    <AdminHead label="Импорт данных" title="Расписание обхода сайтов" lead="Каждый парсер запускается сам раз в сутки в выбранное московское время. Окно — два часа: если воркер был выключен в эту минуту, запуск всё ещё произойдёт в течение двух часов. Ручной запуск не ждёт расписания." />
 
     <UiCallout v-if="notice" tone="info">{{ notice }}</UiCallout>
-    <p class="caption">Таблицы загружаются отдельно: <NuxtLink to="/admin/platform">импорт каталога и ручных характеристик</NuxtLink>.</p>
+    <p class="caption">Таблицы загружаются отдельно: <NuxtLink to="/admin/tables" class="link">импорт каталога и ручных характеристик</NuxtLink>. Новым карточкам тип решения ставится сам по правилам из <NuxtLink to="/admin/catalog/types?tab=rules" class="link">Каталог → Типы решений</NuxtLink>.</p>
 
     <section v-for="parser in parsers" :key="parser.code" class="glass glass-xl card">
       <div class="in">
@@ -148,7 +148,7 @@ onBeforeUnmount(() => clearInterval(timer))
           </div>
           <div v-if="parser.last_job && Object.keys(parser.last_job.counters).length">
             <div class="caption">Результат</div>
-            <div class="body-sm strong">{{ parser.last_job.counters.created ?? 0 }} новых, {{ parser.last_job.counters.updated ?? 0 }} обновлено</div>
+            <div class="body-sm strong">{{ parser.last_job.counters.created ?? 0 }} новых, {{ parser.last_job.counters.updated ?? 0 }} обновлено<template v-if="parser.last_job.counters.typed">, {{ parser.last_job.counters.typed }} получили тип</template></div>
           </div>
         </div>
         <p v-if="parser.last_job?.error" class="caption err">{{ parser.last_job.error }}</p>

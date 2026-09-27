@@ -43,14 +43,39 @@ make up
 
 ## HTTP
 
-- `GET /api/v1/catalog/products?cursor=&limit=` — порция карточек без JSON характеристик и следующий курсор.
+Витрина:
+
+- `GET /api/v1/catalog/products?cursor=&limit=&solution_type=` — порция карточек без JSON характеристик и следующий курсор.
 - `GET /api/v1/catalog/products/{slug}` — карточка и источники значений.
 - `GET /api/v1/catalog/tree` — отрасли, объекты, процессы, фильтры и счётчики.
-- `POST /api/v1/admin/imports` — форма `kind=catalog|manual` и файл, ответ `{job_id}`.
-- `GET /api/v1/admin/jobs/{id}` — статус прогона.
-- `GET /api/v1/admin/parsers`, `POST /api/v1/admin/parsers/{code}/runs`, `PATCH` расписания (`enabled`, `hour`, `minute`, время московское).
+- `GET /api/v1/catalog/solution-types` — типы решений, у которых есть продукты.
+- `GET /api/v1/catalog/objects/{code}/fields` — поля формы параметров проекта: подпись, единица, границы, обязательность, значение по умолчанию и источник.
 
-Импорт таблиц — экран `/admin/platform`. Парсеры — экран `/admin/parsers`: у каждого своё время суток, статус последнего прогона и кнопка «Запустить сейчас». Воркер ставит включённый парсер в очередь один раз в сутки, в течение двух часов после назначенного времени.
-- `POST /api/v1/admin/objects`, `POST /api/v1/admin/processes`, `PUT /api/v1/admin/processes/{code}/filters`.
-- `PUT /api/v1/admin/products/{slug}/processes` — какие процессы умеет робот.
-- `POST /api/v1/projects`, `PATCH` площадки и включённых процессов, `POST /projects/{id}/match`.
+Админка, модель подбора:
+
+- `GET /api/v1/admin/objects`, `POST /api/v1/admin/objects/new` (название, отрасли, у какого объекта взять набор полей).
+- `GET /api/v1/admin/objects/{code}`, `PUT .../setup` — название, отрасли, поля расчёта, процессы объекта и привязка величин процессов к полям.
+- `GET/POST /api/v1/admin/site-fields`, `DELETE .../{key}` — общий справочник полей площадки.
+- `GET/POST /api/v1/admin/processes` — список со статусом настройки и создание по названию.
+- `GET /api/v1/admin/processes/{code}`, `PUT .../setup` — условия, количество, лучший, схема и привязки по объектам.
+- `POST /api/v1/admin/processes/{code}/preview` — подбор процесса на демо-данных объекта до сохранения.
+- `GET /api/v1/admin/processes/{code}/coverage` — роботы процесса и каких данных им не хватает для расчёта; `PUT .../products` — добавить или убрать роботов.
+
+Админка, продукты и каталог:
+
+- `GET/POST /api/v1/admin/products`, `GET/PATCH .../{slug}`, `POST .../{slug}/image` — ручная правка карточки. Поле получает ручной источник, и следующий импорт его не затирает.
+- `GET /api/v1/admin/attribute-dictionary`, `PATCH .../{key}` — подписи, единицы и группы ТЗ характеристик.
+- `GET /api/v1/admin/catalog/tree` — отрасль → объект → процесс → тип решения со счётчиками.
+- `GET/POST /api/v1/admin/industries`, `GET/POST /api/v1/admin/solution-types`, `GET .../untyped`, `POST .../assign`, `GET/DELETE .../rules`.
+- `GET /api/v1/admin/sources` — реестр источников.
+
+Импорт и экономика:
+
+- `POST /api/v1/admin/imports` — форма `kind=catalog|manual` и файл, ответ `{job_id}`. `GET /api/v1/admin/jobs/{id}`, `GET /api/v1/admin/jobs?kind=import`.
+- `GET /api/v1/admin/parsers`, `POST .../{code}/runs`, `PATCH` расписания (`enabled`, `hour`, `minute`, время московское).
+- `PUT /api/v1/admin/economy/norms` — значения и источники нормативов. `GET/PUT/DELETE /api/v1/admin/economy/type-norms` — нормативы по типам решений.
+- `POST /api/v1/projects`, `PATCH` площадки и включённых процессов, `POST /projects/{id}/match`, `POST /projects/{id}/economy`.
+
+Типы решений заведены из `seed/solution_types.json`: пары «Тип / Подтип» каталога. Продукт получает тип при импорте и прогоне парсера. Категории сайтов, которых нет в парах, админ назначает группой; с галкой «запомнить» появляется правило, и следующий импорт ставит тип сам.
+
+Экраны админки: `/admin/objects`, `/admin/processes`, `/admin/coverage`, `/admin/norms`, `/admin/norms/types`, `/admin/products`, `/admin/products/attributes`, `/admin/parsers`, `/admin/tables`, `/admin/sources`, `/admin/catalog`, `/admin/catalog/industries`, `/admin/catalog/types`. Воркер ставит включённый парсер в очередь один раз в сутки, в течение двух часов после назначенного времени.

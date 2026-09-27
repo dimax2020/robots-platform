@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { PhPrinter, PhFileXls, PhFileCsv, PhImage, PhEnvelopeSimple, PhWarning } from '@phosphor-icons/vue'
-import { projectById, scenarios, objectTypeLabel } from '~/data/projects'
+import { scenarios, objectTypeLabel } from '~/data/projects'
+import { useLiveProject } from '~/composables/useLiveProject'
 import { demoProducts as products } from '~/data/demo'
 import { PRELIMINARY } from '~/composables/usePlatformEconomy'
 
 const route = useRoute()
-const project = computed(() => projectById(route.params.id as string))
-useHead({ title: () => `Отчёт · ${project.value.name}` })
+const doc = useLiveProject(computed(() => route.params.id as string))
+const project = computed(() => doc.shell.value)
+useHead({ title: () => `Отчёт · ${project.value?.name ?? 'проект'}` })
 const { role } = useRole()
 const p = (id: string) => products.find((x) => x.id === id)!
 const best = scenarios[2]!
@@ -28,7 +30,7 @@ const today = new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'l
 </script>
 
 <template>
-  <ProjectShell :project="project" current="report" title="Отчёт" lead="Сводка сценариев, интервал окупаемости, запросы вендорам и ограничения расчёта. Печать из браузера, выгрузка таблиц в Excel или CSV.">
+  <ProjectShell v-if="project" :project="project" current="report" title="Отчёт" lead="Сводка сценариев, интервал окупаемости, запросы вендорам и ограничения расчёта. Печать из браузера, выгрузка таблиц в Excel или CSV.">
     <template #actions>
       <UiButton variant="secondary" @click="print"><template #icon><PhPrinter :size="16" weight="bold" /></template>Печать в PDF</UiButton>
       <UiButton variant="secondary" disabled title="Заглушка: выгрузка ещё не реализована"><template #icon><PhFileXls :size="16" weight="duotone" /></template>Excel · заглушка</UiButton>

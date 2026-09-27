@@ -1,0 +1,1304 @@
+{
+ "_note": "Поля площадки для формы параметров проекта. Сгенерировано из frontend/app/data/siteFields.ts, data/field_limits.json и data/site_profiles/*.json. Дальше поля ведутся в админке, в базе.",
+ "fields": [
+  {
+   "key": "area_m2",
+   "label": "Общая площадь склада",
+   "unit": "м²",
+   "kind": "number",
+   "min": 1,
+   "max": 1000000,
+   "hint": "Ниже 1 м² объекта не бывает; выше миллиона — опечатка в разряде. Демо-аэропорт занимает 85 000 м².",
+   "sort": 10
+  },
+  {
+   "key": "free_m2",
+   "label": "Площадь активной зоны",
+   "unit": "м²",
+   "kind": "number",
+   "min": 0,
+   "max": 1000000,
+   "hint": "Ноль — зона ещё не выделена; верх совпадает с пределом площади здания. В аэропорту активная зона 51 000 м².",
+   "sort": 20
+  },
+  {
+   "key": "storage_height_m",
+   "label": "Высота потолков в зоне хранения",
+   "unit": "м",
+   "kind": "number",
+   "min": 0,
+   "max": 100,
+   "hint": "Ноль — высота не задана; выше 100 м для склада нереалистично. В демо склада потолки 10 м.",
+   "sort": 30
+  },
+  {
+   "key": "floors_count",
+   "label": "Количество этажей (мезонинов)",
+   "unit": "шт",
+   "kind": "int",
+   "min": 1,
+   "max": 3,
+   "hint": "Лист «Склад»: 1–3. Один этаж — базовое значение.",
+   "sort": 40
+  },
+  {
+   "key": "main_aisle_width_m",
+   "label": "Ширина главных проездов",
+   "unit": "м",
+   "kind": "number",
+   "min": 2.5,
+   "max": 6,
+   "hint": "Лист «Склад»: 2,5–6 м. Базовое значение 3,5 м. Рабочий проход между стеллажами остаётся в aisle_width_m.",
+   "sort": 50
+  },
+  {
+   "key": "aisle_width_m",
+   "label": "Ширина рабочих проходов",
+   "unit": "м",
+   "kind": "number",
+   "min": 0.5,
+   "max": 50,
+   "hint": "Уже 0.5 м робот не проедет; шире 50 м для прохода уже не проезд, а зал. В датасете коридоры 2,4–2,8 м.",
+   "sort": 60
+  },
+  {
+   "key": "floor_type",
+   "label": "Тип напольного покрытия",
+   "unit": "",
+   "kind": "text",
+   "min": null,
+   "max": null,
+   "hint": "",
+   "sort": 70
+  },
+  {
+   "key": "floor_flatness_mm",
+   "label": "Ровность пола",
+   "unit": "мм/2 м",
+   "kind": "number",
+   "min": 0,
+   "max": 100,
+   "hint": "Ноль — идеально ровный пол; свыше 100 мм/2 м пол уже не для колёсной техники. В датасете склада 3 мм/2 м.",
+   "sort": 80
+  },
+  {
+   "key": "shifts_per_day",
+   "label": "Рабочих смен в сутки",
+   "unit": "",
+   "kind": "int",
+   "min": 1,
+   "max": 4,
+   "hint": "Меньше одной смены режим не бывает; четыре смены по шесть часов — предел из датасета. Больница работает в три смены.",
+   "sort": 90
+  },
+  {
+   "key": "days_year",
+   "label": "Рабочих дней в году",
+   "unit": "",
+   "kind": "int",
+   "min": 1,
+   "max": 366,
+   "hint": "Хотя бы один рабочий день; верх — високосный календарный год. Все три демо работают 365 дней.",
+   "sort": 100
+  },
+  {
+   "key": "shift_hours",
+   "label": "Продолжительность смены",
+   "unit": "ч",
+   "kind": "number",
+   "min": 1,
+   "max": 24,
+   "hint": "Смена не длиннее суток; аэропорт задан как непрерывные 24 ч, склад — 11 ч.",
+   "sort": 110
+  },
+  {
+   "key": "peak_factor",
+   "label": "Пиковый коэффициент нагрузки",
+   "unit": "",
+   "kind": "number",
+   "min": 0.1,
+   "max": 20,
+   "hint": "Пик не бывает нулевым; двадцатикратный всплеск — потолок для пассажирских пиков. У аэропорта PHF ≈ 3,3.",
+   "sort": 120
+  },
+  {
+   "key": "inbound_pallets_per_day",
+   "label": "Объём приёмки",
+   "unit": "поддон/сут",
+   "kind": "number",
+   "min": 500,
+   "max": 5000,
+   "hint": "Лист «Склад»: 500–5 000 поддон/сут. Базовое значение 1 000.",
+   "sort": 130
+  },
+  {
+   "key": "outbound_pallets_per_day",
+   "label": "Объём отгрузки",
+   "unit": "поддон/сут",
+   "kind": "number",
+   "min": 500,
+   "max": 5000,
+   "hint": "Лист «Склад»: 500–5 000 поддон/сут. Базовое значение 1 000.",
+   "sort": 140
+  },
+  {
+   "key": "pick_lines_per_day",
+   "label": "Объём отбора",
+   "unit": "строк/сут",
+   "kind": "number",
+   "min": 50000,
+   "max": 500000,
+   "hint": "Лист «Склад»: 50 000–500 000 строк/сут. Базовое значение 100 000.",
+   "sort": 150
+  },
+  {
+   "key": "pick_units_per_day",
+   "label": "Объём отбора",
+   "unit": "шт/сут",
+   "kind": "number",
+   "min": 75000,
+   "max": 750000,
+   "hint": "Лист «Склад»: 75 000–750 000 шт/сут. Базовое значение 150 000.",
+   "sort": 160
+  },
+  {
+   "key": "piece_pick_share_pct",
+   "label": "Доля мелкоштучного отбора",
+   "unit": "%",
+   "kind": "number",
+   "min": 10,
+   "max": 80,
+   "hint": "Лист «Склад»: 10–80%. Базовое значение 30%.",
+   "sort": 170
+  },
+  {
+   "key": "sku_count",
+   "label": "Количество SKU (активных)",
+   "unit": "SKU",
+   "kind": "int",
+   "min": 1000,
+   "max": 10000,
+   "hint": "Лист «Склад»: 1 000–10 000. Базовое значение 2 000.",
+   "sort": 180
+  },
+  {
+   "key": "sku_a_share_pct",
+   "label": "Доля SKU с быстрым оборотом (A-класс)",
+   "unit": "%",
+   "kind": "number",
+   "min": 10,
+   "max": 40,
+   "hint": "Лист «Склад»: 10–40%. Базовое значение 20%.",
+   "sort": 190
+  },
+  {
+   "key": "staff_total",
+   "label": "Общая численность персонала склада",
+   "unit": "чел",
+   "kind": "int",
+   "min": 30,
+   "max": 700,
+   "hint": "Лист «Склад»: 30–700 чел. Базовое значение 180.",
+   "sort": 200
+  },
+  {
+   "key": "pickers_count",
+   "label": "Отборщики (комплектовщики)",
+   "unit": "чел",
+   "kind": "int",
+   "min": 15,
+   "max": 500,
+   "hint": "Лист «Склад»: 15–500 чел. Базовое значение 100.",
+   "sort": 210
+  },
+  {
+   "key": "forklift_operators",
+   "label": "Операторы погрузчиков",
+   "unit": "чел",
+   "kind": "int",
+   "min": 5,
+   "max": 80,
+   "hint": "Лист «Склад»: 5–80 чел. Базовое значение 25.",
+   "sort": 220
+  },
+  {
+   "key": "pack_operators",
+   "label": "Операторы упаковочных линий",
+   "unit": "чел",
+   "kind": "int",
+   "min": 5,
+   "max": 60,
+   "hint": "Лист «Склад»: 5–60 чел. Базовое значение 20.",
+   "sort": 230
+  },
+  {
+   "key": "picker_salary_month_rub",
+   "label": "Средняя з/п отборщика (gross)",
+   "unit": "₽/мес",
+   "kind": "number",
+   "min": 70000,
+   "max": 150000,
+   "hint": "Лист «Склад»: 70 000–150 000 ₽/мес. Базовое значение 100 000.",
+   "sort": 240
+  },
+  {
+   "key": "forklift_salary_month_rub",
+   "label": "Средняя з/п оператора погрузчика (gross)",
+   "unit": "₽/мес",
+   "kind": "number",
+   "min": 80000,
+   "max": 170000,
+   "hint": "Лист «Склад»: 80 000–170 000 ₽/мес. Базовое значение 120 000.",
+   "sort": 250
+  },
+  {
+   "key": "payroll_burden",
+   "label": "Коэффициент начислений на ФОТ",
+   "unit": "",
+   "kind": "number",
+   "min": 1,
+   "max": 2,
+   "hint": "Лист «Склад» фиксирует 1,302. Граница 1–2 оставляет этот коэффициент и даёт поправить ставку, не запирая поле в одну точку.",
+   "sort": 260
+  },
+  {
+   "key": "picker_lines_per_hour",
+   "label": "Средняя выработка отборщика",
+   "unit": "строк/ч",
+   "kind": "number",
+   "min": 80,
+   "max": 200,
+   "hint": "Лист «Склад»: 80–200 строк/ч·чел. Базовое значение 150.",
+   "sort": 270
+  },
+  {
+   "key": "time_loss_pct",
+   "label": "Потери рабочего времени",
+   "unit": "%",
+   "kind": "number",
+   "min": 15,
+   "max": 35,
+   "hint": "Лист «Склад»: 15–35%. Базовое значение 25%.",
+   "sort": 280
+  },
+  {
+   "key": "picker_route_m",
+   "label": "Средняя длина маршрута отборщика на 1 строку",
+   "unit": "м",
+   "kind": "number",
+   "min": 15,
+   "max": 60,
+   "hint": "Лист «Склад»: 15–60 м. Базовое значение 25 м.",
+   "sort": 290
+  },
+  {
+   "key": "conveyor_length_m",
+   "label": "Протяжённость конвейерной системы",
+   "unit": "м",
+   "kind": "number",
+   "min": 0,
+   "max": 2000,
+   "hint": "Лист «Склад»: 0–2 000 м. Базовое значение 350 м.",
+   "sort": 300
+  },
+  {
+   "key": "rack_type",
+   "label": "Тип стеллажной системы",
+   "unit": "",
+   "kind": "text",
+   "min": null,
+   "max": null,
+   "hint": "",
+   "sort": 310
+  },
+  {
+   "key": "pallet_places",
+   "label": "Количество паллетомест",
+   "unit": "шт",
+   "kind": "int",
+   "min": 0,
+   "max": 10000000,
+   "hint": "Ноль — паллетного хранения нет; десять миллионов покрывает крупные РЦ. У склада в датасете 20 000 мест.",
+   "sort": 320
+  },
+  {
+   "key": "pallet_mass_kg",
+   "label": "Средняя масса грузовой единицы (паллет)",
+   "unit": "кг",
+   "kind": "number",
+   "min": 200,
+   "max": 1500,
+   "hint": "Лист «Склад»: 200–1 500 кг. Базовое значение 800 кг.",
+   "sort": 330
+  },
+  {
+   "key": "unit_mass_kg",
+   "label": "Средняя масса штучной единицы (SKU)",
+   "unit": "кг",
+   "kind": "number",
+   "min": 0.1,
+   "max": 20,
+   "hint": "Лист «Склад»: 0,1–20 кг. Базовое значение 1,8 кг.",
+   "sort": 340
+  },
+  {
+   "key": "pallet_dims_mm",
+   "label": "Средние габариты паллеты (Д×Ш×В)",
+   "unit": "мм",
+   "kind": "text",
+   "min": null,
+   "max": null,
+   "hint": "",
+   "sort": 350
+  },
+  {
+   "key": "unit_dims_mm",
+   "label": "Средние габариты штучной единицы (Д×Ш×В)",
+   "unit": "мм",
+   "kind": "text",
+   "min": null,
+   "max": null,
+   "hint": "",
+   "sort": 360
+  },
+  {
+   "key": "oversized_share_pct",
+   "label": "Доля негабаритных грузов",
+   "unit": "%",
+   "kind": "number",
+   "min": 0,
+   "max": 30,
+   "hint": "Лист «Склад»: 0–30%. Базовое значение 5%.",
+   "sort": 370
+  },
+  {
+   "key": "power_kw",
+   "label": "Мощность электроснабжения (доступная)",
+   "unit": "кВт",
+   "kind": "number",
+   "min": 0,
+   "max": 100000,
+   "hint": "Ноль — мощность не выделена; 100 МВт с запасом для кампуса. В демо от 80 кВт больницы до 500 кВт склада.",
+   "sort": 380
+  },
+  {
+   "key": "has_wms",
+   "label": "Наличие WMS",
+   "unit": "",
+   "kind": "bool",
+   "min": null,
+   "max": null,
+   "hint": "",
+   "sort": 390
+  },
+  {
+   "key": "erp_name",
+   "label": "Наличие ERP/1С",
+   "unit": "",
+   "kind": "text",
+   "min": null,
+   "max": null,
+   "hint": "",
+   "sort": 400
+  },
+  {
+   "key": "budget_rub",
+   "label": "Планируемый бюджет на роботизацию (CAPEX)",
+   "unit": "₽",
+   "kind": "number",
+   "min": 0,
+   "max": 10000000000,
+   "hint": "Ноль — бюджет ещё не задан; десять миллиардов отсекает лишний ноль. В аэропорту CAPEX 120 млн ₽.",
+   "sort": 410
+  },
+  {
+   "key": "payback_years",
+   "label": "Горизонт расчёта окупаемости",
+   "unit": "лет",
+   "kind": "number",
+   "min": 3,
+   "max": 10,
+   "hint": "Лист «Склад»: 3–10 лет. Базовое значение 5 лет.",
+   "sort": 420
+  },
+  {
+   "key": "clean_area_m2",
+   "label": "Убираемая площадь",
+   "unit": "м²",
+   "kind": "number",
+   "min": 0,
+   "max": 1000000,
+   "hint": "Ноль означает, что уборку не считаем отдельно; верх — как у общей площади. В аэропорту убирают 51 000 м².",
+   "sort": 430
+  },
+  {
+   "key": "floor_load_kg_m2",
+   "label": "Нагрузка на пол",
+   "unit": "кг/м²",
+   "kind": "number",
+   "min": 0,
+   "max": 50000,
+   "hint": "Ноль — несущая способность не задана; 50 т/м² перекрывает промышленные полы. У склада давление паллеты ≈ 833 кг/м².",
+   "sort": 440
+  },
+  {
+   "key": "temp_min_c",
+   "label": "Температура мин.",
+   "unit": "°C",
+   "kind": "number",
+   "min": -60,
+   "max": 50,
+   "hint": "Ниже −60 °C вне арктических и морозильных кейсов; выше +50 °C — уже не минимум. Перрон аэропорта −25 °C.",
+   "sort": 450
+  },
+  {
+   "key": "temp_max_c",
+   "label": "Температура макс.",
+   "unit": "°C",
+   "kind": "number",
+   "min": -40,
+   "max": 80,
+   "hint": "Диапазон закрывает холодные склады и жаркие цеха без опечаток в знаке.",
+   "sort": 460
+  },
+  {
+   "key": "noise_limit_dba",
+   "label": "Лимит шума",
+   "unit": "дБА",
+   "kind": "number",
+   "min": 0,
+   "max": 150,
+   "hint": "От тишины до порога боли; больница требует 30 дБА ночью, аэропорт — 70 дБА.",
+   "sort": 470
+  },
+  {
+   "key": "staff_salary_year_rub",
+   "label": "ФОТ в год",
+   "unit": "₽",
+   "kind": "number",
+   "min": 0,
+   "max": 20000000,
+   "hint": "Ноль — ФОТ не считают; 20 млн ₽/год на ставку с запасом на высокооплачиваемых. У склада отборщик ≈ 1,56 млн ₽/год.",
+   "sort": 480
+  },
+  {
+   "key": "energy_tariff_rub_kwh",
+   "label": "Тариф на энергию",
+   "unit": "₽/кВт·ч",
+   "kind": "number",
+   "min": 0,
+   "max": 1000,
+   "hint": "Ноль — тариф не задан; выше 1000 ₽/кВт·ч — явная опечатка для промышленного тарифа.",
+   "sort": 490
+  }
+ ],
+ "objects": {
+  "warehouse": [
+   {
+    "key": "area_m2",
+    "group": "Общие параметры объекта",
+    "label": null,
+    "required": true,
+    "default": 20000,
+    "source": "Лист «Склад», «Общая площадь склада» = 20 000 м² (базовое).",
+    "sort": 10
+   },
+   {
+    "key": "free_m2",
+    "group": "Общие параметры объекта",
+    "label": null,
+    "required": false,
+    "default": 10000,
+    "source": "Лист «Склад», «Площадь активной (роботизируемой) зоны» = 10 000 м². Это рабочая зона, не вся площадь здания.",
+    "sort": 20
+   },
+   {
+    "key": "storage_height_m",
+    "group": "Общие параметры объекта",
+    "label": null,
+    "required": false,
+    "default": 10,
+    "source": "Лист «Склад», «Высота потолков в зоне хранения» = 10 м.",
+    "sort": 30
+   },
+   {
+    "key": "floors_count",
+    "group": "Общие параметры объекта",
+    "label": null,
+    "required": false,
+    "default": 1,
+    "source": "Лист «Склад», «Количество этажей (мезонинов)» = 1.",
+    "sort": 40
+   },
+   {
+    "key": "main_aisle_width_m",
+    "group": "Общие параметры объекта",
+    "label": null,
+    "required": false,
+    "default": 3.5,
+    "source": "Лист «Склад», «Ширина главных проездов» = 3,5 м.",
+    "sort": 50
+   },
+   {
+    "key": "aisle_width_m",
+    "group": "Общие параметры объекта",
+    "label": null,
+    "required": false,
+    "default": 2.8,
+    "source": "Лист «Склад», «Ширина рабочих проходов между стеллажами» = 2,8 м.",
+    "sort": 60
+   },
+   {
+    "key": "floor_type",
+    "group": "Общие параметры объекта",
+    "label": null,
+    "required": false,
+    "default": "Промышленный бетон",
+    "source": "Лист «Склад», «Тип напольного покрытия» = промышленный бетон.",
+    "sort": 70
+   },
+   {
+    "key": "floor_flatness_mm",
+    "group": "Общие параметры объекта",
+    "label": null,
+    "required": false,
+    "default": 3,
+    "source": "Лист «Склад», «Ровность пола (отклонение)» = 3 мм/2м.",
+    "sort": 80
+   },
+   {
+    "key": "shifts_per_day",
+    "group": "Режим работы",
+    "label": null,
+    "required": true,
+    "default": 2,
+    "source": "Лист «Склад», «Количество рабочих смен в сутки» = 2.",
+    "sort": 90
+   },
+   {
+    "key": "days_year",
+    "group": "Режим работы",
+    "label": null,
+    "required": true,
+    "default": 365,
+    "source": "Лист «Склад», «Рабочих дней в году» = 365.",
+    "sort": 100
+   },
+   {
+    "key": "shift_hours",
+    "group": "Режим работы",
+    "label": null,
+    "required": true,
+    "default": 11,
+    "source": "Лист «Склад», «Продолжительность смены» = 11 ч (слот 12 ч минус обед и техпаузы).",
+    "sort": 110
+   },
+   {
+    "key": "peak_factor",
+    "group": "Режим работы",
+    "label": null,
+    "required": false,
+    "default": 1.5,
+    "source": "Лист «Склад», «Пиковый коэффициент нагрузки» = 1.5. У задач не переопределён — движок возьмёт площадку (§6.1).",
+    "sort": 120
+   },
+   {
+    "key": "inbound_pallets_per_day",
+    "group": "Операции",
+    "label": null,
+    "required": false,
+    "default": 1000,
+    "source": "Лист «Склад», «Объём приёмки» = 1 000 поддон/сут.",
+    "sort": 130
+   },
+   {
+    "key": "outbound_pallets_per_day",
+    "group": "Операции",
+    "label": null,
+    "required": false,
+    "default": 1000,
+    "source": "Лист «Склад», «Объём отгрузки» = 1 000 поддон/сут.",
+    "sort": 140
+   },
+   {
+    "key": "pick_lines_per_day",
+    "group": "Операции",
+    "label": null,
+    "required": false,
+    "default": 100000,
+    "source": "Лист «Склад», «Объём отбора (строк/сутки)» = 100 000.",
+    "sort": 150
+   },
+   {
+    "key": "pick_units_per_day",
+    "group": "Операции",
+    "label": null,
+    "required": false,
+    "default": 150000,
+    "source": "Лист «Склад», «Объём отбора (штук/сутки)» = 150 000.",
+    "sort": 160
+   },
+   {
+    "key": "piece_pick_share_pct",
+    "group": "Операции",
+    "label": null,
+    "required": false,
+    "default": 30,
+    "source": "Лист «Склад», «Доля мелкоштучного отбора» = 30%.",
+    "sort": 170
+   },
+   {
+    "key": "sku_count",
+    "group": "Операции",
+    "label": null,
+    "required": false,
+    "default": 2000,
+    "source": "Лист «Склад», «Количество SKU (активных)» = 2 000.",
+    "sort": 180
+   },
+   {
+    "key": "sku_a_share_pct",
+    "group": "Операции",
+    "label": null,
+    "required": false,
+    "default": 20,
+    "source": "Лист «Склад», «Доля SKU с быстрым оборотом» = 20%.",
+    "sort": 190
+   },
+   {
+    "key": "staff_total",
+    "group": "Персонал",
+    "label": null,
+    "required": false,
+    "default": 180,
+    "source": "Лист «Склад», «Общая численность персонала склада» = 180 чел.",
+    "sort": 200
+   },
+   {
+    "key": "pickers_count",
+    "group": "Персонал",
+    "label": null,
+    "required": false,
+    "default": 100,
+    "source": "Лист «Склад», «Из них: отборщики» = 100 чел.",
+    "sort": 210
+   },
+   {
+    "key": "forklift_operators",
+    "group": "Персонал",
+    "label": null,
+    "required": false,
+    "default": 25,
+    "source": "Лист «Склад», «Из них: операторы погрузчиков» = 25 чел.",
+    "sort": 220
+   },
+   {
+    "key": "pack_operators",
+    "group": "Персонал",
+    "label": null,
+    "required": false,
+    "default": 20,
+    "source": "Лист «Склад», «Из них: операторы упаковочных линий» = 20 чел.",
+    "sort": 230
+   },
+   {
+    "key": "picker_salary_month_rub",
+    "group": "Персонал",
+    "label": null,
+    "required": false,
+    "default": 100000,
+    "source": "Лист «Склад», «Средняя з/п отборщика (gross)» = 100 000 ₽/мес.",
+    "sort": 240
+   },
+   {
+    "key": "forklift_salary_month_rub",
+    "group": "Персонал",
+    "label": null,
+    "required": false,
+    "default": 120000,
+    "source": "Лист «Склад», «Средняя з/п оператора погрузчика (gross)» = 120 000 ₽/мес.",
+    "sort": 250
+   },
+   {
+    "key": "payroll_burden",
+    "group": "Персонал",
+    "label": null,
+    "required": false,
+    "default": 1.302,
+    "source": "Лист «Склад», коэффициент начислений на ФОТ = 1,302.",
+    "sort": 260
+   },
+   {
+    "key": "picker_lines_per_hour",
+    "group": "Персонал",
+    "label": null,
+    "required": false,
+    "default": 150,
+    "source": "Лист «Склад», «Средняя выработка отборщика» = 150 строк/ч.",
+    "sort": 270
+   },
+   {
+    "key": "time_loss_pct",
+    "group": "Персонал",
+    "label": null,
+    "required": false,
+    "default": 25,
+    "source": "Лист «Склад», «Коэффициент потерь рабочего времени» = 25%.",
+    "sort": 280
+   },
+   {
+    "key": "picker_route_m",
+    "group": "Маршруты и планировка",
+    "label": null,
+    "required": false,
+    "default": 25,
+    "source": "Лист «Склад», «Средняя длина маршрута отборщика на 1 строку» = 25 м.",
+    "sort": 290
+   },
+   {
+    "key": "conveyor_length_m",
+    "group": "Маршруты и планировка",
+    "label": null,
+    "required": false,
+    "default": 350,
+    "source": "Лист «Склад», «Протяжённость конвейерной системы» = 350 м.",
+    "sort": 300
+   },
+   {
+    "key": "rack_type",
+    "group": "Хранение и грузы",
+    "label": null,
+    "required": false,
+    "default": "Фронтальные паллетные",
+    "source": "Лист «Склад», «Тип стеллажной системы» = фронтальные паллетные.",
+    "sort": 310
+   },
+   {
+    "key": "pallet_places",
+    "group": "Хранение и грузы",
+    "label": null,
+    "required": false,
+    "default": 20000,
+    "source": "Лист «Склад», «Количество паллетомест» = 20 000.",
+    "sort": 320
+   },
+   {
+    "key": "pallet_mass_kg",
+    "group": "Хранение и грузы",
+    "label": null,
+    "required": false,
+    "default": 800,
+    "source": "Лист «Склад», «Средняя масса грузовой единицы (паллет)» = 800 кг.",
+    "sort": 330
+   },
+   {
+    "key": "unit_mass_kg",
+    "group": "Хранение и грузы",
+    "label": null,
+    "required": false,
+    "default": 1.8,
+    "source": "Лист «Склад», «Средняя масса штучной единицы» = 1,8 кг.",
+    "sort": 340
+   },
+   {
+    "key": "pallet_dims_mm",
+    "group": "Хранение и грузы",
+    "label": null,
+    "required": false,
+    "default": "1200×800×1600",
+    "source": "Лист «Склад», габариты паллеты 1200×800×1600 мм.",
+    "sort": 350
+   },
+   {
+    "key": "unit_dims_mm",
+    "group": "Хранение и грузы",
+    "label": null,
+    "required": false,
+    "default": "300×200×150",
+    "source": "Лист «Склад», габариты штучной единицы 300×200×150 мм.",
+    "sort": 360
+   },
+   {
+    "key": "oversized_share_pct",
+    "group": "Хранение и грузы",
+    "label": null,
+    "required": false,
+    "default": 5,
+    "source": "Лист «Склад», «Доля негабаритных грузов» = 5%.",
+    "sort": 370
+   },
+   {
+    "key": "power_kw",
+    "group": "Инфраструктура",
+    "label": null,
+    "required": false,
+    "default": 500,
+    "source": "Лист «Склад», «Мощность электроснабжения (доступная)» = 500 кВт.",
+    "sort": 380
+   },
+   {
+    "key": "has_wms",
+    "group": "Инфраструктура",
+    "label": null,
+    "required": false,
+    "default": true,
+    "source": "Лист «Склад», «Наличие WMS» = «Да».",
+    "sort": 390
+   },
+   {
+    "key": "erp_name",
+    "group": "Инфраструктура",
+    "label": null,
+    "required": false,
+    "default": "1С:ERP",
+    "source": "Лист «Склад», «Наличие ERP/1С» = 1С:ERP.",
+    "sort": 400
+   },
+   {
+    "key": "budget_rub",
+    "group": "Инфраструктура",
+    "label": null,
+    "required": false,
+    "default": 80000000,
+    "source": "Лист «Склад», «Планируемый бюджет на роботизацию (CAPEX)» = 80 млн руб. = 80 000 000.",
+    "sort": 410
+   },
+   {
+    "key": "payback_years",
+    "group": "Инфраструктура",
+    "label": null,
+    "required": false,
+    "default": 5,
+    "source": "Лист «Склад», «Горизонт расчёта окупаемости» = 5 лет.",
+    "sort": 420
+   },
+   {
+    "key": "clean_area_m2",
+    "group": "Дополнительно",
+    "label": null,
+    "required": false,
+    "default": 10000,
+    "source": "Та же активная зона 10 000 м²: убирать и роботизировать датасет предлагает именно её, не офисы и рампы.",
+    "sort": 430
+   },
+   {
+    "key": "floor_load_kg_m2",
+    "group": "Дополнительно",
+    "label": null,
+    "required": false,
+    "default": 833,
+    "source": "Производная от массы грузовой единицы: 800 кг / (1.2 × 0.8 м европаллеты) ≈ 833 кг/м². Несущей способности пола в датасете нет — это давление одной паллеты на своё пятно.",
+    "sort": 440
+   },
+   {
+    "key": "temp_min_c",
+    "group": "Дополнительно",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "В датасете температуры склада нет. Оставлено null: по §4.6 правило без ограничения площадки пропускается.",
+    "sort": 450
+   },
+   {
+    "key": "temp_max_c",
+    "group": "Дополнительно",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "В датасете температуры склада нет. Оставлено null, не выдумано.",
+    "sort": 460
+   },
+   {
+    "key": "noise_limit_dba",
+    "group": "Дополнительно",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "На листе «Склад» лимита шума нет. null.",
+    "sort": 470
+   },
+   {
+    "key": "staff_salary_year_rub",
+    "group": "Дополнительно",
+    "label": null,
+    "required": false,
+    "default": 1562400,
+    "source": "Отборщик 100 000 руб/мес gross × 12 × 1.302 (коэффициент начислений на ФОТ) = 1 562 400. Берём з/п отборщика: это основная целевая группа (100 чел. vs 25 операторов погрузчиков).",
+    "sort": 480
+   },
+   {
+    "key": "energy_tariff_rub_kwh",
+    "group": "Дополнительно",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "В датасете тарифа нет, экономика — этап E4. null.",
+    "sort": 490
+   }
+  ],
+  "airport": [
+   {
+    "key": "area_m2",
+    "group": "Площадь и геометрия",
+    "label": "Площадь",
+    "required": true,
+    "default": 85000,
+    "source": "Лист «Аэропорт», «Суммарная площадь терминала (ов)» = 85 000 м². Перрон 100 000 м² в площадь здания не включаем — это открытая зона.",
+    "sort": 10
+   },
+   {
+    "key": "free_m2",
+    "group": "Площадь и геометрия",
+    "label": "Активная зона",
+    "required": false,
+    "default": 51000,
+    "source": "Активная зона = «Площадь, убираемая роботизированной уборкой» = 51 000 м² (~60% терминала без режимных зон). Отдельной «свободной» площади в датасете нет.",
+    "sort": 20
+   },
+   {
+    "key": "clean_area_m2",
+    "group": "Площадь и геометрия",
+    "label": null,
+    "required": false,
+    "default": 51000,
+    "source": "Та же строка «Площадь, убираемая роботизированной уборкой» = 51 000 м².",
+    "sort": 30
+   },
+   {
+    "key": "aisle_width_m",
+    "group": "Площадь и геометрия",
+    "label": "Ширина проездов",
+    "required": false,
+    "default": null,
+    "source": "Ширины проходов/коридоров на листе «Аэропорт» нет. null, не выдумано.",
+    "sort": 40
+   },
+   {
+    "key": "storage_height_m",
+    "group": "Площадь и геометрия",
+    "label": "Высота хранения",
+    "required": false,
+    "default": null,
+    "source": "Высоты потолков в датасете нет. null.",
+    "sort": 50
+   },
+   {
+    "key": "floor_flatness_mm",
+    "group": "Площадь и геометрия",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "Ровности пола в датасете нет. null.",
+    "sort": 60
+   },
+   {
+    "key": "floor_load_kg_m2",
+    "group": "Площадь и геометрия",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "Массы паллеты / несущей способности пола нет. null.",
+    "sort": 70
+   },
+   {
+    "key": "pallet_places",
+    "group": "Площадь и геометрия",
+    "label": "Паллетоместа",
+    "required": false,
+    "default": null,
+    "source": "Паллетомест у аэропорта в датасете нет. null.",
+    "sort": 80
+   },
+   {
+    "key": "shifts_per_day",
+    "group": "Режим работы",
+    "label": "Смен в сутки",
+    "required": true,
+    "default": 1,
+    "source": "Блока «Режим работы» на листе нет. Потоки заданы за календарные сутки (пассажиры = год/365). Одна непрерывная смена 24 ч, иначе дефолт модели 1×8 завысит часовой поток. Совпадает с default.site.shifts_per_day.airport.",
+    "sort": 90
+   },
+   {
+    "key": "shift_hours",
+    "group": "Режим работы",
+    "label": "Длительность смены",
+    "required": true,
+    "default": 24,
+    "source": "В датасете сменности нет; сутки непрерывные (есть ночной лимит шума). 24 ч, как default.site.shift_hours.airport. Не выдумано из воздуха — иначе дефолт модели 8 ч сломает §6.1.",
+    "sort": 100
+   },
+   {
+    "key": "days_year",
+    "group": "Режим работы",
+    "label": null,
+    "required": true,
+    "default": 365,
+    "source": "«Среднесуточное количество пассажиров» = годовой поток / 365. Нерабочих суток датасет не закладывает.",
+    "sort": 110
+   },
+   {
+    "key": "temp_min_c",
+    "group": "Режим работы",
+    "label": null,
+    "required": false,
+    "default": -25,
+    "source": "Лист «Аэропорт», «Температура в неотапливаемых зонах (перрон, зима)» = −25 °C.",
+    "sort": 120
+   },
+   {
+    "key": "temp_max_c",
+    "group": "Режим работы",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "Летнего максимума в датасете нет. null.",
+    "sort": 130
+   },
+   {
+    "key": "peak_factor",
+    "group": "Режим работы",
+    "label": "Пиковый коэффициент",
+    "required": false,
+    "default": 3.3,
+    "source": "PHF 3 200 пасс./ч / (23 300 пасс./сут / 24 ч) = 3 200 / 970.83 ≈ 3.30. На листе пикового коэффициента как у склада нет — это отношение двух строк датасета.",
+    "sort": 140
+   },
+   {
+    "key": "power_kw",
+    "group": "Инженерия",
+    "label": "Доступная мощность",
+    "required": false,
+    "default": 300,
+    "source": "«Доступная мощность для зарядной инфраструктуры» = 300 кВт.",
+    "sort": 150
+   },
+   {
+    "key": "noise_limit_dba",
+    "group": "Инженерия",
+    "label": null,
+    "required": false,
+    "default": 70,
+    "source": "«Ограничения по уровню шума (зона)» = 70 дБА.",
+    "sort": 160
+   },
+   {
+    "key": "has_wms",
+    "group": "Инженерия",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "WMS у аэропорта нет (есть FIDS/AODB и BMS — это не WMS). null.",
+    "sort": 170
+   },
+   {
+    "key": "budget_rub",
+    "group": "Деньги",
+    "label": "Бюджет на роботизацию",
+    "required": false,
+    "default": 120000000,
+    "source": "«Планируемый бюджет на роботизацию (CAPEX)» = 120 млн руб. = 120 000 000.",
+    "sort": 180
+   },
+   {
+    "key": "staff_salary_year_rub",
+    "group": "Деньги",
+    "label": null,
+    "required": false,
+    "default": 1365538,
+    "source": "Взвешенная месячная: (320 × 100 000 рамп + 180 × 65 000 терминал) / 500 = 87 400 руб/мес gross. Годовая: 87 400 × 12 × 1.302 = 1 365 537.6 ≈ 1 365 538.",
+    "sort": 190
+   },
+   {
+    "key": "energy_tariff_rub_kwh",
+    "group": "Деньги",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "В датасете тарифа нет. null.",
+    "sort": 200
+   }
+  ],
+  "hospital": [
+   {
+    "key": "area_m2",
+    "group": "Площадь и геометрия",
+    "label": "Площадь",
+    "required": true,
+    "default": 45000,
+    "source": "Лист «Медучреждение», «Общая площадь здания(й)» = 45 000 м².",
+    "sort": 10
+   },
+   {
+    "key": "free_m2",
+    "group": "Площадь и геометрия",
+    "label": "Активная зона",
+    "required": false,
+    "default": null,
+    "source": "Активной / свободной зоны в датасете нет (в отличие от склада). null, не выдумано. Движок при необходимости возьмёт default.site.clean_area_share.",
+    "sort": 20
+   },
+   {
+    "key": "clean_area_m2",
+    "group": "Площадь и геометрия",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "Убираемой площади в датасете нет. null — по §6.1 подставится default.site.clean_area_share × area_m2.",
+    "sort": 30
+   },
+   {
+    "key": "aisle_width_m",
+    "group": "Площадь и геометрия",
+    "label": "Ширина проездов",
+    "required": false,
+    "default": 2.4,
+    "source": "«Ширина коридоров (основных)» = 2.4 м. Это единственная ширина на листе; диапазон 1.8–3.5 не подставляем — базовое значение, как у остальных полей.",
+    "sort": 40
+   },
+   {
+    "key": "storage_height_m",
+    "group": "Площадь и геометрия",
+    "label": "Высота хранения",
+    "required": false,
+    "default": null,
+    "source": "Высоты потолков нет. null.",
+    "sort": 50
+   },
+   {
+    "key": "floor_flatness_mm",
+    "group": "Площадь и геометрия",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "Ровности пола нет. null.",
+    "sort": 60
+   },
+   {
+    "key": "floor_load_kg_m2",
+    "group": "Площадь и геометрия",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "Несущей способности пола нет. Масса тележки с питанием 120 кг — это не кг/м², в поле не кладём.",
+    "sort": 70
+   },
+   {
+    "key": "pallet_places",
+    "group": "Площадь и геометрия",
+    "label": "Паллетоместа",
+    "required": false,
+    "default": null,
+    "source": "Паллетомест нет. null.",
+    "sort": 80
+   },
+   {
+    "key": "shifts_per_day",
+    "group": "Режим работы",
+    "label": "Смен в сутки",
+    "required": true,
+    "default": 3,
+    "source": "«Количество смен медперсонала (уход за пациентами)» = 3.",
+    "sort": 90
+   },
+   {
+    "key": "shift_hours",
+    "group": "Режим работы",
+    "label": "Длительность смены",
+    "required": true,
+    "default": 8,
+    "source": "Примечание той же строки: «3 смены по 8 ч или 2 по 12 ч». Базовое число смен 3 → длительность 8 ч, иначе окно 36 ч при стационаре 24/7.",
+    "sort": 100
+   },
+   {
+    "key": "days_year",
+    "group": "Режим работы",
+    "label": null,
+    "required": true,
+    "default": 365,
+    "source": "«Режим работы стационара» = 24/7/365. Поликлиника 5/2 на внутрибольничную логистику не влияет.",
+    "sort": 110
+   },
+   {
+    "key": "temp_min_c",
+    "group": "Режим работы",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "В датасете температуры медучреждения нет. null: по §4.6 правило без ограничения площадки пропускается.",
+    "sort": 120
+   },
+   {
+    "key": "temp_max_c",
+    "group": "Режим работы",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "В датасете температуры нет. null, не выдумано.",
+    "sort": 130
+   },
+   {
+    "key": "peak_factor",
+    "group": "Режим работы",
+    "label": "Пиковый коэффициент",
+    "required": false,
+    "default": 1.0,
+    "source": "Числового пикового коэффициента на листе нет (только окна «07:00–10:00 и 15:00–17:00»). Остаётся дефолт модели 1.0.",
+    "sort": 140
+   },
+   {
+    "key": "power_kw",
+    "group": "Инженерия",
+    "label": "Доступная мощность",
+    "required": false,
+    "default": 80,
+    "source": "«Доступная мощность для зарядной инфраструктуры» = 80 кВт.",
+    "sort": 150
+   },
+   {
+    "key": "noise_limit_dba",
+    "group": "Инженерия",
+    "label": null,
+    "required": false,
+    "default": 30,
+    "source": "«Требования к уровню шума в палатах (ночное время)» = 30 дБА.",
+    "sort": 160
+   },
+   {
+    "key": "has_wms",
+    "group": "Инженерия",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "WMS нет (есть МИС/ЛИС — это не WMS). null.",
+    "sort": 170
+   },
+   {
+    "key": "budget_rub",
+    "group": "Деньги",
+    "label": "Бюджет на роботизацию",
+    "required": false,
+    "default": 35000000,
+    "source": "«Планируемый бюджет на роботизацию (CAPEX)» = 35 млн руб. = 35 000 000.",
+    "sort": 180
+   },
+   {
+    "key": "staff_salary_year_rub",
+    "group": "Деньги",
+    "label": null,
+    "required": false,
+    "default": 859320,
+    "source": "Санитар/транспортировщик 55 000 руб/мес gross × 12 × 1.302 = 859 320. Основная целевая группа замещения (65 чел.).",
+    "sort": 190
+   },
+   {
+    "key": "energy_tariff_rub_kwh",
+    "group": "Деньги",
+    "label": null,
+    "required": false,
+    "default": null,
+    "source": "В датасете тарифа нет. null.",
+    "sort": 200
+   }
+  ]
+ }
+}

@@ -1,61 +1,37 @@
 <script setup lang="ts">
 import { platformGet, platformSend } from '~/composables/usePlatform'
 
-const props = defineProps<{ objectCode?: string }>()
-const route = useRoute()
-const storageKey = computed(() => `platform-project:${route.params.id || 'draft'}`)
-
 interface ProcessItem {
   code: string
   name: string
   enabled: boolean
-  filters: { name: string; object_keys: string[]; robot_keys: string[]; op: string; mode: string }[]
 }
 interface Project {
   id: string
-  name: string
-  object_code: string
-  site: Record<string, string | number | null>
   processes: ProcessItem[]
 }
 
-const objects = ref<{ code: string; name: string }[]>([])
+const route = useRoute()
+const projectId = computed(() => String(route.params.id || ''))
 const project = ref<Project | null>(null)
 const notice = ref('')
 const noticeTone = ref<'ok' | 'danger'>('ok')
-const preferred = () => props.objectCode || 'warehouse'
 
-const ensure = async () => {
-  const tree = await platformGet<{ objects: { code: string; name: string }[] }>('/catalog/tree')
-  objects.value = tree.objects
-  const saved = localStorage.getItem(storageKey.value)
-  if (saved) {
-    project.value = await platformGet<Project>(`/projects/${saved}`)
-    if (project.value.object_code !== preferred()) await switchObject(preferred())
-    return
-  }
-  await switchObject(preferred())
-}
-
-const switchObject = async (code: string) => {
-  const name = objects.value.find((item) => item.code === code)?.name ?? code
-  project.value = await platformSend<Project>('/projects', 'POST', { name, object_code: code, site: {} })
-  localStorage.setItem(storageKey.value, project.value.id)
+const load = async () => {
+  if (!projectId.value || projectId.value.startsWith('demo-')) return
+  project.value = await platformGet<Project>(`/projects/${projectId.value}`)
 }
 
 const save = async () => {
   if (!project.value) return
   const enabled: Record<string, boolean> = {}
   for (const process of project.value.processes) enabled[process.code] = process.enabled
-  project.value = await platformSend<Project>(`/projects/${project.value.id}`, 'PATCH', {
-    site: project.value.site,
-    enabled,
-  })
+  project.value = await platformSend<Project>(`/projects/${project.value.id}`, 'PATCH', { enabled })
 }
 
 defineExpose({ save })
 
-onMounted(() => { void ensure().catch((err) => { notice.value = String(err); noticeTone.value = 'danger' }) })
+onMounted(() => { void load().catch((err) => { notice.value = String(err); noticeTone.value = 'danger' }) })
 </script>
 
 <template>

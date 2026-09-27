@@ -10,7 +10,7 @@ from datetime import date
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 Step = Literal["prepare", "match", "size", "cost", "rank", "layout", "sim"]
 Verdict = Literal["pass", "fail", "unknown"]
@@ -125,6 +125,9 @@ class Catalog(BaseModel):
 
 
 class SiteProfile(BaseModel):
+    # Поля, которые админ завёл объекту в платформе, сохраняются как есть: форму строит справочник, а не эта модель
+    model_config = ConfigDict(extra="allow")
+
     object_type_code: str  # warehouse | airport | hospital
     area_m2: float | None = None
     free_m2: float | None = None

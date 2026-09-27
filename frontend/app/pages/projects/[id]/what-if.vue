@@ -9,7 +9,7 @@ import {
   type EconParam,
   type EconReport,
 } from '~/composables/usePlatformEconomy'
-import { fetchErrorMessage } from '~/composables/useCalc'
+import { fetchErrorMessage } from '~/utils/errors'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)

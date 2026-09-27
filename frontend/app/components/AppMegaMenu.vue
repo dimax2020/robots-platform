@@ -1,48 +1,56 @@
 <script setup lang="ts">
-import {
-  PhArrowRight, PhArrowUpRight, PhX, PhScales, PhPlus, PhPlay, PhLockSimple,
-  PhSquaresFour, PhPackage, PhTray, PhBookOpenText, PhCalculator, PhLinkSimple, PhUploadSimple, PhRocketLaunch, PhSlidersHorizontal, PhBuildings,
-} from '@phosphor-icons/vue'
-import { countNode, availabilityLabel, availabilityTone, formatRub } from '~/data/catalog'
-import { projects, objectTypeLabel, objectTypeImage, steps, isFullPath, proposals, fullPathSteps, shortPathSteps, type ObjectType } from '~/data/projects'
+import { PhArrowRight, PhArrowUpRight, PhX, PhScales, PhPlus, PhPlay, PhLockSimple, PhTreeStructure } from '@phosphor-icons/vue'
+import { availabilityLabel, availabilityTone, formatRub } from '~/data/catalog'
+import { cardToProduct, platformGet, type PlatformPage } from '~/composables/usePlatform'
+import { projects, objectTypeLabel, objectTypeImage, steps, isFullPath, fullPathSteps, shortPathSteps, type ObjectType } from '~/data/projects'
+import { adminNav, adminOverview } from '~/data/adminNav'
 
 export type MenuId = 'catalog' | 'projects' | 'compare' | 'admin'
 defineProps<{ menu: MenuId }>()
 
 const { role } = useRole()
-const { ids, toggle, clear } = useCompare()
-const { products, catalogTree, sources } = useCatalog()
-const byId = (id: string) => products.value.find((p) => p.id === id)
+const { ids, picks, toggle, clear } = useCompare()
 
-/* Каталог */
-const objectsList = computed(() =>
-  catalogTree.value.flatMap((ind) => (ind.children ?? []).map((obj) => ({ industry: ind.label, label: obj.label, count: countNode(obj) })))
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 8),
-)
-const uniq = (level: 'process' | 'solution') => {
-  const map = new Map<string, Set<string>>()
-  const walk = (n: { label: string; children?: any[]; productIds?: string[] }, depth: number) => {
-    const target = level === 'process' ? 2 : 3
-    if (depth === target) {
-      const s = map.get(n.label) ?? new Set<string>()
-      const collect = (x: any) => { x.productIds?.forEach((id: string) => s.add(id)); x.children?.forEach(collect) }
-      collect(n)
-      map.set(n.label, s)
-      return
-    }
-    n.children?.forEach((c) => walk(c, depth + 1))
-  }
-  catalogTree.value.forEach((n) => walk(n, 0))
-  return [...map.entries()].map(([label, s]) => ({ label, count: s.size })).sort((a, b) => b.count - a.count)
+interface TreePayload {
+  industries: { code: string; name: string }[]
+  objects: { code: string; name: string; industries: string[]; processes: string[] }[]
+  processes: { code: string; name: string; product_count: number }[]
 }
-const processes = computed(() => uniq('process').slice(0, 8))
-const solutions = computed(() => uniq('solution').slice(0, 8))
-// Витрина меню — самые полные карточки каталога, а не фиксированный список id
-const featured = computed(() =>
-  [...products.value].sort((a, b) => b.completeness - a.completeness || b.trl - a.trl).slice(0, 2),
-)
-const autoCount = computed(() => products.value.filter((p) => p.autoMatch).length)
+const objectsList = ref<{ industry: string; label: string; count: number }[]>([])
+const processes = ref<{ label: string; count: number }[]>([])
+const solutions = ref<{ label: string; count: number }[]>([])
+const featured = ref<ReturnType<typeof cardToProduct>[]>([])
+const catalogTotal = ref(0)
+const ownProjects = ref<{ id: string; name: string; object_code: string }[]>([])
+
+onMounted(() => {
+  platformGet<TreePayload>('/catalog/tree').then((tree) => {
+    const counts = new Map(tree.processes.map((item) => [item.code, item.product_count]))
+    const industryName = new Map(tree.industries.map((item) => [item.code, item.name]))
+    objectsList.value = tree.objects
+      .map((object) => ({
+        industry: industryName.get(object.industries[0] || '') || '',
+        label: object.name,
+        count: object.processes.reduce((sum, code) => sum + (counts.get(code) || 0), 0),
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8)
+    processes.value = [...tree.processes].sort((a, b) => b.product_count - a.product_count).slice(0, 8).map((item) => ({ label: item.name, count: item.product_count }))
+  }).catch(() => {})
+  platformGet<{ code: string; name: string; products: number }[]>('/catalog/solution-types').then((items) => {
+    solutions.value = items.slice(0, 8).map((item) => ({ label: item.name, count: item.products }))
+  }).catch(() => {})
+  platformGet<PlatformPage>('/catalog/products?limit=12').then((page) => {
+    catalogTotal.value = page.total
+    featured.value = [...page.items].sort((a, b) => (b.trl ?? 0) - (a.trl ?? 0)).slice(0, 2).map(cardToProduct)
+  }).catch(() => {})
+})
+watch(role, () => {
+  if (role.value === 'guest') { ownProjects.value = []; return }
+  platformGet<{ items: { id: string; name: string; object_code: string }[] }>('/projects')
+    .then((page) => { ownProjects.value = page.items.slice(0, 4) })
+    .catch(() => { ownProjects.value = [] })
+}, { immediate: true })
 
 /* Проекты */
 const objectMeta: Record<ObjectType, { text: string; full: boolean }> = {
@@ -52,30 +60,13 @@ const objectMeta: Record<ObjectType, { text: string; full: boolean }> = {
 }
 const objectTypes = Object.keys(objectTypeLabel) as ObjectType[]
 const demos = projects.filter((p) => p.isDemo)
-const mine = computed(() => (role.value === 'guest' ? [] : projects.filter((p) => !p.isDemo)))
-const stepOf = (p: (typeof projects)[number]) => steps[Math.min(p.step, steps.length) - 1]?.label ?? 'Параметры'
+const mine = ownProjects
 const total = (p: (typeof projects)[number]) => (isFullPath(p) ? fullPathSteps : shortPathSteps)
-const fmtDate = (d: string) => new Date(d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
-
 /* Сравнение */
-const compareItems = computed(() => ids.value.map(byId).filter(Boolean) as NonNullable<ReturnType<typeof byId>>[])
+const compareItems = picks
 
 /* Админка */
-const pending = proposals.filter((p) => p.status === 'pending').length
-const adminItems = computed(() => [
-  { to: '/admin', label: 'Обзор', icon: PhSquaresFour, note: 'Состояние каталога' },
-  { to: '/admin/products', label: 'Продукты', icon: PhPackage, note: 'Новая база каталога' },
-  { to: '/admin/proposals', label: 'Очередь правок', icon: PhTray, note: `${pending} ждут решения`, hot: pending > 0 },
-  { to: '/admin/refs', label: 'Справочники', icon: PhBookOpenText, note: 'Отрасли, объекты, процессы' },
-  { to: '/admin/norms', label: 'Нормативы', icon: PhCalculator, note: 'Коэффициенты расчёта' },
-  { to: '/admin/sources', label: 'Источники', icon: PhLinkSimple, note: `${sources.value.length} в реестре` },
-  { to: '/admin/platform', label: 'Импорт таблиц', icon: PhUploadSimple, note: 'CSV каталога и ручные ТТХ' },
-  { to: '/admin/objects', label: 'Объекты', icon: PhBuildings, note: 'Процессы объекта и поля для фильтров' },
-  { to: '/admin/processes', label: 'Процессы', icon: PhSlidersHorizontal, note: 'Фильтры, формулы и лучший робот' },
-  { to: '/admin/parsers', label: 'Парсеры', icon: PhRocketLaunch, note: 'Расписание обхода сайтов' },
-  { to: '/admin/import', label: 'Импорт', icon: PhUploadSimple, note: 'Прежний импорт каталога' },
-  { to: '/admin/publish', label: 'Публикация', icon: PhRocketLaunch, note: 'v2026.09.3 · черновик' },
-])
+const adminItems = [adminOverview, ...adminNav.flatMap((group) => group.items)]
 </script>
 
 <template>
@@ -103,7 +94,7 @@ const adminItems = computed(() => [
       </div>
       <div class="col feat">
         <div class="col-head"><span class="label">Часто открывают</span></div>
-        <NuxtLink v-for="p in featured" :key="p.id" :to="`/catalog/${p.slug}`" class="prod">
+        <NuxtLink v-for="p in featured" :key="p.slug" :to="`/catalog/card/${p.slug}`" class="prod">
           <img :src="p.image" :alt="p.name">
           <span class="prod-body">
             <span class="row-t">{{ p.name }}</span>
@@ -114,8 +105,8 @@ const adminItems = computed(() => [
         </NuxtLink>
         <NuxtLink to="/catalog" class="cta glass-graphite glass-graphite-solid">
           <span class="cta-in">
-            <span class="cta-n display-4">{{ products.length }}</span>
-            <span class="cta-t">решений в каталоге<span class="cta-s">{{ autoCount }} готовы к автоподбору · УГТ ≥ 5</span></span>
+            <span class="cta-n display-4">{{ catalogTotal }}</span>
+            <span class="cta-t">решений в каталоге<span class="cta-s">Карточки платформы, с источником и типом решения</span></span>
             <PhArrowRight :size="18" weight="bold" />
           </span>
         </NuxtLink>
@@ -124,7 +115,7 @@ const adminItems = computed(() => [
         <span class="caption">Дерево: отрасль → объект → процесс → тип решения → продукт. Продукт может стоять в нескольких ветках без дублей.</span>
         <span class="foot-links">
           <NuxtLink to="/catalog/compare" class="fl"><PhScales :size="14" weight="bold" /> Сравнение <span class="mono-sm">{{ ids.length }}</span></NuxtLink>
-          <NuxtLink to="/admin/sources" class="fl">Достоверность A–D</NuxtLink>
+          <NuxtLink v-if="role === 'admin'" to="/admin/sources" class="fl">Достоверность A–D</NuxtLink>
         </span>
       </div>
     </template>
@@ -156,8 +147,7 @@ const adminItems = computed(() => [
         <div class="col-head"><span class="label">Мои проекты</span><NuxtLink v-if="mine.length" to="/projects" class="col-link">Все <PhArrowRight :size="12" weight="bold" /></NuxtLink></div>
         <template v-if="mine.length">
           <NuxtLink v-for="p in mine" :key="p.id" :to="`/projects/${p.id}`" class="row">
-            <span class="row-main"><span class="row-t">{{ p.name }}</span><span class="row-s">{{ stepOf(p) }} · {{ fmtDate(p.updatedAt) }}</span></span>
-            <span class="row-n mono-sm">{{ p.step }}/{{ total(p) }}</span>
+            <span class="row-main"><span class="row-t">{{ p.name }}</span><span class="row-s">{{ p.object_code }}</span></span>
           </NuxtLink>
           <NuxtLink to="/projects/new" class="row add"><PhPlus :size="16" weight="bold" /><span class="row-t">Создать проект</span></NuxtLink>
         </template>
@@ -180,12 +170,12 @@ const adminItems = computed(() => [
       <div class="col wide">
         <div class="col-head"><span class="label">В сравнении</span><span class="caption">{{ compareItems.length }} из 6</span></div>
         <div v-if="compareItems.length" class="cmp-list">
-          <div v-for="p in compareItems" :key="p.id" class="cmp">
-            <NuxtLink :to="`/catalog/${p.slug}`" class="cmp-link">
+          <div v-for="p in compareItems" :key="p.slug" class="cmp">
+            <NuxtLink :to="`/catalog/card/${p.slug}`" class="cmp-link">
               <img :src="p.image" :alt="p.name">
               <span class="row-main"><span class="row-t">{{ p.name }}</span><span class="row-s">{{ p.solutionType }} · {{ p.manufacturer }}</span></span>
             </NuxtLink>
-            <button type="button" class="rm" :aria-label="`Убрать ${p.name}`" @click="toggle(p.id)"><PhX :size="12" weight="bold" /></button>
+            <button type="button" class="rm" :aria-label="`Убрать ${p.name}`" @click="toggle(p.slug)"><PhX :size="12" weight="bold" /></button>
           </div>
         </div>
         <div v-else class="empty">
@@ -213,11 +203,11 @@ const adminItems = computed(() => [
       <NuxtLink v-for="a in adminItems" :key="a.to" :to="a.to" class="adm">
         <component :is="a.icon" :size="22" weight="duotone" class="adm-ic" />
         <span class="row-t">{{ a.label }}</span>
-        <span class="row-s" :class="{ hot: a.hot }">{{ a.note }}</span>
+        <span class="row-s">{{ a.note }}</span>
       </NuxtLink>
       <div class="foot">
-        <span class="caption">Парсер и импорт пишут в очередь правок. В каталог попадает только опубликованная версия.</span>
-        <NuxtLink to="/admin/publish" class="fl"><PhRocketLaunch :size="14" weight="fill" /> К публикации v2026.09.3</NuxtLink>
+        <span class="caption">Парсеры и импорт таблиц пишут в каталог сразу. Ручная правка в карточке не затирается следующим импортом.</span>
+        <NuxtLink to="/admin/catalog" class="fl"><PhTreeStructure :size="14" weight="fill" /> Дерево каталога</NuxtLink>
       </div>
     </template>
   </div>

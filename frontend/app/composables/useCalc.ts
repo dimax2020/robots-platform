@@ -18,22 +18,12 @@ const industryByObject: Record<ObjectType, string> = {
   hospital: 'Здравоохранение',
 }
 
-export const asObjectType = (code: string): ObjectType =>
+const asObjectType = (code: string): ObjectType =>
   code === 'airport' || code === 'hospital' ? code : 'warehouse'
 
 export const isNotFound = (e: unknown) => {
   const err = e as { statusCode?: number; status?: number }
   return err?.statusCode === 404 || err?.status === 404
-}
-
-export const fetchErrorMessage = (e: unknown, fallback: string) => {
-  const err = e as { data?: { detail?: unknown }; message?: string }
-  const detail = err?.data?.detail
-  if (typeof detail === 'string' && detail) return detail
-  if (Array.isArray(detail)) {
-    return detail.map((item) => (item as { msg?: string }).msg ?? String(item)).join('; ')
-  }
-  return err?.message || fallback
 }
 
 export interface CalcCandidate {

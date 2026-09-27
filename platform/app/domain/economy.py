@@ -91,6 +91,54 @@ _ROLES = (
 _SENSITIVE = ("price_factor", "salary_factor", "replacement_pct", "service_pct", "license_pct", "robots_per_operator", "energy_tariff")
 
 
+TYPE_NORMS = (
+    "infra_pct", "software_pct", "integration_pct", "commissioning_pct", "training_pct",
+    "service_pct", "license_pct", "comms_pct", "consumables_pct", "repair_pct", "raas_rate_pct",
+)
+
+
+def blend_by_type(
+    standard: dict[str, float],
+    rows: list[dict],
+    by_type: dict[str, dict[str, float]],
+    type_names: dict[str, str] | None = None,
+    base_meta: dict[str, dict] | None = None,
+) -> tuple[dict[str, float], dict[str, dict]]:
+    """Нормативы типа решения поверх стандарта.
+
+    Все TYPE_NORMS — доли от стоимости оборудования, поэтому средневзвешенная по стоимости
+    даёт ту же сумму, что расчёт по каждому роботу со своим нормативом.
+    """
+    blended = dict(standard)
+    notes: dict[str, dict] = {}
+    names = type_names or {}
+    priced = []
+    for row in rows:
+        price = _num(row.get("price_rub"))
+        if price is None:
+            continue
+        count = _num(row.get("count"))
+        priced.append((row.get("solution_type") or "", price * (count if count is not None else 1.0)))
+    total = sum(weight for _code, weight in priced)
+    if not total:
+        return blended, notes
+    for key in TYPE_NORMS:
+        base = _num(standard.get(key))
+        base = NORM_BY_KEY[key].value if base is None else base
+        used = [(code, by_type[code][key]) for code, _weight in priced if code in by_type and key in by_type[code]]
+        if not used:
+            continue
+        value = sum(weight * by_type.get(code, {}).get(key, base) for code, weight in priced) / total
+        blended[key] = value
+        parts = sorted({f"{names.get(code, code)} {_t_plain(own)}%" for code, own in used})
+        rationale = ((base_meta or {}).get(key) or {}).get("rationale") or NORM_BY_KEY[key].rationale
+        notes[key] = {
+            "rationale": f"{rationale} С поправкой по типам решений: {', '.join(parts)}; остальным — стандарт {_t_plain(base)}%. Взвешено по стоимости парка.",
+            "origin": "Нормативы по типам решений",
+        }
+    return blended, notes
+
+
 def scale_load(site: dict, load_pct: float) -> dict:
     if load_pct == 100:
         return dict(site)
@@ -102,12 +150,14 @@ def scale_load(site: dict, load_pct: float) -> dict:
     return scaled
 
 
-def resolve(standard: dict[str, float] | None, overrides: dict | None, site: dict | None = None) -> dict[str, dict]:
+def resolve(standard: dict[str, float] | None, overrides: dict | None, site: dict | None = None, meta: dict[str, dict] | None = None) -> dict[str, dict]:
     standard = standard or {}
     overrides = overrides or {}
     site = site or {}
+    meta = meta or {}
     out = {}
     for norm in NORMS:
+        own = meta.get(norm.key) or {}
         base = _num(standard.get(norm.key))
         base = norm.value if base is None else base
         mine = _num(overrides.get(norm.key))
@@ -130,8 +180,8 @@ def resolve(standard: dict[str, float] | None, overrides: dict | None, site: dic
             "standard": base,
             "source": source,
             "overridden": mine is not None,
-            "rationale": norm.rationale,
-            "origin": norm.source,
+            "rationale": own.get("rationale") or norm.rationale,
+            "origin": own.get("origin") or norm.source,
             "min": norm.min,
             "max": norm.max,
             "step": norm.step,
@@ -145,9 +195,10 @@ def calculate(
     standard: dict[str, float] | None = None,
     overrides: dict | None = None,
     tasks: list[dict] | None = None,
+    meta: dict[str, dict] | None = None,
 ) -> dict:
     site = site or {}
-    params = resolve(standard, overrides, site)
+    params = resolve(standard, overrides, site, meta)
     report = _compute(rows, site, tasks or [], params)
     report["sensitivity"] = _sensitivity(rows, site, tasks or [], params, report)
     return report
@@ -747,7 +798,8 @@ def _norm_var_fraction(p: dict, key: str, params: dict | None = None) -> dict:
     norm = NORM_BY_KEY[key]
     value = p[key] / 100
     source = params[key]["source"] if params else "norm"
-    return _var(norm.symbol, f"{norm.label}, доля", value, "", source, f"{_t_plain(p[key])} {norm.unit}. {norm.rationale}")
+    rationale = params[key]["rationale"] if params else norm.rationale
+    return _var(norm.symbol, f"{norm.label}, доля", value, "", source, f"{_t_plain(p[key])} {norm.unit}. {rationale}")
 
 
 def _t_var(s: dict) -> dict:

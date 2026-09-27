@@ -114,12 +114,17 @@ export const attrGroups: { code: AttrGroup; label: string; hint: string }[] = [
 export interface TreeNode {
   label: string
   count?: number
+  token?: string
   children?: TreeNode[]
   productIds?: string[]
 }
 
 // Число уникальных продуктов в поддереве
 export const countNode = (n: TreeNode): number => {
+  if (!n.productIds?.length) {
+    if (n.children?.length) return n.children.reduce((sum, child) => sum + countNode(child), 0)
+    return n.count ?? 0
+  }
   const ids = new Set<string>()
   const walk = (x: TreeNode) => { x.productIds?.forEach((id) => ids.add(id)); x.children?.forEach(walk) }
   walk(n)
