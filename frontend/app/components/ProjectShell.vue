@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { PhArrowLeft } from '@phosphor-icons/vue'
-import { type Project, objectTypeLabel, isFullPath } from '~/data/projects'
-defineProps<{
+import { type Project, objectTypeLabel } from '~/data/projects'
+const props = defineProps<{
   project: Project
   current: string
   title: string
@@ -9,6 +9,11 @@ defineProps<{
   substages?: { id: string; label: string; to: string }[]
   currentSub?: string
 }>()
+const placeLabel = computed(() => {
+  const object = objectTypeLabel[props.project.objectType] || props.project.objectType
+  const industry = props.project.industry
+  return industry && industry !== object ? `${industry} — ${object}` : object
+})
 </script>
 
 <template>
@@ -17,9 +22,9 @@ defineProps<{
       <div class="crumbs">
         <NuxtLink :to="`/projects/${project.id}`" class="back body-sm"><PhArrowLeft :size="14" weight="bold" /> {{ project.name }}</NuxtLink>
         <span class="meta">
-          <UiBadge tone="neutral">{{ objectTypeLabel[project.objectType] }}</UiBadge>
-          <UiBadge :tone="isFullPath(project) ? 'ok' : 'info'">{{ isFullPath(project) ? 'Полный путь' : 'Урезанный путь' }}</UiBadge>
-          <span class="mono-sm muted">каталог {{ project.catalogVersion }} · модель {{ project.modelVersion }}</span>
+          <UiBadge tone="neutral">{{ placeLabel }}</UiBadge>
+          <UiBadge v-if="project.isDemo && project.readonly" tone="info">Демо · только просмотр</UiBadge>
+          <UiBadge v-else-if="project.isDemo" :tone="project.published ? 'ok' : 'warn'">{{ project.published ? 'Демо · опубликовано' : 'Демо · не опубликовано' }}</UiBadge>
         </span>
       </div>
       <ProjectSteps :project="project" :current="current" :substages="substages" :current-sub="currentSub" />

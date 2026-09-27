@@ -16,6 +16,7 @@ from app.infrastructure.db.models import (
     EconomyNormOverrideRow,
     EconomyNormRow,
     IndustryRow,
+    ObjectFieldRow,
     ObjectIndustryRow,
     ObjectInputBindingRow,
     ObjectProcessRow,
@@ -515,6 +516,125 @@ def owned_project(db: Session, project_id: UUID, *, user_id: UUID, role: str) ->
     return project
 
 
+def resolve_project(db: Session, key: str) -> ProjectRow:
+    """Проект по UUID или по постоянному адресу демо-объекта (например, demo-warehouse)."""
+    try:
+        project = db.get(ProjectRow, UUID(str(key)))
+    except ValueError:
+        project = db.scalar(select(ProjectRow).where(ProjectRow.slug == str(key)))
+    if project is None:
+        raise KeyError(str(key))
+    return project
+
+
+def project_access(db: Session, key: str, *, user_id: UUID | None, role: str | None) -> tuple[ProjectRow, bool]:
+    """Кто может открыть проект и может ли править.
+
+    Опубликованный демо-объект читают все, включая гостей; правит только администратор.
+    Обычный проект видит владелец и администратор.
+    """
+    project = resolve_project(db, key)
+    if role == "admin":
+        return project, True
+    if project.is_demo:
+        if project.published:
+            return project, False
+        raise KeyError(str(key))
+    if user_id is None or role in (None, "guest"):
+        raise KeyError(str(key))
+    if project.owner_id is None or project.owner_id != user_id:
+        raise KeyError(str(key))
+    return project, True
+
+
+def _demo_item(db: Session, project: ProjectRow, obj: ObjectTypeRow) -> dict:
+    industry = db.scalar(
+        select(IndustryRow.name)
+        .join(ObjectIndustryRow, ObjectIndustryRow.industry_id == IndustryRow.id)
+        .where(ObjectIndustryRow.object_type_id == obj.id)
+        .limit(1)
+    )
+    site, tasks = _split_site(project.site)
+    enabled = db.scalar(
+        select(func.count()).select_from(ProjectProcessRow)
+        .where(ProjectProcessRow.project_id == project.id, ProjectProcessRow.enabled.is_(True))
+    ) or 0
+    layout = project.layout or {}
+    return {
+        "id": str(project.id),
+        "slug": project.slug,
+        "name": project.name,
+        "object_code": obj.code,
+        "object_name": obj.name,
+        "industry": industry or "",
+        "is_demo": project.is_demo,
+        "published": project.published,
+        "area_m2": site.get("area_m2"),
+        "shifts_per_day": site.get("shifts_per_day"),
+        "processes": enabled,
+        "tasks": len(tasks),
+        "has_layout": bool(layout.get("floors")),
+        "overrides": len(project.economy_overrides or {}),
+    }
+
+
+def demo_projects(db: Session, *, include_unpublished: bool = False) -> list[dict]:
+    stmt = (
+        select(ProjectRow, ObjectTypeRow)
+        .join(ObjectTypeRow, ObjectTypeRow.id == ProjectRow.object_type_id)
+        .where(ProjectRow.is_demo.is_(True))
+        .order_by(ProjectRow.name)
+    )
+    if not include_unpublished:
+        stmt = stmt.where(ProjectRow.published.is_(True))
+    return [_demo_item(db, project, obj) for project, obj in db.execute(stmt)]
+
+
+def _clean_slug(raw: str | None) -> str | None:
+    text = re.sub(r"[^a-z0-9-]+", "-", (raw or "").strip().lower()).strip("-")
+    return text or None
+
+
+def set_demo_flags(db: Session, project_id: UUID, *, is_demo: bool | None, published: bool | None, slug: str | None, name: str | None = None) -> dict:
+    project = db.get(ProjectRow, project_id)
+    if project is None:
+        raise KeyError(str(project_id))
+    if is_demo is not None:
+        project.is_demo = is_demo
+        if not is_demo:
+            project.published = False
+            project.slug = None
+    if published is not None and project.is_demo:
+        project.published = published
+    if slug is not None and project.is_demo:
+        clean = _clean_slug(slug)
+        taken = db.scalar(select(ProjectRow.id).where(ProjectRow.slug == clean, ProjectRow.id != project.id)) if clean else None
+        if taken is not None:
+            raise ValueError(f"Адрес «{clean}» уже занят другим демо-объектом")
+        project.slug = clean
+    if name is not None and name.strip():
+        project.name = name.strip()
+    db.commit()
+    return project_view(db, project.id)
+
+
+def object_defaults(db: Session, object_code: str) -> dict:
+    """Значения по умолчанию из полей объекта: с них начинается любой демо-объект."""
+    obj = db.scalar(select(ObjectTypeRow).where(ObjectTypeRow.code == object_code))
+    if obj is None:
+        raise KeyError(object_code)
+    site: dict = {}
+    for row in db.scalars(select(ObjectFieldRow).where(ObjectFieldRow.object_type_id == obj.id)):
+        if row.default_value not in (None, ""):
+            site[row.field_key] = row.default_value
+    return site
+
+
+def create_demo_project(db: Session, *, name: str, object_code: str, slug: str | None, owner_id: UUID | None, site: dict | None = None) -> dict:
+    created = create_project(db, name=name, object_code=object_code, site=site if site is not None else object_defaults(db, object_code), owner_id=owner_id)
+    return set_demo_flags(db, UUID(created["id"]), is_demo=True, published=False, slug=slug or name)
+
+
 def create_project(db: Session, *, name: str, object_code: str, site: dict, owner_id: UUID | None = None) -> dict:
     obj = db.scalar(select(ObjectTypeRow).where(ObjectTypeRow.code == object_code))
     if obj is None:
@@ -590,6 +710,7 @@ def project_view(db: Session, project_id: UUID) -> dict:
         )
     return {
         "id": str(project.id),
+        "slug": project.slug,
         "name": project.name,
         "object_code": obj.code if obj else None,
         "object_name": obj.name if obj else None,
@@ -598,6 +719,9 @@ def project_view(db: Session, project_id: UUID) -> dict:
         "tasks": tasks,
         "economy_overrides": project.economy_overrides or {},
         "processes": processes,
+        "is_demo": project.is_demo,
+        "published": project.published,
+        "owner_id": str(project.owner_id) if project.owner_id else None,
     }
 
 
@@ -608,7 +732,7 @@ def list_projects(db: Session, *, user_id: UUID, role: str) -> list[dict]:
         .order_by(ProjectRow.name)
     )
     if role != "admin":
-        stmt = stmt.where(ProjectRow.owner_id == user_id)
+        stmt = stmt.where(ProjectRow.owner_id == user_id, ProjectRow.is_demo.is_(False))
     items = []
     for project, obj in db.execute(stmt):
         industry = db.scalar(
@@ -619,10 +743,13 @@ def list_projects(db: Session, *, user_id: UUID, role: str) -> list[dict]:
         )
         items.append({
             "id": str(project.id),
+            "slug": project.slug,
             "name": project.name,
             "object_code": obj.code,
             "object_name": obj.name,
             "industry": industry or "",
+            "is_demo": project.is_demo,
+            "published": project.published,
         })
     return items
 
@@ -631,6 +758,7 @@ def copy_project(db: Session, project_id: UUID, *, owner_id: UUID) -> dict:
     src = db.get(ProjectRow, project_id)
     if src is None:
         raise KeyError(str(project_id))
+    # Копия демо-объекта становится обычным проектом пользователя.
     project = ProjectRow(
         id=uuid4(),
         name=f"{src.name} (копия)",
@@ -639,6 +767,9 @@ def copy_project(db: Session, project_id: UUID, *, owner_id: UUID) -> dict:
         site=dict(src.site or {}),
         economy_overrides=dict(src.economy_overrides or {}),
         layout=dict(src.layout or {}),
+        is_demo=False,
+        published=False,
+        slug=None,
     )
     db.add(project)
     db.flush()
@@ -966,6 +1097,7 @@ def project_economy(
     choices: dict[str, str] | None,
     tasks: list[dict] | None = None,
     preview: dict | None = None,
+    picks: dict[str, str] | None = None,
 ) -> dict:
     project = db.get(ProjectRow, project_id)
     if project is None:
@@ -975,7 +1107,7 @@ def project_economy(
     standard = economy_standards(db)
     load = overrides.get("load_factor", standard.get("load_factor", NORM_BY_KEY["load_factor"].value))
     matched = run_match(db, project_id, scale_load(site, float(load)))
-    return _economy_report(db, matched, site, choices, tasks, overrides, dict(project.economy_overrides or {}))
+    return _economy_report(db, matched, site, choices, tasks, overrides, dict(project.economy_overrides or {}), picks)
 
 
 def preview_economy(
@@ -985,19 +1117,32 @@ def preview_economy(
     choices: dict[str, str] | None,
     tasks: list[dict] | None = None,
     preview: dict | None = None,
+    picks: dict[str, str] | None = None,
 ) -> dict:
     values = _public_site(site)
     overrides = dict(preview or {})
     standard = economy_standards(db)
     load = overrides.get("load_factor", standard.get("load_factor", NORM_BY_KEY["load_factor"].value))
     matched = match_object(db, object_code, scale_load(values, float(load)))
-    return _economy_report(db, matched, values, choices, tasks, overrides, {})
+    return _economy_report(db, matched, values, choices, tasks, overrides, {}, picks)
 
 
-def _economy_report(db: Session, matched: dict, site: dict, choices, tasks, overrides: dict, saved: dict) -> dict:
+def _economy_report(
+    db: Session,
+    matched: dict,
+    site: dict,
+    choices,
+    tasks,
+    overrides: dict,
+    saved: dict,
+    picks: dict[str, str] | None = None,
+) -> dict:
     picked = []
     for group in matched["groups"]:
-        hit = _economy_hit(group, (choices or {}).get(group["process_code"]))
+        if picks is not None and group["process_code"] not in picks:
+            continue
+        chosen = picks.get(group["process_code"]) if picks is not None else (choices or {}).get(group["process_code"])
+        hit = _economy_hit(group, chosen, strict=picks is not None)
         if hit is not None:
             picked.append((group, hit))
     ids = [UUID(hit["product_id"]) for _group, hit in picked]
@@ -1033,12 +1178,16 @@ def _economy_report(db: Session, matched: dict, site: dict, choices, tasks, over
     return report
 
 
-def _economy_hit(group: dict, chosen_id: str | None) -> dict | None:
+def _economy_hit(group: dict, chosen_id: str | None, *, strict: bool = False) -> dict | None:
     hits = group.get("hits") or []
     if chosen_id:
         found = next((hit for hit in hits if hit["product_id"] == chosen_id), None)
         if found is not None:
             return found
+        if strict:
+            return None
+    if strict:
+        return None
     best = group.get("best_product_id")
     if best:
         return next((hit for hit in hits if hit["product_id"] == best), None)

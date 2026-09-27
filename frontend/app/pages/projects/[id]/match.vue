@@ -10,10 +10,10 @@ const route = useRoute()
 const router = useRouter()
 const id = computed(() => route.params.id as string)
 const live = useLiveProject(id)
-const project = computed(() => (live.isDemo.value ? undefined : live.shell.value))
+const project = live.shell
 const shell = live.shell
 const pending = live.pending
-const error = computed(() => (live.isDemo.value ? null : live.error.value))
+const error = live.error
 useHead({ title: () => `Подбор · ${shell.value?.name ?? 'проект'}` })
 
 const groups = ref<MatchGroup[]>([])
@@ -107,9 +107,7 @@ const runMatch = async () => {
   startClock()
   try {
     const site = live.site.value
-    const result = live.isDemo.value
-      ? await platformSend<{ groups: MatchGroup[] }>('/catalog/preview/match', 'POST', { object_code: live.objectCode.value, site })
-      : await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site })
+    const result = await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site })
     groups.value = result.groups
     const requested = typeof route.query.process === 'string' ? route.query.process : ''
     const first = result.groups[0]?.process_code
@@ -212,7 +210,7 @@ onBeforeUnmount(stopClock)
       </section>
       <section v-else-if="!activeGroup.hits.length" class="empty glass">
         <div class="h3">На этот процесс роботов не назначено</div>
-        <p class="body muted">В списке подбора его нет. Следующий процесс открывается той же кнопкой справа.</p>
+        <p class="body muted">Этот процесс не попадёт в сравнение, экономику и схему. Следующий процесс открывается той же кнопкой справа.</p>
       </section>
       <section v-else class="empty glass">
         <div class="h3">В этом статусе роботов нет</div>

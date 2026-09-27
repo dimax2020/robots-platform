@@ -2,8 +2,9 @@
 import { PhArrowRight, PhArrowUpRight, PhX, PhScales, PhPlus, PhPlay, PhLockSimple, PhTreeStructure } from '@phosphor-icons/vue'
 import { availabilityLabel, availabilityTone, formatRub } from '~/data/catalog'
 import { cardToProduct, platformGet, type PlatformPage } from '~/composables/usePlatform'
-import { projects, objectTypeLabel, objectTypeImage, steps, isFullPath, fullPathSteps, shortPathSteps, type ObjectType } from '~/data/projects'
+import { objectTypeLabel, objectTypeImage, steps, type ObjectType } from '~/data/projects'
 import { adminNav, adminOverview } from '~/data/adminNav'
+import { demoObjectType, demoPath, useDemoProjects } from '~/composables/useDemoProjects'
 
 export type MenuId = 'catalog' | 'projects' | 'compare' | 'admin'
 defineProps<{ menu: MenuId }>()
@@ -21,7 +22,8 @@ const processes = ref<{ label: string; count: number }[]>([])
 const solutions = ref<{ label: string; count: number }[]>([])
 const featured = ref<ReturnType<typeof cardToProduct>[]>([])
 const catalogTotal = ref(0)
-const ownProjects = ref<{ id: string; name: string; object_code: string }[]>([])
+const ownProjects = ref<{ id: string; name: string; object_code: string; is_demo?: boolean }[]>([])
+const demoStore = useDemoProjects()
 
 onMounted(() => {
   platformGet<TreePayload>('/catalog/tree').then((tree) => {
@@ -47,8 +49,8 @@ onMounted(() => {
 })
 watch(role, () => {
   if (role.value === 'guest') { ownProjects.value = []; return }
-  platformGet<{ items: { id: string; name: string; object_code: string }[] }>('/projects')
-    .then((page) => { ownProjects.value = page.items.slice(0, 4) })
+  platformGet<{ items: { id: string; name: string; object_code: string; is_demo?: boolean }[] }>('/projects')
+    .then((page) => { ownProjects.value = page.items.filter((row) => !row.is_demo).slice(0, 4) })
     .catch(() => { ownProjects.value = [] })
 }, { immediate: true })
 
@@ -59,9 +61,9 @@ const objectMeta: Record<ObjectType, { text: string; full: boolean }> = {
   hospital: { text: 'Параметры корпуса и подбор', full: false },
 }
 const objectTypes = Object.keys(objectTypeLabel) as ObjectType[]
-const demos = projects.filter((p) => p.isDemo)
+const demos = demoStore.items
+const demoReport = computed(() => (demoStore.first.value ? `${demoPath(demoStore.first.value)}/report` : '/projects'))
 const mine = ownProjects
-const total = (p: (typeof projects)[number]) => (isFullPath(p) ? fullPathSteps : shortPathSteps)
 /* Сравнение */
 const compareItems = picks
 
@@ -134,14 +136,15 @@ const adminItems = [adminOverview, ...adminNav.flatMap((group) => group.items)]
         </NuxtLink>
       </div>
       <div class="col">
-        <div class="col-head"><span class="label">Демо-площадки</span><span class="caption">без входа</span></div>
-        <NuxtLink v-for="d in demos" :key="d.id" :to="`/projects/${d.id}`" class="row">
+        <div class="col-head"><span class="label">Демо-объекты</span><span class="caption">без входа</span></div>
+        <NuxtLink v-for="d in demos" :key="d.id" :to="demoPath(d)" class="row">
           <span class="row-main">
             <span class="row-t">{{ d.name }}</span>
-            <span class="row-s">{{ objectTypeLabel[d.objectType] }} · {{ d.area?.toLocaleString('ru-RU') }} м² · {{ d.shifts }} смены</span>
+            <span class="row-s">{{ objectTypeLabel[demoObjectType(d)] }}{{ d.area_m2 ? ` · ${Number(d.area_m2).toLocaleString('ru-RU')} м²` : '' }} · {{ d.processes }} процессов</span>
           </span>
-          <span class="prog" :title="`Шаг ${d.step} из ${total(d)}`"><i v-for="i in total(d)" :key="i" :class="{ on: i <= d.step }" /></span>
+          <PhPlay :size="14" weight="fill" class="row-go" />
         </NuxtLink>
+        <span v-if="!demos.length" class="caption">Опубликованных демо пока нет.</span>
       </div>
       <div class="col">
         <div class="col-head"><span class="label">Мои проекты</span><NuxtLink v-if="mine.length" to="/projects" class="col-link">Все <PhArrowRight :size="12" weight="bold" /></NuxtLink></div>
@@ -161,7 +164,7 @@ const adminItems = [adminOverview, ...adminNav.flatMap((group) => group.items)]
       </div>
       <div class="foot">
         <span class="flow mono-sm"><template v-for="(s, i) in steps" :key="s.code"><span>{{ s.label }}</span><i v-if="i < steps.length - 1" /></template></span>
-        <NuxtLink to="/projects/demo-warehouse/report" class="fl"><PhPlay :size="14" weight="fill" /> Демо-отчёт склада</NuxtLink>
+        <NuxtLink :to="demoReport" class="fl"><PhPlay :size="14" weight="fill" /> Демо-отчёт склада</NuxtLink>
       </div>
     </template>
 
@@ -237,6 +240,8 @@ const adminItems = [adminOverview, ...adminNav.flatMap((group) => group.items)]
 .row:hover .row-n { background: var(--surface-brand-tint); color: var(--brand-ink); }
 
 .prog { display: inline-flex; gap: 3px; }
+.row-go { color: var(--ink-faint); flex: none; }
+.row:hover .row-go { color: var(--brand-600); }
 .prog i { width: 10px; height: 4px; border-radius: 2px; background: rgba(15, 20, 19, 0.1); }
 .prog i.on { background: var(--brand-500); }
 

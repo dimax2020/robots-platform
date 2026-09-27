@@ -1,5 +1,5 @@
 import type { MaybeRefOrGetter } from 'vue'
-import { projects, type ObjectType, type Project } from '~/data/projects'
+import type { ObjectType, Project } from '~/data/projects'
 import { platformGet, platformSend } from '~/composables/usePlatform'
 
 export interface LiveProcess {
@@ -10,6 +10,7 @@ export interface LiveProcess {
 
 export interface LiveRecord {
   id: string
+  slug: string | null
   name: string
   object_code: string
   object_name: string | null
@@ -17,13 +18,18 @@ export interface LiveRecord {
   site: Record<string, unknown>
   tasks: Record<string, unknown>[]
   processes: LiveProcess[]
+  is_demo: boolean
+  published: boolean
+  owner_id: string | null
+  /** Сервер решает: администратор правит всё, владелец — свой проект, демо для остальных только читается. */
+  can_edit: boolean
 }
 
 export const asObjectType = (code: string): ObjectType =>
   code === 'airport' || code === 'hospital' ? code : 'warehouse'
 
 export const shellOf = (record: LiveRecord): Project => ({
-  id: record.id,
+  id: record.slug || record.id,
   name: record.name,
   objectType: asObjectType(record.object_code),
   industry: record.industry || record.object_name || '',
@@ -32,35 +38,23 @@ export const shellOf = (record: LiveRecord): Project => ({
   modelVersion: 'платформа',
   step: 2,
   tasks: record.processes.filter((item) => item.enabled).length,
+  isDemo: record.is_demo,
+  published: record.published,
+  readonly: !record.can_edit,
 })
 
+/**
+ * Проект платформы по UUID или постоянному адресу демо (demo-warehouse).
+ * Демо больше не живёт в коде: это обычный проект администратора, опубликованный для просмотра.
+ */
 export function useLiveProject(id: MaybeRefOrGetter<string>) {
   const key = computed(() => toValue(id))
-  const demo = computed(() => projects.find((item) => item.isDemo && item.id === key.value))
   const record = ref<LiveRecord | null>(null)
-  const demoSite = ref<Record<string, unknown>>({})
   const pending = ref(true)
   const error = ref<unknown>(null)
 
   const load = async () => {
     error.value = null
-    if (demo.value) {
-      record.value = null
-      pending.value = true
-      try {
-        const form = await platformGet<{ fields: { key: string; default: unknown }[] }>(`/catalog/objects/${demo.value.objectType}/fields`)
-        const site: Record<string, unknown> = {}
-        for (const field of form.fields) {
-          if (field.default !== null && field.default !== undefined && field.default !== '') site[field.key] = field.default
-        }
-        demoSite.value = site
-      } catch (err) {
-        error.value = err
-      } finally {
-        pending.value = false
-      }
-      return
-    }
     pending.value = true
     try {
       record.value = await platformGet<LiveRecord>(`/projects/${key.value}`)
@@ -74,11 +68,13 @@ export function useLiveProject(id: MaybeRefOrGetter<string>) {
 
   watch(key, () => { void load() }, { immediate: true })
 
-  const shell = computed<Project | undefined>(() => demo.value ?? (record.value ? shellOf(record.value) : undefined))
-  const site = computed(() => (demo.value ? demoSite.value : record.value?.site ?? {}))
+  const shell = computed<Project | undefined>(() => (record.value ? shellOf(record.value) : undefined))
+  const site = computed(() => record.value?.site ?? {})
   const tasks = computed(() => record.value?.tasks ?? [])
-  const isDemo = computed(() => Boolean(demo.value))
-  const objectCode = computed(() => demo.value?.objectType ?? record.value?.object_code ?? '')
+  const isDemo = computed(() => Boolean(record.value?.is_demo))
+  const canEdit = computed(() => Boolean(record.value?.can_edit))
+  const readonly = computed(() => Boolean(record.value) && !record.value!.can_edit)
+  const objectCode = computed(() => record.value?.object_code ?? '')
 
   const save = async (nextSite: Record<string, unknown>, nextTasks: unknown[], enabled?: Record<string, boolean>) => {
     const body: Record<string, unknown> = { site: nextSite, tasks: nextTasks }
@@ -86,5 +82,5 @@ export function useLiveProject(id: MaybeRefOrGetter<string>) {
     record.value = await platformSend<LiveRecord>(`/projects/${key.value}`, 'PATCH', body)
   }
 
-  return { shell, record, site, tasks, pending, error, isDemo, objectCode, load, save }
+  return { shell, record, site, tasks, pending, error, isDemo, canEdit, readonly, objectCode, load, save }
 }

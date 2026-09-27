@@ -23,7 +23,11 @@ export interface Project {
   catalogVersion: string
   modelVersion: string
   step: number
+  /** Демо-объект платформы: ведёт администратор, опубликованный видят все. */
   isDemo?: boolean
+  published?: boolean
+  /** Открыт только для просмотра: гость или пользователь смотрит опубликованное демо. */
+  readonly?: boolean
   area?: number
   shifts?: number
   tasks: number
@@ -42,15 +46,8 @@ export const steps = [
 export const fullPathSteps = 7
 export const shortPathSteps = 3
 
-export const projects: Project[] = [
-  { id: 'demo-warehouse', name: 'Склад Внуково-Юг, 12 000 м²', objectType: 'warehouse', industry: 'Логистика и торговля', updatedAt: '2026-09-19T14:20:00', catalogVersion: 'v2026.09.3', modelVersion: 'm1.4', step: 6, isDemo: true, area: 12000, shifts: 2, tasks: 4 },
-  { id: 'demo-airport', name: 'Терминал В, багажная зона', objectType: 'airport', industry: 'Транспорт', updatedAt: '2026-09-17T09:05:00', catalogVersion: 'v2026.09.3', modelVersion: 'm1.4', step: 2, isDemo: true, area: 6400, shifts: 3, tasks: 2 },
-  { id: 'demo-hospital', name: 'ГКБ № 52, корпус 3', objectType: 'hospital', industry: 'Здравоохранение', updatedAt: '2026-09-15T18:40:00', catalogVersion: 'v2026.09.2', modelVersion: 'm1.3', step: 2, isDemo: true, area: 9800, shifts: 3, tasks: 2 },
-  { id: 'prj-1042', name: 'РЦ Софьино, зона B', objectType: 'warehouse', industry: 'Логистика и торговля', updatedAt: '2026-09-20T11:12:00', catalogVersion: 'v2026.09.3', modelVersion: 'm1.4', step: 3, area: 18500, shifts: 2, tasks: 5 },
-  { id: 'prj-1038', name: 'Фулфилмент Домодедово', objectType: 'warehouse', industry: 'Логистика и торговля', updatedAt: '2026-09-12T16:48:00', catalogVersion: 'v2026.09.1', modelVersion: 'm1.3', step: 7, area: 7200, shifts: 3, tasks: 3 },
-]
-
-export const projectById = (id: string): Project => projects.find((p) => p.id === id) ?? projects[0]!
+/** Демо-объекты и проекты живут на платформе (`/projects`, `/projects/demo`); здесь только справочник шагов. */
+export const projects: Project[] = []
 
 export const isFullPath = (p: Project) => p.objectType === 'warehouse'
 

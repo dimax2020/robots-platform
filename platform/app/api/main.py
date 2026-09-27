@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.api import admin_catalog, admin_objects, admin_products
-from app.api.auth import SessionUser, load_user, require_user
+from app.api.auth import SessionUser, load_user, optional_user, require_admin, require_user
 from app.config import get_settings
 from app.domain.layout_items import COUNT_RULES, ROLES, SHAPES
 from app.infrastructure.db.job_repo import enqueue, get_job, parser_settings, set_schedule
@@ -19,13 +19,14 @@ from app.infrastructure.db.taxonomy_repo import (
     attributes,
     create_process,
     copy_project,
+    create_demo_project,
     create_project,
     delete_project,
+    demo_projects,
     delete_type_norm,
     save_type_norm,
     type_norm_list,
     economy_norm_log,
-    owned_project,
     preview_economy,
     preview_process,
     process_list,
@@ -37,6 +38,7 @@ from app.infrastructure.db.taxonomy_repo import (
     project_layout,
     save_project_layout,
     process_setup,
+    project_access,
     project_economy,
     project_view,
     robot_attributes,
@@ -47,6 +49,7 @@ from app.infrastructure.db.taxonomy_repo import (
     save_object,
     save_object_setup,
     save_process_setup,
+    set_demo_flags,
     tree,
     update_project,
 )
@@ -73,11 +76,26 @@ async def admin_session(request: Request, call_next):
     return await call_next(request)
 
 
-def _owned(db, project_id: UUID, user: SessionUser):
+def _readable(db, key: str, user: SessionUser | None):
+    """Проект по UUID или адресу демо. Опубликованное демо открывается без входа."""
     try:
-        return owned_project(db, project_id, user_id=user.id, role=user.role)
+        project, _ = project_access(db, key, user_id=user.id if user else None, role=user.role if user else None)
     except KeyError:
         raise HTTPException(404, "Проект не найден") from None
+    return project
+
+
+def _writable(db, key: str, user: SessionUser | None):
+    """Правки: владелец обычного проекта или администратор; демо правит только администратор."""
+    if user is None or user.role == "guest":
+        raise HTTPException(401, "Нужна авторизация")
+    try:
+        project, can_edit = project_access(db, key, user_id=user.id, role=user.role)
+    except KeyError:
+        raise HTTPException(404, "Проект не найден") from None
+    if not can_edit:
+        raise HTTPException(403, "Демо-объект только для просмотра. Скопируйте его в свои проекты, чтобы менять.")
+    return project
 
 
 class ObjectIn(BaseModel):
@@ -173,6 +191,7 @@ class MatchIn(BaseModel):
 class EconomyIn(BaseModel):
     site: dict | None = None
     choices: dict[str, str] = Field(default_factory=dict)
+    picks: dict[str, str] | None = None
     tasks: list[dict] = Field(default_factory=list)
     preview: dict[str, float] | None = None
 
@@ -225,6 +244,19 @@ class ProjectPatch(BaseModel):
     enabled: dict[str, bool] | None = None
 
 
+class DemoFlagsIn(BaseModel):
+    is_demo: bool | None = None
+    published: bool | None = None
+    slug: str | None = None
+    name: str | None = None
+
+
+class DemoProjectIn(BaseModel):
+    name: str
+    object_code: str
+    slug: str | None = None
+
+
 class PreviewMatchIn(BaseModel):
     object_code: str
     site: dict = Field(default_factory=dict)
@@ -234,6 +266,7 @@ class PreviewEconomyIn(BaseModel):
     object_code: str
     site: dict = Field(default_factory=dict)
     choices: dict[str, str] = Field(default_factory=dict)
+    picks: dict[str, str] | None = None
     tasks: list[dict] = Field(default_factory=list)
     preview: dict[str, float] | None = None
 
@@ -462,7 +495,7 @@ def catalog_preview_match(body: PreviewMatchIn) -> dict:
 def catalog_preview_economy(body: PreviewEconomyIn) -> dict:
     with session_factory()() as db:
         try:
-            return preview_economy(db, body.object_code, body.site, body.choices, body.tasks, body.preview)
+            return preview_economy(db, body.object_code, body.site, body.choices, body.tasks, body.preview, body.picks)
         except KeyError:
             raise HTTPException(404, "Объект не найден") from None
 
@@ -471,6 +504,41 @@ def catalog_preview_economy(body: PreviewEconomyIn) -> dict:
 def projects(user: SessionUser = Depends(require_user)) -> dict:
     with session_factory()() as db:
         return {"items": list_projects(db, user_id=user.id, role=user.role)}
+
+
+@app.get("/api/v1/projects/demo")
+def published_demos() -> dict:
+    """Опубликованные демо-объекты: видны всем, включая гостей."""
+    with session_factory()() as db:
+        return {"items": demo_projects(db)}
+
+
+@app.get("/api/v1/admin/projects/demo")
+def admin_demos(_: SessionUser = Depends(require_admin)) -> dict:
+    with session_factory()() as db:
+        return {"items": demo_projects(db, include_unpublished=True)}
+
+
+@app.post("/api/v1/admin/projects/demo")
+def admin_demo_create(body: DemoProjectIn, user: SessionUser = Depends(require_admin)) -> dict:
+    with session_factory()() as db:
+        try:
+            return create_demo_project(db, name=body.name, object_code=body.object_code, slug=body.slug, owner_id=user.id)
+        except KeyError:
+            raise HTTPException(404, "Объект не найден") from None
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+
+
+@app.put("/api/v1/admin/projects/{project_id}/demo")
+def admin_demo_flags(project_id: UUID, body: DemoFlagsIn, _: SessionUser = Depends(require_admin)) -> dict:
+    with session_factory()() as db:
+        try:
+            return set_demo_flags(db, project_id, is_demo=body.is_demo, published=body.published, slug=body.slug, name=body.name)
+        except KeyError:
+            raise HTTPException(404, "Проект не найден") from None
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
 
 
 @app.post("/api/v1/projects")
@@ -482,45 +550,36 @@ def create(body: ProjectIn, user: SessionUser = Depends(require_user)) -> dict:
             raise HTTPException(404, "Объект не найден") from None
 
 
-@app.get("/api/v1/projects/{project_id}")
-def read_project(project_id: UUID, user: SessionUser = Depends(require_user)) -> dict:
+@app.get("/api/v1/projects/{project_key}")
+def read_project(project_key: str, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
-        _owned(db, project_id, user)
-        try:
-            return project_view(db, project_id)
-        except KeyError:
-            raise HTTPException(404, "Проект не найден") from None
+        project = _readable(db, project_key, user)
+        view = project_view(db, project.id)
+        view["can_edit"] = bool(user) and (user.role == "admin" or (not project.is_demo and user.role != "guest"))
+        return view
 
 
-@app.patch("/api/v1/projects/{project_id}")
-def patch_project(project_id: UUID, body: ProjectPatch, user: SessionUser = Depends(require_user)) -> dict:
+@app.patch("/api/v1/projects/{project_key}")
+def patch_project(project_key: str, body: ProjectPatch, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
-        _owned(db, project_id, user)
-        try:
-            return update_project(db, project_id, site=body.site, enabled=body.enabled, tasks=body.tasks)
-        except KeyError:
-            raise HTTPException(404, "Проект не найден") from None
+        project = _writable(db, project_key, user)
+        return update_project(db, project.id, site=body.site, enabled=body.enabled, tasks=body.tasks)
 
 
-@app.post("/api/v1/projects/{project_id}/copy")
-def copy(project_id: UUID, user: SessionUser = Depends(require_user)) -> dict:
+@app.post("/api/v1/projects/{project_key}/copy")
+def copy(project_key: str, user: SessionUser = Depends(require_user)) -> dict:
+    """Копия доступна владельцу, администратору и любому вошедшему — для опубликованного демо."""
     with session_factory()() as db:
-        _owned(db, project_id, user)
-        try:
-            return copy_project(db, project_id, owner_id=user.id)
-        except KeyError:
-            raise HTTPException(404, "Проект не найден") from None
+        project = _readable(db, project_key, user)
+        return copy_project(db, project.id, owner_id=user.id)
 
 
-@app.delete("/api/v1/projects/{project_id}")
-def remove_project(project_id: UUID, user: SessionUser = Depends(require_user)) -> dict:
+@app.delete("/api/v1/projects/{project_key}")
+def remove_project(project_key: str, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
-        _owned(db, project_id, user)
-        try:
-            names = delete_project(db, project_id)
-            used = layout_files_in_use(db)
-        except KeyError:
-            raise HTTPException(404, "Проект не найден") from None
+        project = _writable(db, project_key, user)
+        names = delete_project(db, project.id)
+        used = layout_files_in_use(db)
     folder = Path(get_settings().upload_dir) / "layouts"
     for name in names - used:
         path = folder / name
@@ -529,53 +588,41 @@ def remove_project(project_id: UUID, user: SessionUser = Depends(require_user)) 
     return {"ok": True}
 
 
-@app.post("/api/v1/projects/{project_id}/match")
-def match_project(project_id: UUID, body: MatchIn | None = None, user: SessionUser = Depends(require_user)) -> dict:
+@app.post("/api/v1/projects/{project_key}/match")
+def match_project(project_key: str, body: MatchIn | None = None, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
-        _owned(db, project_id, user)
-        try:
-            return run_match(db, project_id, site=None if body is None else body.site)
-        except KeyError:
-            raise HTTPException(404, "Проект не найден") from None
+        project = _readable(db, project_key, user)
+        return run_match(db, project.id, site=None if body is None else body.site)
 
 
-@app.post("/api/v1/projects/{project_id}/economy")
-def economy_project(project_id: UUID, body: EconomyIn | None = None, user: SessionUser = Depends(require_user)) -> dict:
+@app.post("/api/v1/projects/{project_key}/economy")
+def economy_project(project_key: str, body: EconomyIn | None = None, user: SessionUser | None = Depends(optional_user)) -> dict:
     body = body or EconomyIn()
     with session_factory()() as db:
-        _owned(db, project_id, user)
-        try:
-            return project_economy(db, project_id, body.site, body.choices, body.tasks, body.preview)
-        except KeyError:
-            raise HTTPException(404, "Проект не найден") from None
+        project = _readable(db, project_key, user)
+        return project_economy(db, project.id, body.site, body.choices, body.tasks, body.preview, body.picks)
 
 
-@app.get("/api/v1/projects/{project_id}/layout")
-def layout_read(project_id: UUID, user: SessionUser = Depends(require_user)) -> dict:
+@app.get("/api/v1/projects/{project_key}/layout")
+def layout_read(project_key: str, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
-        _owned(db, project_id, user)
-        try:
-            return {"layout": project_layout(db, project_id)}
-        except KeyError:
-            raise HTTPException(404, "Проект не найден") from None
+        project = _readable(db, project_key, user)
+        return {"layout": project_layout(db, project.id)}
 
 
-@app.put("/api/v1/projects/{project_id}/layout")
-def layout_save(project_id: UUID, body: LayoutIn, user: SessionUser = Depends(require_user)) -> dict:
+@app.put("/api/v1/projects/{project_key}/layout")
+def layout_save(project_key: str, body: LayoutIn, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
-        _owned(db, project_id, user)
-        try:
-            return {"layout": save_project_layout(db, project_id, body.layout)}
-        except KeyError:
-            raise HTTPException(404, "Проект не найден") from None
+        project = _writable(db, project_key, user)
+        return {"layout": save_project_layout(db, project.id, body.layout)}
 
 
 _IMAGE_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 _LAYOUT_FILE = re.compile(r"^[0-9a-f-]{36}\.(png|jpg|webp)$")
 
 
-@app.post("/api/v1/projects/{project_id}/layout/background")
-async def layout_background(project_id: UUID, file: UploadFile = File(...), user: SessionUser = Depends(require_user)) -> dict:
+@app.post("/api/v1/projects/{project_key}/layout/background")
+async def layout_background(project_key: str, file: UploadFile = File(...), user: SessionUser | None = Depends(optional_user)) -> dict:
     extension = _IMAGE_TYPES.get(file.content_type or "")
     if extension is None:
         raise HTTPException(422, "Нужна картинка PNG, JPG или WebP")
@@ -583,11 +630,7 @@ async def layout_background(project_id: UUID, file: UploadFile = File(...), user
     if len(payload) > 20 * 1024 * 1024:
         raise HTTPException(413, "Картинка больше 20 МБ")
     with session_factory()() as db:
-        _owned(db, project_id, user)
-        try:
-            project_layout(db, project_id)
-        except KeyError:
-            raise HTTPException(404, "Проект не найден") from None
+        _writable(db, project_key, user)
     folder = Path(get_settings().upload_dir) / "layouts"
     folder.mkdir(parents=True, exist_ok=True)
     name = f"{uuid4()}.{extension}"
@@ -605,14 +648,11 @@ def layout_file(name: str) -> FileResponse:
     return FileResponse(path)
 
 
-@app.put("/api/v1/projects/{project_id}/economy/overrides")
-def economy_overrides(project_id: UUID, body: OverridesIn, user: SessionUser = Depends(require_user)) -> dict:
+@app.put("/api/v1/projects/{project_key}/economy/overrides")
+def economy_overrides(project_key: str, body: OverridesIn, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
-        _owned(db, project_id, user)
-        try:
-            return {"values": save_economy_overrides(db, project_id, body.values)}
-        except KeyError:
-            raise HTTPException(404, "Проект не найден") from None
+        project = _writable(db, project_key, user)
+        return {"values": save_economy_overrides(db, project.id, body.values)}
 
 
 @app.get("/api/v1/economy/norms")

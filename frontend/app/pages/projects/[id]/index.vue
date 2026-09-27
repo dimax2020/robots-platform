@@ -1,22 +1,104 @@
 <script setup lang="ts">
-import { PhArrowRight, PhArrowLeft, PhLock, PhCheck, PhClockCounterClockwise, PhCopy } from '@phosphor-icons/vue'
-import { objectTypeLabel, objectTypeImage, steps, isFullPath, scenarios } from '~/data/projects'
+import { PhArrowRight, PhArrowLeft, PhClockCounterClockwise, PhCopy, PhEye, PhEyeSlash, PhGearSix } from '@phosphor-icons/vue'
+import { objectTypeLabel, objectTypeImage, steps } from '~/data/projects'
 import { useLiveProject } from '~/composables/useLiveProject'
-import { demoProducts as products } from '~/data/demo'
+import { platformSend } from '~/composables/usePlatform'
+import { fetchErrorMessage } from '~/utils/errors'
+import { useDemoProjects } from '~/composables/useDemoProjects'
+import { usePlatformCompare, type MatchGroup } from '~/composables/usePlatformCompare'
+import { photoFor } from '~/data/placeholders'
+import type { EconReport } from '~/composables/usePlatformEconomy'
 
 const route = useRoute()
+const router = useRouter()
 const doc = useLiveProject(computed(() => route.params.id as string))
 const project = computed(() => doc.shell.value)
+const record = doc.record
+const { role } = useRole()
+const demos = useDemoProjects()
 useHead({ title: () => `${project.value?.name ?? 'Проект'} · Кабинет проекта` })
-const full = computed(() => (project.value ? isFullPath(project.value) : false))
-const available = computed(() => (full.value ? steps.length : 2))
-const nextStep = computed(() => {
-  const step = project.value?.step ?? 1
-  return steps[Math.min(step, steps.length) - 1]!
+const { remainingHit, picksFor } = usePlatformCompare(computed(() => record.value?.id ?? ''))
+const groups = ref<MatchGroup[]>([])
+const economy = ref<EconReport | null>(null)
+const summaryPending = ref(false)
+
+const fleet = computed(() => groups.value.flatMap((group) => {
+  const hit = remainingHit(group)
+  if (!hit) return []
+  return [{
+    code: group.process_code,
+    process: group.process_name,
+    name: hit.name,
+    count: hit.count,
+    image: photoFor(hit.image_url, hit.name, group.process_code),
+  }]
+}))
+const purchase = computed(() => economy.value?.scenarios.find((item) => item.key === 'purchase') ?? null)
+const paybackText = computed(() => {
+  const value = purchase.value?.payback.value
+  if (value == null) return ''
+  return `${value.toLocaleString('ru-RU', { maximumFractionDigits: 1, minimumFractionDigits: 1 })} лет`
 })
-const best = scenarios[2]!
-const fleet = best.fleet.map((f) => ({ ...f, p: products.find((x) => x.id === f.productId)! }))
-const fmt = (d: string) => d ? new Date(d).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) : '—'
+
+const loadSummary = async () => {
+  const current = record.value
+  if (!current?.can_edit) {
+    groups.value = []
+    economy.value = null
+    return
+  }
+  summaryPending.value = true
+  try {
+    const match = await platformSend<{ groups: MatchGroup[] }>(`/projects/${current.id}/match`, 'POST', { site: current.site })
+    groups.value = match.groups
+    const picks = picksFor(match.groups)
+    economy.value = Object.keys(picks).length
+      ? await platformSend<EconReport>(`/projects/${current.id}/economy`, 'POST', { site: current.site, picks })
+      : null
+  } catch {
+    groups.value = []
+    economy.value = null
+  } finally {
+    summaryPending.value = false
+  }
+}
+watch(() => record.value?.id, () => { void loadSummary() })
+const fmtNum = (v: unknown) => (typeof v === 'number' ? v.toLocaleString('ru-RU') : v == null || v === '' ? '—' : String(v))
+const area = computed(() => fmtNum(record.value?.site.area_m2))
+const shifts = computed(() => fmtNum(record.value?.site.shifts_per_day))
+const enabledCount = computed(() => record.value?.processes.filter((p) => p.enabled).length ?? 0)
+
+/* Копия: владелец дублирует свой проект, пользователь забирает опубликованное демо к себе. */
+const busy = ref('')
+const note = ref('')
+const copyProject = async () => {
+  if (!record.value || busy.value) return
+  busy.value = 'copy'
+  note.value = ''
+  try {
+    const copy = await platformSend<{ id: string }>(`/projects/${record.value.id}/copy`, 'POST')
+    await router.push(`/projects/${copy.id}`)
+  } catch (e: unknown) {
+    note.value = fetchErrorMessage(e, 'Не удалось скопировать проект')
+  } finally {
+    busy.value = ''
+  }
+}
+/* Публикация демо: до неё объект видит только администратор, после — все, но для чтения. */
+const togglePublish = async () => {
+  if (!record.value || busy.value) return
+  busy.value = 'publish'
+  note.value = ''
+  try {
+    await platformSend(`/admin/projects/${record.value.id}/demo`, 'PUT', { published: !record.value.published })
+    await doc.load()
+    await demos.load(true)
+  } catch (e: unknown) {
+    note.value = fetchErrorMessage(e, 'Не удалось изменить публикацию')
+  } finally {
+    busy.value = ''
+  }
+}
 const stepDesc: Record<string, string> = {
   params: 'Профиль площадки и список задач',
   match: 'Подходит, требует проверки, исключён',
@@ -36,25 +118,33 @@ const stepDesc: Record<string, string> = {
       <img :src="objectTypeImage[project.objectType]" alt="" class="hero-img">
       <div class="hero-body">
         <div class="row tags">
-          <UiBadge tone="neutral">{{ objectTypeLabel[project.objectType] }}</UiBadge>
-          <UiBadge :tone="full ? 'ok' : 'info'">{{ full ? 'Полный путь' : 'Урезанный путь: параметры и подбор' }}</UiBadge>
-          <UiBadge v-if="project.isDemo" tone="warn">Демо, без сохранения</UiBadge>
+          <UiBadge tone="neutral">{{ project.industry && project.industry !== objectTypeLabel[project.objectType] ? `${project.industry} — ${objectTypeLabel[project.objectType]}` : objectTypeLabel[project.objectType] }}</UiBadge>
+          <UiBadge v-if="project.isDemo && project.readonly" tone="info">Демо · только просмотр</UiBadge>
+          <UiBadge v-else-if="project.isDemo" :tone="project.published ? 'ok' : 'warn'">{{ project.published ? 'Демо · опубликовано' : 'Демо · черновик' }}</UiBadge>
         </div>
         <h1 class="hero-2">{{ project.name }}</h1>
         <div class="facts">
-          <div><span class="caption">Площадь</span><span class="mono-md">{{ project.area?.toLocaleString('ru-RU') }} м²</span></div>
-          <div><span class="caption">Смены</span><span class="mono-md">{{ project.shifts }}</span></div>
-          <div><span class="caption">Задач</span><span class="mono-md">{{ project.tasks }}</span></div>
-          <div><span class="caption">Обновлён</span><span class="mono-md">{{ fmt(project.updatedAt) }}</span></div>
+          <div><span class="caption">Площадь</span><span class="mono-md">{{ area }} м²</span></div>
+          <div><span class="caption">Смены</span><span class="mono-md">{{ shifts }}</span></div>
+          <div><span class="caption">Процессов в подборе</span><span class="mono-md">{{ enabledCount }}</span></div>
+          <div><span class="caption">Отрасль</span><span class="mono-md">{{ project.industry || '—' }}</span></div>
         </div>
         <div class="versions">
           <PhClockCounterClockwise :size="16" />
-          <span class="body-sm">Последний прогон на каталоге <span class="mono-md strong">{{ project.catalogVersion }}</span> и модели <span class="mono-md strong">{{ project.modelVersion }}</span>. Расчёт откроется с теми же исходными данными.</span>
+          <span class="body-sm">{{ project.readonly ? 'Демо-объект собрал администратор: параметры, подбор, коэффициенты и схема открываются для просмотра. Чтобы менять — скопируйте к себе.' : 'Расчёт идёт на текущей версии каталога и модели платформы и откроется снова с теми же исходными данными.' }}</span>
         </div>
+        <UiCallout v-if="note" tone="danger">{{ note }}</UiCallout>
       </div>
       <div class="hero-cta">
-        <UiButton :to="`/projects/${project.id}/${nextStep.path}`" size="lg">Продолжить: {{ nextStep.label }}<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
-        <UiButton variant="secondary"><template #icon><PhCopy :size="16" /></template>Копировать проект</UiButton>
+        <UiButton :to="`/projects/${project.id}/params`" size="lg">{{ project.readonly ? 'Смотреть параметры' : 'К параметрам' }}<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
+        <UiButton v-if="role !== 'guest'" variant="secondary" :disabled="busy === 'copy'" @click="copyProject"><template #icon><PhCopy :size="16" /></template>{{ project.readonly ? 'Скопировать в мои проекты' : 'Копировать проект' }}</UiButton>
+        <UiButton v-else to="/login" variant="secondary"><template #icon><PhCopy :size="16" /></template>Войти, чтобы скопировать</UiButton>
+        <template v-if="project.isDemo && role === 'admin'">
+          <UiButton :variant="project.published ? 'ghost' : 'secondary'" :disabled="busy === 'publish'" @click="togglePublish">
+            <template #icon><component :is="project.published ? PhEyeSlash : PhEye" :size="16" weight="bold" /></template>{{ project.published ? 'Снять с публикации' : 'Опубликовать демо' }}
+          </UiButton>
+          <UiButton to="/admin/demo" variant="ghost"><template #icon><PhGearSix :size="16" /></template>Все демо</UiButton>
+        </template>
       </div>
     </div>
 
@@ -62,40 +152,39 @@ const stepDesc: Record<string, string> = {
       <div class="span-7 steps-col" v-reveal="1">
         <div class="h3">Шаги расчёта</div>
         <ol class="steps">
-          <li v-for="(s, i) in steps" :key="s.code" class="st glass" :class="{ done: i + 1 < project.step && i < available, cur: i + 1 === project.step && i < available, locked: i >= available }">
-            <span class="st-n"><PhCheck v-if="i + 1 < project.step && i < available" :size="14" weight="bold" /><PhLock v-else-if="i >= available" :size="13" weight="bold" /><span v-else class="mono-sm">{{ i + 1 }}</span></span>
+          <li v-for="(s, i) in steps" :key="s.code" class="st glass">
+            <span class="st-n"><span class="mono-sm">{{ i + 1 }}</span></span>
             <div class="st-body">
               <div class="h4">{{ s.label }}</div>
-              <div class="caption">{{ i >= available ? 'Для этого типа объекта шаг в MVP не собирается' : stepDesc[s.code] }}</div>
+              <div class="caption">{{ stepDesc[s.code] }}</div>
             </div>
-            <NuxtLink v-if="i < available" :to="`/projects/${project.id}/${s.path}`" class="st-go"><PhArrowRight :size="16" weight="bold" /></NuxtLink>
+            <NuxtLink :to="`/projects/${project.id}/${s.path}`" class="st-go"><PhArrowRight :size="16" weight="bold" /></NuxtLink>
           </li>
         </ol>
-        <UiCallout v-if="!full" tone="info" title="Урезанный путь">Экраны экономики, what-if, плана и глубокого отчёта для аэропорта и медучреждения в MVP не собираются. Доступны параметры и список применимых решений.</UiCallout>
       </div>
 
       <aside class="span-5 side" v-reveal="2">
-        <div v-if="full" class="result glass-graphite glass-graphite-solid">
-          <div class="label">Последний результат</div>
-          <div class="h3">{{ best.title }}</div>
-          <div class="caption">{{ best.subtitle }}</div>
-          <div class="pay">
-            <span class="caption">Окупаемость</span>
-            <span class="display-3">{{ best.payback[0].toLocaleString('ru-RU') }}–{{ best.payback[2].toLocaleString('ru-RU') }} <span class="unit">лет</span></span>
-            <span class="caption">центральная оценка {{ best.payback[1].toLocaleString('ru-RU') }} года</span>
-          </div>
-          <ul class="fleet">
-            <li v-for="f in fleet" :key="f.productId"><img :src="f.p.image" alt=""><span class="body-sm">{{ f.p.name }}</span><span class="mono-md">× {{ f.count }}</span></li>
-          </ul>
-          <UiButton :to="`/projects/${project.id}/economics`" variant="onGraphite" block>Открыть экономику</UiButton>
-        </div>
-        <div v-else class="result glass">
-          <div class="r-in">
-            <div class="label">Подбор</div>
-            <div class="h3">Список применимых решений</div>
-            <p class="body-sm muted">Для {{ objectTypeLabel[project.objectType].toLowerCase() }} платформа показывает, какие решения проходят жёсткие проверки. Экономика в MVP закрыта.</p>
-            <UiButton :to="`/projects/${project.id}/match`" block>Открыть подбор</UiButton>
-          </div>
+        <div class="result glass-graphite glass-graphite-solid">
+          <div class="label">Состав парка</div>
+          <div class="h3">Оптимальный состав парка</div>
+          <p v-if="summaryPending" class="caption">Считаем роботов этого проекта…</p>
+          <template v-else-if="fleet.length">
+            <p class="caption">{{ fleet.length }} {{ fleet.length === 1 ? 'процесс' : 'процессов' }} с выбранным роботом. Процессы без робота в расчёт не входят.</p>
+            <div v-if="paybackText" class="pay">
+              <span class="caption">Окупаемость покупки</span>
+              <span class="display-3">{{ paybackText }}</span>
+              <span class="caption">по текущим параметрам площадки</span>
+            </div>
+            <ul class="fleet">
+              <li v-for="row in fleet" :key="row.code">
+                <img :src="row.image" :alt="row.name">
+                <span class="who"><span class="body-sm">{{ row.name }}</span><span class="caption">{{ row.process }}</span></span>
+                <span class="mono-md">{{ row.count != null ? `× ${row.count.toLocaleString('ru-RU')}` : '—' }}</span>
+              </li>
+            </ul>
+          </template>
+          <p v-else class="caption">Роботы появятся после подбора. Пока ни один процесс не закрыт подходящим решением.</p>
+          <UiButton :to="`/projects/${project.id}/${fleet.length ? 'economics' : 'match'}`" variant="onGraphite" block>{{ fleet.length ? 'Открыть экономику' : 'Открыть подбор' }}</UiButton>
         </div>
       </aside>
     </div>
@@ -128,13 +217,18 @@ const stepDesc: Record<string, string> = {
 .st-go:hover { background: var(--surface-graphite); color: #fff; }
 .side { position: sticky; top: 96px; }
 .result { padding: var(--space-6); display: grid; gap: 12px; }
-.r-in { position: relative; z-index: 1; display: grid; gap: 12px; }
+.result > * { position: relative; z-index: 1; }
+.result .label { color: var(--brand-300); }
+.result .h3,
+.result .body-sm { color: var(--ink-on-graphite); }
+.result .caption { color: rgba(241, 245, 243, 0.72); }
 .pay { display: grid; gap: 4px; padding: 14px 0; border-top: 1px solid rgba(255, 255, 255, 0.1); border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
 .pay .display-3 { color: var(--brand-300); }
-.unit { font-family: var(--font-sans); font-size: 16px; font-weight: 600; color: var(--ink-muted-graphite); }
-.fleet { display: grid; gap: 8px; }
-.fleet li { display: grid; grid-template-columns: 36px 1fr auto; gap: 10px; align-items: center; }
-.fleet img { width: 36px; height: 36px; border-radius: 8px; object-fit: cover; }
+.fleet { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.fleet li { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.fleet img { width: 36px; height: 36px; border-radius: 8px; object-fit: cover; background: rgba(255, 255, 255, 0.08); }
+.who { display: grid; gap: 1px; min-width: 0; }
+.who .body-sm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fleet .mono-md { color: var(--brand-300); }
 @media (max-width: 1100px) { .hero { grid-template-columns: 1fr; } .hero-img { width: 100%; height: 200px; } .span-7, .span-5 { grid-column: span 12; } .side { position: static; } }
 </style>

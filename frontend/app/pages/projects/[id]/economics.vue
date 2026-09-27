@@ -16,7 +16,7 @@ import { fetchErrorMessage } from '~/utils/errors'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
-const { project, isDemo, report, loading, failure, pending, error, source, choices, load } = usePlatformEconomy(id)
+const { project, isDemo, readonly, report, loading, failure, pending, error, source, choices, skipped, load } = usePlatformEconomy(id)
 useHead({ title: () => `Экономика · ${project.value?.name ?? 'проект'}` })
 
 onMounted(() => { void load() })
@@ -50,7 +50,8 @@ const groups = computed(() => PARAM_GROUPS.map((group) => ({
   items: (report.value?.params ?? []).filter((item) => item.group === group.id),
 })).filter((group) => group.items.length))
 const sourceText = (item: { source: string }) => ({ norm: 'стандарт', project: 'значение проекта', site: 'площадка' } as Record<string, string>)[item.source] ?? item.source
-const skipped = computed(() => report.value?.fleet.filter((row) => !row.included).length ?? 0)
+const withoutPrice = computed(() => report.value?.fleet.filter((row) => !row.included).length ?? 0)
+const fleetOpen = ref(false)
 </script>
 
 <template>
@@ -67,9 +68,13 @@ const skipped = computed(() => report.value?.fleet.filter((row) => !row.included
     </template>
 
     <UiCallout tone="warn" title="Предварительная оценка">{{ report?.disclaimer ?? PRELIMINARY }}</UiCallout>
+    <SkippedProcesses :rows="skipped" />
 
-    <UiCallout v-if="isDemo" tone="info" title="Демо-проект считается тем же движком">
-      Параметры площадки взяты из датасета объекта, коэффициенты — стандартные из админки. Свои значения задаются на шаге what-if.
+    <UiCallout v-if="readonly" tone="info" title="Демо-объект · только просмотр">
+      Параметры площадки и коэффициенты задал администратор, расчёт идёт тем же движком, что и в ваших проектах. Чтобы менять допущения, скопируйте демо в свои проекты.
+    </UiCallout>
+    <UiCallout v-else-if="isDemo" tone="info" title="Демо-объект">
+      Вы правите демо как администратор: параметры и коэффициенты сохраняются в проект и после публикации станут видны всем.
     </UiCallout>
 
     <section v-if="(pending || loading) && !report" class="waiting glass"><div class="h3">Считаем экономику</div></section>
@@ -77,13 +82,14 @@ const skipped = computed(() => report.value?.fleet.filter((row) => !row.included
     <template v-else-if="report">
       <section class="fleet glass">
         <div class="c-in">
-          <div class="c-head">
+          <button type="button" class="c-head fleet-toggle" :aria-expanded="fleetOpen" @click="fleetOpen = !fleetOpen">
             <div>
               <div class="h3">Один робот на процесс</div>
-              <div class="caption">{{ report.fleet.length }} процессов, {{ report.robots.toLocaleString('ru-RU') }} роботов в расчёте{{ skipped ? `, ${skipped} без цены не входят` : '' }}.</div>
+              <div class="caption">{{ report.fleet.length }} процессов, {{ report.robots.toLocaleString('ru-RU') }} роботов в расчёте{{ withoutPrice ? `, ${withoutPrice} без цены не входят` : '' }}.</div>
             </div>
-          </div>
-          <ul class="fleet-list">
+            <PhCaretDown :size="16" weight="bold" class="caret" :class="{ up: fleetOpen }" />
+          </button>
+          <ul v-show="fleetOpen" class="fleet-list">
             <li v-for="row in report.fleet" :key="row.process_code">
               <button type="button" class="fleet-row" :disabled="!row.fig" @click="row.fig && toggle(`fleet:${row.process_code}`)">
                 <img :src="photoFor(row.image_url, row.name, row.process_code)" :alt="row.name">
@@ -242,6 +248,7 @@ const skipped = computed(() => report.value?.fleet.filter((row) => !row.included
 .gone { padding-top: var(--space-12); }
 .c-in { position: relative; z-index: 1; padding: var(--space-5); display: grid; gap: var(--space-4); }
 .c-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.fleet-toggle { width: 100%; text-align: left; align-items: center; }
 .c-head .mono-lg { color: var(--ink-strong); white-space: nowrap; flex: none; font-size: 20px; }
 .c-btn { width: 100%; text-align: left; }
 .block { display: block; }

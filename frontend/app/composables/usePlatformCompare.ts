@@ -79,13 +79,32 @@ export function usePlatformCompare(projectId: Ref<string>) {
     return pool.find((hit) => hit.verdict === 'pass')?.product_id ?? pool[0]?.product_id ?? ''
   }
 
+  const skipReason = (group: MatchGroup) => {
+    if (includedHits(group).length) return ''
+    if (!group.hits.length) return 'В каталоге на этот процесс не назначено роботов.'
+    if (!group.hits.some((hit) => hit.verdict === 'pass')) return 'Ни один робот не прошёл фильтры, и в сравнение его не добавили.'
+    return 'Подходящих роботов убрали из сравнения.'
+  }
+
   const remainingHit = (group: MatchGroup) => {
     const pool = includedHits(group)
-    const picked = pool.find((hit) => hit.product_id === chosenId(group))
-    if (picked) return picked
-    if (!group.best_product_id) return null
-    return group.hits.find((hit) => hit.product_id === group.best_product_id) ?? null
+    if (!pool.length) return null
+    return pool.find((hit) => hit.product_id === chosenId(group)) ?? pool[0] ?? null
   }
+
+  const picksFor = (groups: MatchGroup[]) => {
+    const picks: Record<string, string> = {}
+    for (const group of groups) {
+      const hit = remainingHit(group)
+      if (hit) picks[group.process_code] = hit.product_id
+    }
+    return picks
+  }
+
+  const skippedOf = (groups: MatchGroup[]) => groups.flatMap((group) => {
+    const reason = skipReason(group)
+    return reason ? [{ code: group.process_code, name: group.process_name, reason }] : []
+  })
 
   const choose = (process: string, productId: string) => {
     store.value = {
@@ -99,5 +118,5 @@ export function usePlatformCompare(projectId: Ref<string>) {
 
   const choices = computed(() => ({ ...store.value.chosen }))
 
-  return { inCompare, toggleCompare, includedHits, chosenId, remainingHit, choose, isConfirmed, choices }
+  return { inCompare, toggleCompare, includedHits, chosenId, remainingHit, skipReason, picksFor, skippedOf, choose, isConfirmed, choices }
 }

@@ -2,7 +2,7 @@ import type { Ref } from 'vue'
 import { fetchErrorMessage } from '~/utils/errors'
 import { platformSend } from '~/composables/usePlatform'
 import { useLiveProject } from '~/composables/useLiveProject'
-import { usePlatformCompare } from '~/composables/usePlatformCompare'
+import { usePlatformCompare, type MatchGroup } from '~/composables/usePlatformCompare'
 
 export type EconSource = 'card' | 'fleet' | 'site' | 'norm' | 'project' | 'calc'
 
@@ -149,9 +149,11 @@ export const figValue = (value: number | null | undefined, unit: string) => {
 
 export function usePlatformEconomy(id: Ref<string>) {
   const live = useLiveProject(id)
-  const { choices } = usePlatformCompare(id)
+  const { choices, picksFor, skippedOf } = usePlatformCompare(id)
+  const skipped = ref<{ code: string; name: string; reason: string }[]>([])
   const project = live.shell
   const isDemo = live.isDemo
+  const readonly = live.readonly
   const objectCode = live.objectCode
 
   const source = computed(() => {
@@ -164,20 +166,20 @@ export function usePlatformEconomy(id: Ref<string>) {
   const failure = ref('')
   let token = 0
 
-  const ensureProject = async () => (isDemo.value ? null : id.value)
+  const ensureProject = async () => id.value
 
+  /* Демо считается тем же движком через те же ручки проекта: опубликованное демо сервер отдаёт без входа. */
   const request = async (preview: Record<string, number> | null = null) => {
     if (!source.value || !objectCode.value) throw new Error('Нет параметров площадки')
+    const match = await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site: source.value.site })
+    skipped.value = skippedOf(match.groups)
     const body: Record<string, unknown> = {
       site: source.value.site,
       tasks: source.value.tasks,
       choices: choices.value,
+      picks: picksFor(match.groups),
     }
     if (preview) body.preview = preview
-    if (isDemo.value) {
-      body.object_code = objectCode.value
-      return await platformSend<EconReport>('/catalog/preview/economy', 'POST', body)
-    }
     return await platformSend<EconReport>(`/projects/${id.value}/economy`, 'POST', body)
   }
 
@@ -196,21 +198,24 @@ export function usePlatformEconomy(id: Ref<string>) {
     }
   }
 
+  /* Только просмотр: коэффициенты меняются в what-if локально, но в проект не пишутся. */
   const saveOverrides = async (values: Record<string, number>) => {
-    if (isDemo.value) return
+    if (readonly.value) return
     await platformSend(`/projects/${id.value}/economy/overrides`, 'PUT', { values })
   }
 
   return {
     project,
     isDemo,
+    readonly,
     report,
     loading,
     failure,
     pending: live.pending,
-    error: computed(() => (isDemo.value ? null : live.error.value)),
+    error: live.error,
     source,
     choices,
+    skipped,
     objectCode,
     ensureProject,
     load,

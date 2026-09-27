@@ -13,7 +13,7 @@ import { fetchErrorMessage } from '~/utils/errors'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
-const { project, isDemo, report, loading, failure, pending, error, source, choices, load, request, saveOverrides } = usePlatformEconomy(id)
+const { project, isDemo, readonly, report, loading, failure, pending, error, source, choices, skipped, load, request, saveOverrides } = usePlatformEconomy(id)
 useHead({ title: () => `What-if · ${project.value?.name ?? 'проект'}` })
 
 const draft = ref<Record<string, number>>({})
@@ -126,13 +126,15 @@ const purchase = computed(() => report.value?.scenarios.find((item) => item.key 
   >
     <template #actions>
       <UiButton variant="secondary" :disabled="!changed" @click="resetAll"><template #icon><PhArrowCounterClockwise :size="16" weight="bold" /></template>К стандарту</UiButton>
-      <UiButton variant="secondary" :disabled="!dirty || saving" @click="save"><template #icon><PhFloppyDisk :size="16" weight="bold" /></template>{{ saving ? 'Сохраняем' : 'Сохранить для проекта' }}</UiButton>
-      <UiButton :to="`/projects/${project.id}/economics`" size="lg">К экономике<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
+      <UiButton v-if="!readonly" variant="secondary" :disabled="!dirty || saving" @click="save"><template #icon><PhFloppyDisk :size="16" weight="bold" /></template>{{ saving ? 'Сохраняем' : 'Сохранить для проекта' }}</UiButton>
+      <UiButton :to="`/projects/${project.id}/plan`" size="lg">К визуализации<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
     </template>
 
     <UiCallout tone="warn" title="Предварительная оценка">{{ report?.disclaimer ?? PRELIMINARY }}</UiCallout>
+    <SkippedProcesses :rows="skipped" />
 
-    <UiCallout v-if="isDemo" tone="info" title="Демо-проект">Площадка из датасета объекта, коэффициенты стандартные. Изменения сохраняются только для этого демо-проекта.</UiCallout>
+    <UiCallout v-if="readonly" tone="info" title="Демо-объект · только просмотр">Коэффициенты можно двигать и смотреть результат, но в демо они не сохранятся. Чтобы вести свои допущения, скопируйте демо в свои проекты.</UiCallout>
+    <UiCallout v-else-if="isDemo" tone="info" title="Демо-объект">Вы правите демо как администратор: сохранённые коэффициенты увидят все после публикации.</UiCallout>
 
     <section v-if="(pending || loading) && !report" class="waiting glass"><div class="h3">Считаем сценарии</div></section>
     <UiCallout v-else-if="(failure || error) && !report" tone="danger" title="Сценарии не посчитались">{{ failure || fetchErrorMessage(error, 'Сервер не ответил.') }}</UiCallout>

@@ -151,7 +151,7 @@ const statusTone: Record<string, 'warn' | 'info' | 'ok' | 'danger'> = { pending:
 .job { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px 10px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border-hairline); }
 .job .caption:last-child:not(:nth-child(3)) { grid-column: 1 / -1; }
 .err { color: var(--state-danger); }
-.sections { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-4); }
+.sections { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
 .sec { display: grid; gap: 4px; align-content: start; }
 .sec-item { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; padding: 8px; border-radius: 10px; color: var(--brand-700); }
 .sec-item:hover { background: rgba(15, 20, 19, 0.04); }

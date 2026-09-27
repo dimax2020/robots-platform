@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.api.main import app
-from app.infrastructure.db.models import AppUserRow
+from app.infrastructure.db.models import AppUserRow, ProjectRow
 from app.infrastructure.db.session import session_factory
 from app.infrastructure.db.taxonomy_repo import delete_project
 
@@ -41,6 +41,61 @@ def test_guest_and_user_cannot_open_admin():
     assert guest.get("/api/v1/admin/processes").status_code == 403
     assert _login("user").get("/api/v1/admin/processes").status_code == 403
     assert _login("admin").get("/api/v1/admin/processes").status_code == 200
+
+
+def test_demo_project_is_read_only_until_admin_edits():
+    """Опубликованное демо читают все, правит только администратор; черновик виден только ему."""
+    admin = _login("admin")
+    created = admin.post("/api/v1/admin/projects/demo", json={"name": "Тестовое демо", "object_code": "warehouse", "slug": "demo-test-access"})
+    assert created.status_code == 200, created.text
+    demo_id = created.json()["id"]
+    assert created.json()["is_demo"] is True and created.json()["published"] is False
+    copies: list[str] = []
+    try:
+        anon = TestClient(app)
+        guest = _login("guest")
+        user = _login("user")
+        # Черновик скрыт от всех, кроме администратора; в публичном списке его нет.
+        assert anon.get("/api/v1/projects/demo-test-access").status_code == 404
+        assert user.get(f"/api/v1/projects/{demo_id}").status_code == 404
+        assert all(item["id"] != demo_id for item in anon.get("/api/v1/projects/demo").json()["items"])
+        assert admin.get("/api/v1/projects/demo-test-access").json()["can_edit"] is True
+
+        published = admin.put(f"/api/v1/admin/projects/{demo_id}/demo", json={"published": True})
+        assert published.status_code == 200 and published.json()["published"] is True
+        listed = anon.get("/api/v1/projects/demo").json()["items"]
+        assert any(item["slug"] == "demo-test-access" for item in listed)
+
+        # Чтение и расчёт по адресу без входа; правки запрещены гостю и пользователю.
+        view = anon.get("/api/v1/projects/demo-test-access")
+        assert view.status_code == 200 and view.json()["can_edit"] is False
+        assert anon.post("/api/v1/projects/demo-test-access/match").status_code == 200
+        assert anon.get("/api/v1/projects/demo-test-access/layout").status_code == 200
+        assert anon.patch(f"/api/v1/projects/{demo_id}", json={"site": {"area_m2": 1}}).status_code == 401
+        assert guest.patch(f"/api/v1/projects/{demo_id}", json={"site": {"area_m2": 1}}).status_code == 401
+        assert user.patch(f"/api/v1/projects/{demo_id}", json={"site": {"area_m2": 1}}).status_code == 403
+        assert user.put(f"/api/v1/projects/{demo_id}/layout", json={"layout": {}}).status_code == 403
+        assert user.delete(f"/api/v1/projects/{demo_id}").status_code == 403
+        # Демо не попадает в «мои проекты» пользователя, но копируется к нему обычным проектом.
+        assert all(item["id"] != demo_id for item in user.get("/api/v1/projects").json()["items"])
+        copied = user.post("/api/v1/projects/demo-test-access/copy")
+        assert copied.status_code == 200, copied.text
+        copies.append(copied.json()["id"])
+        assert copied.json()["is_demo"] is False and copied.json()["slug"] is None
+        # Администратор правит демо как обычный проект.
+        assert admin.patch(f"/api/v1/projects/{demo_id}", json={"site": {"area_m2": 777}}).json()["site"]["area_m2"] == 777
+        # Занятый адрес не отдаётся второму демо.
+        clash = admin.post("/api/v1/admin/projects/demo", json={"name": "Дубль", "object_code": "warehouse", "slug": "demo-test-access"})
+        assert clash.status_code == 422
+    finally:
+        with session_factory()() as db:
+            for raw in [demo_id, *copies]:
+                try:
+                    delete_project(db, UUID(raw))
+                except KeyError:
+                    pass
+            for row in db.scalars(select(ProjectRow).where(ProjectRow.name == "Дубль")):
+                delete_project(db, row.id)
 
 
 def test_owner_copy_and_delete():

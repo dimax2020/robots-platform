@@ -22,7 +22,7 @@ const submit = async () => {
   try {
     const user = await signIn(login.value.trim(), password.value)
     const role = user?.role ?? 'guest'
-    await router.push(role === 'guest' ? '/projects/demo-warehouse' : role === 'admin' ? '/admin' : '/projects')
+    await router.push(role === 'guest' ? '/projects' : role === 'admin' ? '/admin' : '/projects')
   } catch (err) {
     error.value = fetchErrorMessage(err, 'Не удалось войти')
   }

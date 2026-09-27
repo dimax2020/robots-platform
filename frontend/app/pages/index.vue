@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { PhArrowRight, PhArrowUpRight, PhDatabase, PhGitBranch, PhChartLineUp, PhPlay } from '@phosphor-icons/vue'
-import { projects, objectTypeLabel, objectTypeImage } from '~/data/projects'
+import { objectTypeLabel, objectTypeImage } from '~/data/projects'
 import { cardToProduct, platformGet, type PlatformPage } from '~/composables/usePlatform'
+import { demoObjectType, demoPath, useDemoProjects } from '~/composables/useDemoProjects'
 import type { Product } from '~/data/catalog'
 
 useHead({ title: 'Платформа роботизации. Каталог и подбор решений' })
@@ -16,7 +17,9 @@ onMounted(() => {
     })
     .catch(() => { featured.value = [] })
 })
-const demos = computed(() => projects.filter((p) => p.isDemo))
+const demoStore = useDemoProjects()
+const demos = demoStore.items
+const demoReport = computed(() => (demoStore.first.value ? `${demoPath(demoStore.first.value)}/report` : '/projects'))
 
 const rules = [
   { icon: PhDatabase, title: 'У каждого числа есть источник', text: 'Достоверность выводится из типа источника: производитель, дилер, СМИ, каталог, аналог, допущение. Буква не ставится вручную.' },
@@ -187,20 +190,20 @@ const objects = [
     </section>
 
     <!-- Демо-наборы -->
-    <section class="container section">
-      <SectionHead title="Демо-площадки для гостя" lead="Три площадки с загруженными параметрами. Проход без сохранения собственного проекта.">
+    <section v-if="demos.length" class="container section">
+      <SectionHead title="Демо-объекты для гостя" lead="Опубликованные администратором объекты с готовыми параметрами. Открываются без входа, только для просмотра.">
         <UiButton to="/login" variant="secondary">Войти под ролью</UiButton>
       </SectionHead>
       <div class="demos">
-        <NuxtLink v-for="(d, i) in demos" :key="d.id" :to="`/projects/${d.id}`" class="demo glass" v-reveal="i">
-          <div class="demo-media"><img :src="objectTypeImage[d.objectType]" :alt="objectTypeLabel[d.objectType]" loading="lazy"></div>
+        <NuxtLink v-for="(d, i) in demos" :key="d.id" :to="demoPath(d)" class="demo glass" v-reveal="i">
+          <div class="demo-media"><img :src="objectTypeImage[demoObjectType(d)]" :alt="objectTypeLabel[demoObjectType(d)]" loading="lazy"></div>
           <div class="demo-body">
-            <div class="label">{{ objectTypeLabel[d.objectType] }} · {{ d.industry }}</div>
+            <div class="label">{{ objectTypeLabel[demoObjectType(d)] }} · {{ d.industry }}</div>
             <div class="h3">{{ d.name }}</div>
             <div class="demo-meta">
-              <span class="mono-sm">{{ d.area?.toLocaleString('ru-RU') }} м²</span>
-              <span class="mono-sm">{{ d.shifts }} смены</span>
-              <span class="mono-sm">{{ d.tasks }} задачи</span>
+              <span v-if="d.area_m2" class="mono-sm">{{ Number(d.area_m2).toLocaleString('ru-RU') }} м²</span>
+              <span v-if="d.shifts_per_day" class="mono-sm">{{ d.shifts_per_day }} {{ Number(d.shifts_per_day) === 1 ? 'смена' : 'смены' }}</span>
+              <span class="mono-sm">{{ d.processes }} процессов</span>
             </div>
             <span class="demo-go"><PhPlay :size="14" weight="fill" /> Открыть демо</span>
           </div>
@@ -227,7 +230,7 @@ const objects = [
         </div>
         <div class="row">
           <UiButton to="/projects/new" size="lg">Начать проект</UiButton>
-          <UiButton to="/projects/demo-warehouse/report" variant="ghost" size="lg">Посмотреть демо-отчёт</UiButton>
+          <UiButton :to="demoReport" variant="ghost" size="lg">Посмотреть демо-отчёт</UiButton>
         </div>
       </div>
     </section>

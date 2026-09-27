@@ -1,15 +1,19 @@
 <script setup lang="ts">
-import { PhPlus, PhCopy, PhTrash, PhArrowRight, PhLockSimple } from '@phosphor-icons/vue'
-import { projects, objectTypeLabel, objectTypeImage, isFullPath, type ObjectType } from '~/data/projects'
+import { PhPlus, PhCopy, PhTrash, PhArrowRight, PhEye, PhGearSix } from '@phosphor-icons/vue'
+import { objectTypeLabel, objectTypeImage, type ObjectType } from '~/data/projects'
 import { fetchErrorMessage } from '~/utils/errors'
 import { platformGet, platformSend } from '~/composables/usePlatform'
+import { demoPath, useDemoProjects } from '~/composables/useDemoProjects'
 
 interface OwnProject {
   id: string
+  slug: string | null
   name: string
   object_code: string
   object_name: string
   industry: string
+  is_demo: boolean
+  published: boolean
 }
 
 useHead({ title: 'Проекты' })
@@ -18,6 +22,7 @@ const own = ref<OwnProject[]>([])
 const pending = ref(false)
 const error = ref<unknown>(null)
 const busy = ref('')
+const demos = useDemoProjects()
 
 const load = async () => {
   if (role.value === 'guest') { own.value = []; return }
@@ -25,7 +30,8 @@ const load = async () => {
   error.value = null
   try {
     const page = await platformGet<{ items: OwnProject[] }>('/projects')
-    own.value = page.items
+    /* Демо-объекты администратора живут в отдельном разделе админки, здесь только обычные проекты. */
+    own.value = page.items.filter((row) => !row.is_demo)
   } catch (err) {
     error.value = err
   } finally {
@@ -34,10 +40,10 @@ const load = async () => {
 }
 watch(role, () => { void load() }, { immediate: true })
 
-const demo = computed(() => projects.filter((p) => p.isDemo))
+const demo = demos.items
 const typeOf = (code: string): ObjectType => code === 'airport' || code === 'hospital' ? code : 'warehouse'
-const labelOf = (row: OwnProject) => objectTypeLabel[typeOf(row.object_code)] ?? row.object_name
-const imageOf = (row: OwnProject) => objectTypeImage[typeOf(row.object_code)] ?? objectTypeImage.warehouse
+const labelOf = (row: { object_code: string; object_name: string }) => objectTypeLabel[typeOf(row.object_code)] ?? row.object_name
+const imageOf = (row: { object_code: string }) => objectTypeImage[typeOf(row.object_code)] ?? objectTypeImage.warehouse
 
 const copyProject = async (id: string) => {
   busy.value = id
@@ -75,7 +81,7 @@ const removeProject = async (id: string) => {
       <UiButton to="/projects/new" size="lg"><template #icon><PhPlus :size="18" weight="bold" /></template>Новый проект</UiButton>
     </div>
 
-    <UiCallout v-if="role === 'guest'" tone="info" title="Гость видит только демо">Своих проектов у гостя нет. Войдите как пользователь, чтобы сохранять расчёты. Демо-площадки открываются без входа.</UiCallout>
+    <UiCallout v-if="role === 'guest'" tone="info" title="Гость видит только демо">Своих проектов у гостя нет. Войдите как пользователь, чтобы сохранять расчёты и копировать демо-объекты к себе. Демо открываются без входа.</UiCallout>
 
     <div v-if="role !== 'guest'" class="block" v-reveal>
       <div class="h3 block-title">Мои проекты <span class="mono-sm muted">{{ own.length }}</span></div>
@@ -107,14 +113,18 @@ const removeProject = async (id: string) => {
     </div>
 
     <div class="block" v-reveal="1">
-      <div class="h3 block-title">Демо-площадки <span class="mono-sm muted">{{ demo.length }}</span></div>
-      <div class="demos">
-        <NuxtLink v-for="p in demo" :key="p.id" :to="`/projects/${p.id}`" class="demo glass">
-          <img :src="objectTypeImage[p.objectType]" :alt="objectTypeLabel[p.objectType]">
+      <div class="between">
+        <div class="h3 block-title">Демо-объекты <span class="mono-sm muted">{{ demo.length }}</span></div>
+        <UiButton v-if="role === 'admin'" to="/admin/demo" size="sm" variant="secondary"><template #icon><PhGearSix :size="14" weight="bold" /></template>Ведение демо</UiButton>
+      </div>
+      <UiCallout v-if="demos.loaded.value && !demo.length" tone="info" title="Опубликованных демо пока нет">{{ role === 'admin' ? 'Соберите демо-объект в админке и опубликуйте его.' : 'Администратор ещё не опубликовал ни одного демо-объекта.' }}</UiCallout>
+      <div v-else class="demos">
+        <NuxtLink v-for="p in demo" :key="p.id" :to="demoPath(p)" class="demo glass">
+          <img :src="imageOf(p)" :alt="labelOf(p)">
           <div class="demo-body">
-            <div class="between"><span class="label">{{ objectTypeLabel[p.objectType] }}</span><UiBadge :tone="isFullPath(p) ? 'ok' : 'info'" size="sm">{{ isFullPath(p) ? 'Полный путь' : 'До подбора' }}</UiBadge></div>
+            <div class="between"><span class="label">{{ labelOf(p) }}</span><UiBadge :tone="typeOf(p.object_code) === 'warehouse' ? 'ok' : 'info'" size="sm">{{ typeOf(p.object_code) === 'warehouse' ? 'Полный путь' : 'До подбора' }}</UiBadge></div>
             <div class="h4">{{ p.name }}</div>
-            <div class="caption"><PhLockSimple :size="12" /> Без сохранения · {{ p.catalogVersion }}</div>
+            <div class="caption"><PhEye :size="12" /> Только просмотр · {{ p.industry || labelOf(p) }}{{ p.area_m2 ? ` · ${Number(p.area_m2).toLocaleString('ru-RU')} м²` : '' }}</div>
           </div>
         </NuxtLink>
       </div>

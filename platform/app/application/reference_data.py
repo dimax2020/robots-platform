@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from functools import lru_cache
 from pathlib import Path
+from uuid import UUID
 
 from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.orm import Session
@@ -67,7 +68,46 @@ def seed_reference(db: Session) -> None:
     _seed_attribute_meta(db)
     db.flush()
     assign_missing_types(db)
+    seed_demo_projects(db)
     db.commit()
+
+
+# Демо-объекты платформы: постоянный адрес, название и тип объекта. Параметры берутся из полей объекта.
+DEMO_PROJECTS = (
+    ("demo-warehouse", "Склад Внуково-Юг, 12 000 м²", "warehouse"),
+    ("demo-airport", "Терминал В, багажная зона", "airport"),
+    ("demo-hospital", "ГКБ № 52, корпус 3", "hospital"),
+)
+
+
+def seed_demo_projects(db: Session) -> None:
+    """Три опубликованных демо-объекта у администратора. Уже существующие адреса не трогаем."""
+    from app.infrastructure.db.models import ProjectRow
+
+    bind = db.get_bind()
+    if bind is None or not sa_inspect(bind).has_table("project"):
+        return
+    columns = {column["name"] for column in sa_inspect(bind).get_columns("project")}
+    if "is_demo" not in columns:
+        return
+    from app.infrastructure.db.taxonomy_repo import create_project, object_defaults
+
+    admin_id = db.scalar(select(AppUserRow.id).where(AppUserRow.role == "admin"))
+    taken = set(db.scalars(select(ProjectRow.slug).where(ProjectRow.slug.is_not(None))))
+    for slug, name, object_code in DEMO_PROJECTS:
+        if slug in taken:
+            continue
+        obj = db.scalar(select(ObjectTypeRow).where(ObjectTypeRow.code == object_code))
+        if obj is None:
+            continue
+        created = create_project(db, name=name, object_code=object_code, site=object_defaults(db, object_code), owner_id=admin_id)
+        row = db.get(ProjectRow, UUID(created["id"]))
+        if row is None:
+            continue
+        row.is_demo = True
+        row.published = True
+        row.slug = slug
+    db.flush()
 
 
 def _seed_types(db: Session) -> None:

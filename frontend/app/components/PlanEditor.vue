@@ -7,9 +7,9 @@
  */
 import type KonvaNS from 'konva'
 import polygonClipping from 'polygon-clipping'
-import { fitFloorToOutline, mergeAreas, newLink, stationLabel, uid } from '~/sim/templates'
+import { ROLE_KIND, fitFloorToOutline, mergeAreas, newLink, stationLabel, uid } from '~/sim/templates'
 import { floorBounds } from '~/sim/grid'
-import type { Floor, Layout, LinkKind, RobotView, SimProcess, StationKind, Visibility } from '~/sim/types'
+import type { Floor, Layout, LayoutItem, LinkKind, RobotView, SimProcess, StationKind, Visibility } from '~/sim/types'
 
 export type EditorMode = 'building' | 'robots' | 'view'
 export type EditorTool = 'select' | 'hand' | 'floor' | 'block' | 'zone' | 'station' | 'link' | 'calibrate'
@@ -109,7 +109,7 @@ onMounted(async () => {
   stage.on('mousemove touchmove', onMove)
   stage.on('mouseup touchend', onUp)
   stage.on('dblclick dbltap', onDouble)
-  stage.on('dragmove', () => renderFloor())
+  stage.on('dragmove', (event) => { if (event.target === stage) renderFloor() })
   stage.on('dragend', () => { zoom.value = stage!.scaleX(); emit('zoom', zoom.value) })
   window.addEventListener('keydown', onKey)
   window.addEventListener('keyup', onKeyUp)
@@ -352,18 +352,30 @@ function addVertexHandle(layer: KonvaNS.Layer, points: number[], index: number, 
   if (!Konva || !stage) return
   const scale = stage.scaleX()
   const size = 10 / scale
-  const handle = new Konva.Rect({ x: points[index]!, y: points[index + 1]!, offsetX: size / 2, offsetY: size / 2, width: size, height: size, fill: '#fff', stroke: BLUE, strokeWidth: 2, strokeScaleEnabled: false, draggable: true, cornerRadius: size / 5 })
+  const handle = new Konva.Rect({ x: points[index]!, y: points[index + 1]!, offsetX: size / 2, offsetY: size / 2, width: size, height: size, fill: '#fff', stroke: BLUE, strokeWidth: 2, strokeScaleEnabled: false, draggable: true, cornerRadius: size / 5, name: 'handle' })
   handle.on('mouseenter', () => { if (stage) stage.container().style.cursor = 'crosshair' })
-  handle.on('mouseleave', () => { if (stage) stage.container().style.cursor = cursorFor() })
+  handle.on('mouseleave', () => { if (stage && !shaping) stage.container().style.cursor = cursorFor() })
   handle.on('mousedown touchstart', (event) => { event.cancelBubble = true })
+  handle.on('dragstart', () => { shaping = true })
   handle.on('dragmove', () => {
     points[index] = snap(handle.x(), 1)
     points[index + 1] = snap(handle.y(), 1)
     handle.position({ x: points[index]!, y: points[index + 1]! })
     live()
   })
-  handle.on('dragend', () => done())
+  handle.on('dragend', () => { shaping = false; done() })
   layer.add(handle)
+}
+
+/* Идёт перетаскивание угла или ручки размера: обычный ввод (выделение, рамка, наведение) не должен перерисовывать слой. */
+let shaping = false
+function isShapeControl(node: KonvaNS.Node | null) {
+  let current: KonvaNS.Node | null = node
+  while (current && current !== stage) {
+    if (current.name() === 'handle' || current.getClassName() === 'Transformer') return true
+    current = current.getParent()
+  }
+  return false
 }
 
 /* Объекты. */
@@ -438,6 +450,8 @@ function render() {
     if (scale >= 4 && !building) group.add(new K.Text({ x: 0.85, y: -0.45, text: stationLabel(props.processes[station.process], station.kind, station.item), fontSize: 11 / scale, fontFamily: 'Manrope', fill: '#3b4643', listening: false }))
     planLayer.add(group)
   }
+  /* Ручки размера живут на этом же слое: после перерисовки цепляем их заново. */
+  attachTransformer()
   planLayer.batchDraw()
   renderUi()
 }
@@ -531,6 +545,8 @@ function onDown(event: KonvaNS.KonvaEventObject<MouseEvent | TouchEvent>) {
   const at = pointer()
   if (!at || !floor.value) return
   if (spaceHeld || props.tool === 'hand' || props.mode === 'view') return
+  /* Клик по углу контура или по ручке размера обрабатывают сами ручки. */
+  if (shaping || isShapeControl(event.target)) return
   if (props.tool === 'block' || props.tool === 'zone' || props.tool === 'floor') {
     rectStart = at
     return
@@ -568,10 +584,11 @@ function onDown(event: KonvaNS.KonvaEventObject<MouseEvent | TouchEvent>) {
 function onMove(event: KonvaNS.KonvaEventObject<MouseEvent | TouchEvent>) {
   const at = pointer()
   if (!at || !stage || props.mode === 'view') return
+  if (shaping) return
   if (props.tool === 'select' && !drag && !marquee) {
     const target = targetOf(event.target)
     const key = target ? `${target.kind}:${target.id}` : ''
-    if (key !== hovered) {
+    if (key !== hovered && !isShapeControl(event.target)) {
       const wasArea = hovered.startsWith('area:')
       hovered = key
       stage.container().style.cursor = target ? 'move' : cursorFor()
@@ -652,6 +669,7 @@ function candidates(exclude: Set<string>) {
 
 function onUp(event: KonvaNS.KonvaEventObject<MouseEvent | TouchEvent>) {
   if (props.mode === 'view') return
+  if (shaping || isShapeControl(event.target)) return
   const at = pointer()
   const f = floor.value
   if (!f) return
@@ -880,13 +898,12 @@ function nudge(dx: number, dy: number) {
   render()
 }
 
-/* Ручки размера у прямоугольников: единственный выделенный блок или зона. */
+/* Ручки размера у прямоугольников: единственный выделенный блок или зона. Вызывается из render(). */
 let transformer: KonvaNS.Transformer | null = null
-watch(() => [props.selection, props.tool], () => attachTransformer(), { deep: true })
 function attachTransformer() {
   transformer?.destroy()
   transformer = null
-  if (!Konva || !planLayer || !floor.value || props.tool !== 'select' || props.selection.length !== 1) return
+  if (!Konva || !planLayer || !floor.value || props.tool !== 'select' || props.mode === 'view' || props.selection.length !== 1) return
   const sel = props.selection[0]!
   if (sel.kind !== 'block' && sel.kind !== 'zone') return
   const node = planLayer.findOne(`.${sel.kind}:${sel.id}`)
@@ -897,15 +914,21 @@ function attachTransformer() {
   })
   planLayer.add(transformer)
   transformer.nodes([node])
+  transformer.on('transformstart', () => { shaping = true })
   transformer.on('transform', () => renderUi())
   transformer.on('transformend', () => {
-    const box = { x: snap(node.x()), y: snap(node.y()), w: Math.max(0.5, snap(node.width() * node.scaleX())), h: Math.max(0.5, snap(node.height() * node.scaleY())) }
+    shaping = false
+    /* Konva меняет масштаб узла, а не размер: переводим в метры с учётом знака и привязки к сетке. */
+    const w = node.width() * node.scaleX()
+    const h = node.height() * node.scaleY()
+    const x = w < 0 ? node.x() + w : node.x()
+    const y = h < 0 ? node.y() + h : node.y()
+    const box = { x: snap(x), y: snap(y), w: Math.max(0.5, snap(Math.abs(w))), h: Math.max(0.5, snap(Math.abs(h))) }
     const target = sel.kind === 'block' ? floor.value?.blocks.find((i) => i.id === sel.id) : floor.value?.zones.find((i) => i.id === sel.id)
     if (!target) return
     Object.assign(target, box)
     emit('change', 'Размер')
     render()
-    attachTransformer()
   })
   planLayer.batchDraw()
 }
@@ -965,7 +988,37 @@ function exportPng() {
   return stage?.toDataURL({ pixelRatio: 2 }) ?? ''
 }
 
-defineExpose({ fit, fitContent, zoomBy, zoomTo, drawRobots, clearRobots, render, exportPng })
+/** Объект из меню «Добавить», отпущенный над схемой: ставим в точку экрана и сразу выделяем. */
+function dropItem(clientX: number, clientY: number, payload: { process: string; item: LayoutItem }) {
+  const f = floor.value
+  if (!stage || !planLayer || !f) return false
+  const rect = stage.container().getBoundingClientRect()
+  const at = planLayer.getAbsoluteTransform().copy().invert().point({ x: clientX - rect.left, y: clientY - rect.top })
+  const { process, item } = payload
+  if (item.role === 'work_zone') {
+    const w = 8
+    const h = 6
+    const zone = { id: uid('zn'), process, item: item.key, x: snap(at.x - w / 2, 1), y: snap(at.y - h / 2, 1), w, h }
+    f.zones.push(zone)
+    emit('change', 'Зона')
+    emit('select', [{ kind: 'zone', id: zone.id }])
+  } else if (item.role === 'obstacle') {
+    const block = { id: uid('bl'), x: snap(at.x - 1, 1), y: snap(at.y - 1, 1), w: 2, h: 2, label: item.label, process, item: item.key }
+    f.blocks.push(block)
+    emit('change', 'Препятствие')
+    emit('select', [{ kind: 'block', id: block.id }])
+  } else {
+    const station = { id: uid('st'), process, kind: ROLE_KIND[item.role] ?? 'load', item: item.key, x: center(at.x), y: center(at.y) }
+    f.stations.push(station)
+    emit('change', 'Станция')
+    emit('select', [{ kind: 'station', id: station.id }])
+  }
+  emit('tool', 'select')
+  render()
+  return true
+}
+
+defineExpose({ fit, fitContent, zoomBy, zoomTo, drawRobots, clearRobots, render, exportPng, dropItem })
 </script>
 
 <template>

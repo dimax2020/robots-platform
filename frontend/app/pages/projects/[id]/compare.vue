@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhCaretLeft, PhCaretRight, PhArrowLeft, PhScales } from '@phosphor-icons/vue'
+import { PhCaretLeft, PhCaretRight, PhCaretDown, PhArrowLeft, PhArrowRight } from '@phosphor-icons/vue'
 import { fetchErrorMessage } from '~/utils/errors'
 import { platformSend } from '~/composables/usePlatform'
 import { useLiveProject } from '~/composables/useLiveProject'
@@ -9,25 +9,35 @@ import { usePlatformCompare, type MatchGroup, type MatchHit, type RobotSpec } fr
 const route = useRoute()
 const id = computed(() => route.params.id as string)
 const live = useLiveProject(id)
-const project = computed(() => (live.isDemo.value ? undefined : live.shell.value))
+const project = live.shell
 const shell = live.shell
 const pending = live.pending
-const error = computed(() => (live.isDemo.value ? null : live.error.value))
+const error = live.error
 useHead({ title: () => `Сравнение · ${shell.value?.name ?? 'проект'}` })
 
 const groups = ref<MatchGroup[]>([])
 const loadingMatch = ref(true)
 const matchError = ref('')
 const viewIndex = ref(0)
-const { includedHits, chosenId, remainingHit, choose, isConfirmed } = usePlatformCompare(id)
+const { includedHits, chosenId, remainingHit, skipReason, choose, isConfirmed } = usePlatformCompare(id)
 
 const canEdit = computed(() => Boolean(project.value))
+const readyGroups = computed(() => groups.value.filter((group) => includedHits(group).length > 0))
+const skipped = computed(() => groups.value.flatMap((group) => {
+  const reason = skipReason(group)
+  return reason ? [{ code: group.process_code, name: group.process_name, reason }] : []
+}))
 const activeCode = computed(() => {
   const query = typeof route.query.process === 'string' ? route.query.process : ''
-  if (groups.value.some((group) => group.process_code === query)) return query
-  return groups.value[0]?.process_code ?? ''
+  if (readyGroups.value.some((group) => group.process_code === query)) return query
+  return readyGroups.value[0]?.process_code ?? ''
 })
-const activeGroup = computed(() => groups.value.find((group) => group.process_code === activeCode.value) ?? null)
+const activeGroup = computed(() => readyGroups.value.find((group) => group.process_code === activeCode.value) ?? null)
+const nextGroup = computed(() => {
+  const index = readyGroups.value.findIndex((group) => group.process_code === activeCode.value)
+  return index >= 0 ? readyGroups.value[index + 1] : undefined
+})
+const lineupOpen = ref(false)
 const pool = computed(() => (activeGroup.value ? includedHits(activeGroup.value) : []))
 const chosen = computed(() => pool.value.find((hit) => hit.product_id === (activeGroup.value ? chosenId(activeGroup.value) : '')) ?? null)
 const optimal = computed(() => {
@@ -37,12 +47,12 @@ const optimal = computed(() => {
 })
 const selectedIsOptimal = computed(() => Boolean(chosen.value && optimal.value && chosen.value.product_id === optimal.value.product_id))
 const viewed = computed(() => pool.value[viewIndex.value] ?? null)
-const substages = computed(() => groups.value.map((group) => ({
+const substages = computed(() => readyGroups.value.map((group) => ({
   id: group.process_code,
   label: group.process_name,
   to: `/projects/${id.value}/compare?process=${group.process_code}`,
 })))
-const lineup = computed(() => groups.value.map((group) => ({
+const lineup = computed(() => readyGroups.value.map((group) => ({
   code: group.process_code,
   name: group.process_name,
   robot: remainingHit(group),
@@ -116,19 +126,33 @@ const takeViewed = () => {
   choose(activeGroup.value.process_code, viewed.value.product_id)
 }
 
+const forwardLabel = computed(() => {
+  if (loadingMatch.value) return 'Считаем…'
+  if (matchError.value || !nextGroup.value) return 'К экономике'
+  return 'Следующий процесс'
+})
+const goForward = () => {
+  if (loadingMatch.value) return
+  if (!matchError.value && nextGroup.value) {
+    void navigateTo({ query: { process: nextGroup.value.process_code } })
+    return
+  }
+  void navigateTo(`/projects/${id.value}/economics`)
+}
+
 const load = async () => {
   if (live.pending.value || !shell.value) return
   loadingMatch.value = true
   matchError.value = ''
   try {
     const site = live.site.value
-    const result = live.isDemo.value
-      ? await platformSend<{ groups: MatchGroup[] }>('/catalog/preview/match', 'POST', { object_code: live.objectCode.value, site })
-      : await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site })
+    const result = await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site })
     groups.value = result.groups
+    const ready = result.groups.filter((group) => includedHits(group).length > 0)
     const requested = typeof route.query.process === 'string' ? route.query.process : ''
-    if (result.groups[0] && !result.groups.some((group) => group.process_code === requested)) {
-      await navigateTo({ query: { process: result.groups[0].process_code } })
+    const first = ready[0]?.process_code
+    if (first && !ready.some((group) => group.process_code === requested)) {
+      await navigateTo({ query: { process: first } })
     }
   } catch (err: unknown) {
     matchError.value = fetchErrorMessage(err, 'Не удалось открыть сравнение')
@@ -160,9 +184,8 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
         <template #icon><PhArrowLeft :size="16" weight="bold" /></template>
         К подбору
       </UiButton>
-      <UiButton v-if="shell" :to="`/projects/${shell.id}/economics`" size="lg" :disabled="!canEconomy">
-        <template #icon><PhScales :size="16" weight="bold" /></template>
-        К экономике
+      <UiButton v-if="shell" size="lg" :disabled="loadingMatch || (!nextGroup && !canEconomy)" @click="goForward">
+        {{ forwardLabel }}<template v-if="!loadingMatch" #after><PhArrowRight :size="18" weight="bold" /></template>
       </UiButton>
     </template>
 
@@ -186,14 +209,19 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
       <UiButton :to="`/projects/${shell.id}/match?process=${activeGroup.process_code}`" size="sm" variant="secondary">К подбору</UiButton>
     </section>
 
-    <template v-else>
+    <SkippedProcesses v-if="!loadingMatch && !pending" :rows="skipped" />
+
+    <template v-if="!loadingMatch && !pending && !matchError && activeGroup && pool.length">
       <section class="lineup glass">
         <div class="line-in">
-          <div>
-            <div class="h3">По одному роботу на процесс</div>
-            <div class="caption">Этот состав уходит в экономику. Закреплено явно {{ confirmedCount }}, всего с выбором {{ readyCount }}.</div>
-          </div>
-          <ul>
+          <button type="button" class="line-head" :aria-expanded="lineupOpen" @click="lineupOpen = !lineupOpen">
+            <span>
+              <span class="h3">По одному роботу на процесс</span>
+              <span class="caption">Этот состав уходит в экономику. Закреплено явно {{ confirmedCount }}, всего с выбором {{ readyCount }}.</span>
+            </span>
+            <PhCaretDown :size="16" weight="bold" class="caret" :class="{ up: lineupOpen }" />
+          </button>
+          <ul v-show="lineupOpen">
             <li v-for="row in lineup" :key="row.code">
               <span class="body-sm">{{ row.name }}</span>
               <span v-if="row.robot" class="strong">{{ row.robot.name }}<span class="caption"> · {{ row.robot.count != null ? `${row.robot.count.toLocaleString('ru-RU')} шт.` : 'количество не задано' }}</span></span>
@@ -279,6 +307,10 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
 .waiting, .empty { padding: var(--space-10); display: grid; gap: 8px; justify-items: center; text-align: center; }
 .waiting > *, .empty > * { position: relative; z-index: 1; }
 .lineup .line-in { position: relative; z-index: 1; padding: var(--space-5); display: grid; gap: 12px; }
+.line-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; text-align: left; }
+.line-head span { display: grid; gap: 4px; }
+.caret { color: var(--ink-muted); transition: transform var(--dur-fast) var(--ease); flex: none; }
+.caret.up { transform: rotate(180deg); }
 .lineup ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .lineup li { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; }
 .lineup .strong { color: var(--ink-strong); text-align: right; }

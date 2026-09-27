@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { PhPencilSimple, PhArrowRight } from '@phosphor-icons/vue'
-import { objectTypeLabel, type ObjectType } from '~/data/projects'
+import { PhPencilSimple, PhArrowRight, PhSparkle, PhCopy } from '@phosphor-icons/vue'
+import { objectTypeLabel, isFullPath, type ObjectType } from '~/data/projects'
 import { fieldSources, labelProcess, processesByObject, siteFieldMeta, warehouseDatasetGroups } from '~/data/siteFields'
 import { fetchErrorMessage } from '~/utils/errors'
-import { platformGet } from '~/composables/usePlatform'
+import { platformGet, platformSend } from '~/composables/usePlatform'
 import { asObjectType, useLiveProject } from '~/composables/useLiveProject'
+import { useDemoProjects } from '~/composables/useDemoProjects'
 import type { ApiSiteProfile, ApiTask } from '~/types/api'
 
 interface FormField {
@@ -25,11 +26,14 @@ const route = useRoute()
 const router = useRouter()
 const id = computed(() => route.params.id as string)
 const doc = useLiveProject(id)
-const project = computed(() => (doc.isDemo.value ? undefined : doc.shell.value))
+const project = doc.shell
 const shell = doc.shell
 const pending = doc.pending
-const error = computed(() => (doc.isDemo.value ? null : doc.error.value))
+const error = doc.error
 const live = computed(() => Boolean(project.value))
+const readonly = doc.readonly
+const { role } = useRole()
+const demos = useDemoProjects()
 const detail = computed(() => doc.record.value
   ? { id: doc.record.value.id, object_type_code: doc.record.value.object_code, site: doc.record.value.site, tasks: doc.record.value.tasks }
   : null)
@@ -111,27 +115,54 @@ const hydrated = ref('')
 
 const applyDetail = () => {
   const p = detail.value
-  if (p) {
-    Object.assign(site, emptySite(p.object_type_code), p.site)
-    tasks.value = (p.tasks as unknown as ApiTask[]).map((t) => ({
-      ...emptyTask(t.process_code),
-      ...t,
-      container_types: [...(t.container_types ?? [])],
-    }))
-    hydrated.value = String(p.id)
-    return
-  }
-  if (doc.isDemo.value && shell.value) {
-    Object.assign(site, emptySite(shell.value.objectType), doc.site.value)
-    hydrated.value = shell.value.id
-  }
+  if (!p) return
+  Object.assign(site, emptySite(p.object_type_code), p.site)
+  tasks.value = (p.tasks as unknown as ApiTask[]).map((t) => ({
+    ...emptyTask(t.process_code),
+    ...t,
+    container_types: [...(t.container_types ?? [])],
+  }))
+  hydrated.value = String(p.id)
 }
 
 watch([detail, () => doc.pending.value], () => {
   if (doc.pending.value) return
-  const key = detail.value?.id ?? (doc.isDemo.value ? shell.value?.id : '')
+  const key = detail.value?.id ?? ''
   if (key && hydrated.value !== String(key)) applyDetail()
 }, { immediate: true })
+
+/* «Подставить демо-данные»: параметры опубликованного демо того же типа объекта, иначе значения по умолчанию из полей. */
+const demoSource = computed(() => demos.byObject(objectType.value))
+const demoFilling = ref(false)
+const fillFromDemo = async () => {
+  if (readonly.value || demoFilling.value) return
+  demoFilling.value = true
+  try {
+    let values: Record<string, unknown> = {}
+    let taskRows: ApiTask[] = []
+    let label = ''
+    const demo = demoSource.value
+    if (demo) {
+      const record = await platformGet<{ site: Record<string, unknown>; tasks: Record<string, unknown>[] }>(`/projects/${demo.slug || demo.id}`)
+      values = record.site
+      taskRows = (record.tasks as unknown as ApiTask[]).map((t) => ({ ...emptyTask(t.process_code), ...t, container_types: [...(t.container_types ?? [])] }))
+      label = `демо-объекта «${demo.name}»`
+    } else {
+      for (const field of formFields.value ?? []) {
+        if (field.default !== null && field.default !== undefined && field.default !== '') values[field.key] = field.default
+      }
+      label = 'по умолчанию из справочника объекта'
+    }
+    Object.assign(site, emptySite(objectType.value), values)
+    if (taskRows.length) tasks.value = taskRows
+    clearFieldErrors()
+    notice.value = { ok: true, text: `Подставлены параметры ${label}. Проверьте значения и нажмите «${advanceLabel.value}» — тогда они сохранятся.` }
+  } catch (e: unknown) {
+    notice.value = { ok: false, text: fetchErrorMessage(e, 'Не удалось получить демо-данные') }
+  } finally {
+    demoFilling.value = false
+  }
+}
 
 const sameNum = (a: unknown, b: unknown) => {
   if (a == null && b == null) return true
@@ -290,7 +321,7 @@ const payload = (): { site: ApiSiteProfile; tasks: ApiTask[] } => ({
 })
 
 const save = async (quiet = false) => {
-  if (!project.value || saving.value) return false
+  if (!project.value || saving.value || readonly.value) return false
   if (!validateSite()) {
     const n = Object.keys(siteErrors).length
     notice.value = { ok: false, text: `На форме ${n} ${n === 1 ? 'проблема' : n < 5 ? 'проблемы' : 'проблем'} — исправьте поля ниже` }
@@ -331,6 +362,10 @@ const advanceLabel = computed(() => part.value === 'object' ? 'К процесс
 
 const advance = async () => {
   if (!project.value || saving.value) return
+  if (readonly.value) {
+    await router.push(part.value === 'object' ? { path: `/projects/${id.value}/params`, query: { part: 'processes' } } : `/projects/${id.value}/match`)
+    return
+  }
   if (part.value === 'object') {
     const ok = await save(true)
     if (!ok) return
@@ -349,15 +384,31 @@ const advance = async () => {
 }
 
 watch(part, async (next, prev) => {
+  if (readonly.value) return
   if (prev === 'processes' && next !== 'processes') {
     try { await setupRef.value?.save() } catch { /* кнопка «К подбору» покажет ошибку, если сохранить не вышло */ }
   }
 })
 
 onBeforeRouteLeave(async () => {
-  if (part.value !== 'processes') return
+  if (part.value !== 'processes' || readonly.value) return
   try { await setupRef.value?.save() } catch { return false }
 })
+
+/* Копия демо в свои проекты: единственный способ править опубликованное демо не администратору. */
+const copying = ref(false)
+const copyDemo = async () => {
+  if (copying.value) return
+  copying.value = true
+  try {
+    const copy = await platformSend<{ id: string }>(`/projects/${id.value}/copy`, 'POST')
+    await router.push(`/projects/${copy.id}/params`)
+  } catch (e: unknown) {
+    notice.value = { ok: false, text: fetchErrorMessage(e, 'Не удалось скопировать демо') }
+  } finally {
+    copying.value = false
+  }
+}
 const activeTask = ref(0)
 
 const fieldGroups: { title: string; hint: string; keys: (keyof ApiSiteProfile)[] }[] = [
@@ -464,19 +515,15 @@ watch(() => tasks.value.length, (n) => {
     :lead="part === 'object' ? 'Общие данные площадки. Дальше — какие процессы объекта включать в подбор.' : 'Снимите процесс, если его не нужно включать в подбор.'"
   >
     <template #actions>
+      <UiButton v-if="live && !readonly && part === 'object'" variant="secondary" size="lg" :disabled="demoFilling" @click="fillFromDemo">
+        <template #icon><PhSparkle :size="18" weight="duotone" /></template>{{ demoFilling ? 'Подставляем…' : 'Подставить демо-данные' }}
+      </UiButton>
       <UiButton v-if="live" size="lg" :disabled="saving" @click="advance">
         {{ saving ? 'Сохраняем…' : advanceLabel }}<template #after><PhArrowRight :size="18" weight="bold" /></template>
       </UiButton>
     </template>
 
-    <UiCallout v-if="!live" tone="warn" title="Это демонстрационный макет">
-      Живая форма открывается у проекта, созданного через «Новый проект». Площадка и задачи тогда предзаполняются из профиля объекта.
-      <div class="call-actions">
-        <UiButton to="/projects/new" size="sm">Создать проект</UiButton>
-      </div>
-    </UiCallout>
-
-    <UiCallout v-else-if="error" tone="danger" title="Не удалось загрузить проект">
+    <UiCallout v-if="error" tone="danger" title="Не удалось загрузить проект">
       {{ fetchErrorMessage(error, 'Сервер не ответил. Проверьте, что API запущен.') }}
     </UiCallout>
 
@@ -486,9 +533,16 @@ watch(() => tasks.value.length, (n) => {
     </div>
 
     <template v-else-if="live">
-      <UiCallout v-if="notice" :tone="notice.ok ? 'ok' : 'danger'" :title="!notice.ok && fieldErrorCount ? `${fieldErrorCount} ${fieldErrorCount === 1 ? 'проблема' : fieldErrorCount < 5 ? 'проблемы' : 'проблем'} на форме` : undefined">{{ notice.text }}</UiCallout>
+      <UiCallout v-if="readonly" tone="info" title="Демо-объект · только просмотр">
+        Параметры этого объекта задал администратор. Пройдите по шагам, чтобы посмотреть подбор{{ isFullPath(shell!) ? ', экономику и визуализацию' : ' и сравнение' }}.
+        <div class="call-actions">
+          <UiButton v-if="role !== 'guest'" size="sm" :disabled="copying" @click="copyDemo"><template #icon><PhCopy :size="14" weight="bold" /></template>{{ copying ? 'Копируем…' : 'Скопировать в мои проекты' }}</UiButton>
+          <UiButton v-else to="/login" size="sm">Войти, чтобы скопировать и править</UiButton>
+        </div>
+      </UiCallout>
+      <UiCallout v-else-if="notice" :tone="notice.ok ? 'ok' : 'danger'" :title="!notice.ok && fieldErrorCount ? `${fieldErrorCount} ${fieldErrorCount === 1 ? 'проблема' : fieldErrorCount < 5 ? 'проблемы' : 'проблем'} на форме` : undefined">{{ notice.text }}</UiCallout>
 
-      <div v-if="part === 'object'" class="groups">
+      <div v-if="part === 'object'" class="groups" :class="{ still: readonly }">
         <UiCallout v-if="formFallback" tone="warn">Справочник полей платформы не ответил: форма собрана из встроенного набора, без границ и значений по умолчанию.</UiCallout>
         <section v-for="(g, gi) in groups" :key="g.title" class="group" :class="g.extra ? 'extra' : 'glass'">
           <div class="sec-head">
@@ -505,6 +559,7 @@ watch(() => tasks.value.length, (n) => {
                 <select
                   v-if="f.kind === 'bool'"
                   class="select"
+                  :disabled="readonly"
                   :value="siteValue(f.key) === true ? 'true' : siteValue(f.key) === false ? 'false' : ''"
                   @change="setSiteBool(f.key, ($event.target as HTMLSelectElement).value)"
                 >
@@ -515,6 +570,7 @@ watch(() => tasks.value.length, (n) => {
                 <input
                   v-else-if="f.kind === 'text'"
                   class="input"
+                  :disabled="readonly"
                   :value="typeof siteValue(f.key) === 'string' ? siteValue(f.key) : ''"
                   :placeholder="defaultHint(f) ? `по умолчанию ${defaultHint(f)}` : 'не задано'"
                   @input="setSiteText(f.key, ($event.target as HTMLInputElement).value)"
@@ -522,6 +578,7 @@ watch(() => tasks.value.length, (n) => {
                 <input
                   v-else
                   class="input input-mono"
+                  :disabled="readonly"
                   :value="fmt(siteValue(f.key) as number | null)"
                   :placeholder="defaultHint(f) ? `по умолчанию ${defaultHint(f)}` : 'не задано'"
                   @input="setSiteNum(f.key, ($event.target as HTMLInputElement).value, f.kind === 'int')"
@@ -537,7 +594,7 @@ watch(() => tasks.value.length, (n) => {
         </section>
       </div>
 
-      <PlatformSetup v-else ref="setupRef" :object-code="objectType" />
+      <PlatformSetup v-else ref="setupRef" :object-code="objectType" :readonly="readonly" />
     </template>
   </ProjectShell>
 
@@ -551,6 +608,7 @@ watch(() => tasks.value.length, (n) => {
 .params { display: grid; gap: var(--space-4); }
 .pane-switch { max-width: 480px; }
 .groups { display: grid; gap: var(--space-4); }
+.groups.still .input:disabled, .groups.still .select:disabled { opacity: 1; color: var(--ink-strong); background: rgba(255, 255, 255, 0.5); cursor: default; }
 .group { padding: var(--space-6); display: grid; gap: var(--space-5); }
 .group > * { position: relative; z-index: 1; }
 .group.extra {

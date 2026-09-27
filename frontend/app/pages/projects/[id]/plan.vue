@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   PhArrowCounterClockwise, PhArrowRight, PhArrowsDownUp, PhArrowUUpLeft, PhArrowUUpRight, PhCaretDown, PhCheckCircle, PhCursor, PhDownloadSimple, PhElevator, PhEye, PhEyeClosed, PhEyeSlash,
-  PhHand, PhImage, PhLineSegments, PhLockSimple, PhLockSimpleOpen, PhMagicWand, PhMagnet, PhMapPin, PhPause, PhPencilSimple, PhPlay, PhPlus, PhPolygon, PhRuler, PhSelection, PhSquare, PhStairs, PhTrash, PhUploadSimple, PhWarning, PhCheck,
+  PhHand, PhImage, PhLineSegments, PhLockSimple, PhLockSimpleOpen, PhMagicWand, PhMagnet, PhMapPin, PhPause, PhPencilSimple, PhPlay, PhPlus, PhPolygon, PhRuler, PhSquare, PhStairs, PhTrash, PhUploadSimple, PhWarning, PhCheck, PhCursorClick, PhDotsSixVertical, PhX,
 } from '@phosphor-icons/vue'
 import type PlanEditor from '~/components/PlanEditor.vue'
 import type { EditorMode, EditorTool, PlanSelection } from '~/components/PlanEditor.vue'
@@ -17,8 +17,8 @@ import type { WorkerResponse } from '~/sim/worker'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
-const { project, isDemo, source, pending, error, objectCode } = usePlatformEconomy(id)
-const { remainingHit } = usePlatformCompare(id)
+const { project, isDemo, readonly, source, pending, error } = usePlatformEconomy(id)
+const { remainingHit, skipReason } = usePlatformCompare(id)
 useHead({ title: () => `Визуализация · ${project.value?.name ?? 'проект'}` })
 
 const PALETTE = ['#1f7a5a', '#175fb0', '#b2582b', '#6b5bd6', '#c0417a', '#2f8f9d', '#8a6d1d', '#4f6b2a']
@@ -46,6 +46,10 @@ const hint = ref('')
 const zoomPct = ref(100)
 const saveState = ref<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle')
 const panels = reactive({ nav: true, monitor: true, props: true })
+/* Просмотр: схема спит, пока по ней не кликнут, чтобы колесо прокручивало страницу, а не карту. */
+const awake = ref(false)
+/* Меню «Добавить объект» в режиме роботов. */
+const addOpen = ref(false)
 /* Редактор открывается поверх страницы на весь экран; на странице остаётся просмотр, монитор и пуск. */
 const editing = ref(false)
 const openEditor = (phase?: LayoutGuide['phase']) => {
@@ -61,6 +65,8 @@ const openEditor = (phase?: LayoutGuide['phase']) => {
 }
 const closeEditor = () => {
   editing.value = false
+  addOpen.value = false
+  awake.value = false
   document.body.style.overflow = ''
   selection.value = []
   pendingLink.value = ''
@@ -96,7 +102,11 @@ const site = computed<Record<string, unknown>>(() => (source.value?.site ?? {}) 
 const shiftHours = computed(() => Number(site.value.shift_hours) || 8)
 
 /* Процессы: робот из сравнения, объекты на схеме из настройки процесса. */
-const processes = computed<SimProcess[]>(() => groups.value.map((group) => {
+const skipped = computed(() => groups.value.flatMap((group) => {
+  const reason = skipReason(group)
+  return reason ? [{ code: group.process_code, name: group.process_name, reason }] : []
+}))
+const processes = computed<SimProcess[]>(() => groups.value.filter((group) => !skipReason(group)).map((group) => {
   const hit = remainingHit(group)
   const robot = hit ? { name: hit.name, count: hit.count ?? null, specs: hit.specs ?? [] } : null
   return buildProcess(group.process_code, group.process_name, robot, site.value, group.layout_items ?? [])
@@ -155,17 +165,20 @@ const itemTasks = computed<ItemTask[]>(() => {
 const setGuide = (next: LayoutGuide) => {
   if (!layout.value) return
   layout.value.guide = next
+  /* Снимок истории держим в актуальном состоянии, иначе следующая правка запишет устаревшую стадию. */
+  snapshot = JSON.stringify(layout.value)
   void scheduleSave()
 }
 const openStage = (phase: LayoutGuide['phase'], process = '') => {
   setGuide({ phase, process })
   selection.value = []
   pendingLink.value = ''
+  addOpen.value = false
   tool.value = phase === 'building' && !floorReady.value ? 'floor' : 'select'
   if (process) {
     toolProcess.value = process
     const first = byCode.value[process]?.items[0]
-    if (first) pickItem(first)
+    if (first) stationItem.value = first.key
     tool.value = 'select'
   }
 }
@@ -175,14 +188,50 @@ const openMode = (next: EditorMode) => {
   const first = stageProcesses.value.find((proc) => !stageReady(proc)) ?? stageProcesses.value[0]
   first ? openStage('process', first.code) : openStage('building')
 }
-const pickItem = (item: LayoutItem) => {
+const pickItem = (item: LayoutItem, process = guide.value.process || toolProcess.value) => {
+  if (process) toolProcess.value = process
   stationItem.value = item.key
+  addOpen.value = false
+  selection.value = []
   if (item.role === 'work_zone') tool.value = 'zone'
   else if (item.role === 'obstacle') tool.value = 'block'
   else {
     stationKind.value = ROLE_KIND[item.role] ?? 'load'
     tool.value = 'station'
   }
+}
+/* Объект, который сейчас ставим кликом: показываем чипом под панелью инструментов. */
+const armedItem = computed(() => {
+  if (!['station', 'zone', 'block'].includes(tool.value) || mode.value !== 'robots') return null
+  return byCode.value[toolProcess.value]?.items.find((row) => row.key === stationItem.value) ?? null
+})
+const menuItems = computed(() => {
+  const proc = byCode.value[toolProcess.value]
+  if (!proc || !layout.value) return []
+  return proc.items.map((item) => {
+    const need = Math.max(item.role === 'waypoint' ? 2 : 1, item.min_count)
+    return { item, need, have: placedCount(layout.value!, proc.code, item) }
+  })
+})
+const onDragItem = (event: DragEvent, item: LayoutItem) => {
+  event.dataTransfer?.setData('text/plain', JSON.stringify({ process: toolProcess.value, key: item.key }))
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy'
+  addOpen.value = false
+}
+const onCanvasPointer = (event: PointerEvent) => {
+  if (!addOpen.value) return
+  const target = event.target as HTMLElement | null
+  if (target?.closest('.add-menu, .tb.add')) return
+  addOpen.value = false
+}
+const onDropItem = (event: DragEvent) => {
+  const raw = event.dataTransfer?.getData('text/plain')
+  if (!raw) return
+  let data: { process?: string; key?: string } = {}
+  try { data = JSON.parse(raw) } catch { return }
+  const item = data.process ? byCode.value[data.process]?.items.find((row) => row.key === data.key) : undefined
+  if (!item || !data.process) return
+  editor.value?.dropItem(event.clientX, event.clientY, { process: data.process, item })
 }
 const nextStage = () => {
   const next = stageProcesses.value[guide.value.phase === 'building' ? 0 : stageIndex.value + 1]
@@ -253,8 +302,10 @@ const undo = () => {
   const prev = past.value.pop()
   if (!prev || !layout.value) return
   future.value.push(JSON.stringify(layout.value))
-  layout.value = JSON.parse(prev) as Layout
-  snapshot = prev
+  /* Стадия не входит в историю: откат схемы не должен возвращать пользователя на вводный экран. */
+  const guideNow = layout.value.guide
+  layout.value = { ...(JSON.parse(prev) as Layout), guide: guideNow }
+  snapshot = JSON.stringify(layout.value)
   lastLabel.value = ''
   selection.value = []
   ensureFloor()
@@ -265,8 +316,9 @@ const redo = () => {
   const next = future.value.pop()
   if (!next || !layout.value) return
   past.value.push(JSON.stringify(layout.value))
-  layout.value = JSON.parse(next) as Layout
-  snapshot = next
+  const guideNow = layout.value.guide
+  layout.value = { ...(JSON.parse(next) as Layout), guide: guideNow }
+  snapshot = JSON.stringify(layout.value)
   selection.value = []
   ensureFloor()
   nextTick(() => editor.value?.render())
@@ -284,6 +336,8 @@ const onKey = (event: KeyboardEvent) => {
   if (meta && event.key.toLowerCase() === 'y') { event.preventDefault(); redo(); return }
   if (meta && event.key.toLowerCase() === 'd') { event.preventDefault(); duplicate(); return }
   if ((event.key === 'Delete' || event.key === 'Backspace') && selection.value.length && tool.value === 'select') { event.preventDefault(); removeSelected(); return }
+  if (event.key === 'Escape' && addOpen.value) { addOpen.value = false; return }
+  if (event.key === 'Escape' && mode.value === 'robots' && tool.value !== 'select' && tool.value !== 'hand') { tool.value = 'select'; return }
   if (event.key === 'Escape' && !selection.value.length && tool.value === 'select' && !pendingLink.value) { closeEditor(); return }
   if (meta) return
   const keys: Record<string, EditorTool> = mode.value === 'building'
@@ -301,21 +355,6 @@ const loadAll = async () => {
   loading.value = true
   loadError.value = ''
   try {
-    if (isDemo.value) {
-      platformId.value = ''
-      const match = await platformSend<{ groups: GroupWithItems[] }>('/catalog/preview/match', 'POST', { object_code: objectCode.value, site: source.value.site })
-      groups.value = match.groups
-      layout.value = emptyLayout(site.value)
-      floorId.value = layout.value.floors[0]?.id ?? ''
-      toolProcess.value = guide.value.process || (stageProcesses.value[0]?.code ?? '')
-      peak.value = Number(site.value.peak_factor) > 1 ? Number(site.value.peak_factor) : 1.5
-      snapshot = JSON.stringify(layout.value)
-      past.value = []
-      future.value = []
-      resetSim()
-      scheduleCheck(50)
-      return
-    }
     platformId.value = id.value
     const [match, stored] = await Promise.all([
       platformSend<{ groups: GroupWithItems[] }>(`/projects/${platformId.value}/match`, 'POST', { site: source.value.site }),
@@ -353,6 +392,8 @@ const save = async () => {
   }
 }
 const scheduleSave = () => {
+  /* Опубликованное демо у гостя и пользователя не сохраняется: смотрим, но не пишем. */
+  if (readonly.value) { saveState.value = 'idle'; return }
   if (saveTimer) clearTimeout(saveTimer)
   saveState.value = 'pending'
   saveTimer = setTimeout(() => { void save() }, 700)
@@ -449,7 +490,7 @@ const resetSim = () => {
   if (!cfg) return
   try {
     sim = new Simulation(cfg)
-    editor.value?.drawRobots(sim.views(views))
+    if (!editing.value) editor.value?.drawRobots(sim.views(views))
     live.value = sim.stats()
   } catch {
     sim = null
@@ -487,8 +528,8 @@ function pause() {
 }
 const restart = () => { resetSim(); play() }
 watch([loadMode, peak, failurePct], () => { resetSim(); scheduleCheck() })
-watch(floorId, () => { if (sim) editor.value?.drawRobots(sim.views(views)) })
-const onEditorReady = () => { if (sim) editor.value?.drawRobots(sim.views(views)) }
+watch(floorId, () => { if (sim && !editing.value) editor.value?.drawRobots(sim.views(views)) })
+const onEditorReady = () => { if (sim && !editing.value) editor.value?.drawRobots(sim.views(views)) }
 
 let worker: Worker | null = null
 let requestId = 0
@@ -680,9 +721,8 @@ const buildingTools: { id: EditorTool; label: string; key: string; icon: unknown
 const robotTools: { id: EditorTool; label: string; key: string; icon: unknown }[] = [
   { id: 'select', label: 'Выбрать', key: 'V', icon: PhCursor },
   { id: 'hand', label: 'Рука', key: 'H', icon: PhHand },
-  { id: 'zone', label: 'Зона', key: 'Z', icon: PhSelection },
-  { id: 'station', label: 'Станция', key: 'S', icon: PhMapPin },
 ]
+const roleSwatch: Record<ItemRole, string> = { pickup: 'load', dropoff: 'unload', charge: 'chg', waypoint: 'way', work_zone: 'zone', obstacle: 'obs' }
 const tools = computed(() => (mode.value === 'building' ? buildingTools : robotTools))
 const exportPlan = () => {
   const data = editor.value?.exportPng()
@@ -705,7 +745,7 @@ const liveUtil = computed(() => {
   return robots ? Math.round((rows.reduce((acc, row) => acc + row.utilization * row.active, 0) / robots) * 100) : 0
 })
 const liveRobots = computed(() => (live.value?.processes ?? []).reduce((acc, row) => acc + row.robots, 0))
-const modeLabel = computed(() => loadMode.value === 'peak' ? `Пик ×${peak.value}` : loadMode.value === 'failure' ? `Сбой: −${failurePct.value}% роботов` : 'Обычный поток')
+const modeLabel = computed(() => loadMode.value === 'peak' ? `Пик ×${peak.value}` : loadMode.value === 'failure' ? `Сбой: −${failurePct.value}% роботов` : liveLoad.value === 100 ? 'базовый поток' : `поток ${liveLoad.value} %`)
 const statFor = (code: string) => check.value?.stats.processes.find((row) => row.code === code)
 const fmt = (value: number, digits = 0) => value.toLocaleString('ru-RU', { maximumFractionDigits: digits, minimumFractionDigits: digits })
 const meters = (value: number) => value.toLocaleString('ru-RU', { maximumFractionDigits: value >= 100 ? 0 : 1 })
@@ -727,9 +767,21 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
     </template>
 
     <UiCallout tone="warn" title="Предварительная оценка">{{ PRELIMINARY }} Модель упрощает движение: роботы не объезжают друг друга, станция обслуживает одного робота за раз, лифт — фиксированное время.</UiCallout>
+    <SkippedProcesses :rows="skipped" />
 
     <section v-if="(pending || loading) && !layout" class="waiting glass"><div class="h3">Собираем схему</div></section>
     <UiCallout v-else-if="loadError || error" tone="danger" title="Схема не открылась">{{ loadError || fetchErrorMessage(error, 'Сервер не ответил.') }}</UiCallout>
+
+    <section v-else-if="layout && guide.phase === 'intro' && readonly" class="intro glass glass-xl">
+      <div class="intro-in">
+        <div class="label">Демо-объект</div>
+        <h2 class="h2">Схема этого объекта ещё не собрана</h2>
+        <p class="body">Администратор публикует демо после того, как соберёт здание и расставит объекты процессов. Пока схемы нет — визуализацию можно посмотреть на другом демо или в своём проекте.</p>
+        <div class="intro-act">
+          <UiButton size="lg" variant="secondary" to="/projects">К проектам<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
+        </div>
+      </div>
+    </section>
 
     <section v-else-if="layout && guide.phase === 'intro'" class="intro glass glass-xl">
       <div class="intro-in">
@@ -751,7 +803,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 
     <div v-else-if="layout" class="studio">
       <!-- Страница: просмотр схемы, монитор и запуск смены. Редактирование — в полноэкранном редакторе. -->
-      <div v-if="!editing" class="canvas-in viewer">
+      <div v-if="!editing" class="canvas-in viewer" :class="{ asleep: !awake }" @mouseleave="awake = false">
         <ClientOnly>
           <PlanEditor
             ref="editor" :layout="layout" :floor-id="floorId" mode="view" tool="hand" :process="toolProcess" :station-kind="stationKind" :station-item="stationItem" :link-kind="linkKind"
@@ -759,6 +811,10 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
             @ready="onEditorReady" @hint="hint = $event" @focus="focusRobot = $event" @zoom="zoomPct = Math.round($event * 10)"
           />
         </ClientOnly>
+        <!-- Пока схема спит, колесо прокручивает страницу; клик включает управление картой. -->
+        <button v-if="!awake" type="button" class="sleep" @click="awake = true">
+          <span class="sleep-chip glass glass-strong"><PhCursorClick :size="18" weight="bold" /><span>Нажмите, чтобы управлять схемой</span><span class="caption">колесо сдвигает · Ctrl + колесо приближает</span></span>
+        </button>
 
         <div class="topbar glass glass-strong">
           <div class="floors-row">
@@ -767,7 +823,8 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
           <span class="sep" />
           <span class="caption ready">{{ readyCount }} из {{ stageProcesses.length }} процессов готовы · {{ active.length }} в модели</span>
           <span class="sep" />
-          <UiButton size="sm" @click="openEditor()"><template #icon><PhPencilSimple :size="14" weight="bold" /></template>Редактировать</UiButton>
+          <UiBadge v-if="readonly" tone="info" size="sm">Демо · только просмотр</UiBadge>
+          <UiButton v-else size="sm" @click="openEditor()"><template #icon><PhPencilSimple :size="14" weight="bold" /></template>Редактировать</UiButton>
         </div>
 
         <!-- Монитор: слева сверху. -->
@@ -788,7 +845,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
                 <div v-for="row in (live?.processes ?? []).slice(0, 3)" :key="row.code"><span class="caption"><i class="dot" :style="{ background: colors[row.code] }" /> {{ row.name }}</span><span class="mono-md">{{ fmt(row.done) }} {{ row.unit }}</span></div>
               </div>
             </div>
-            <p v-if="!active.length" class="caption">Ни один процесс не готов к смене. Откройте редактор и расставьте объекты процессов или нажмите «Дособрать».</p>
+            <p v-if="!active.length" class="caption">{{ readonly ? 'Ни один процесс не готов к смене: администратор ещё не расставил объекты на этом демо.' : 'Ни один процесс не готов к смене. Откройте редактор и расставьте объекты процессов или нажмите «Дособрать».' }}</p>
             <template v-else>
               <div class="live-ctl">
                 <label class="field">
@@ -835,13 +892,6 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
           <span class="sep" />
           <button v-for="value in [1, 5, 20, 60]" :key="value" type="button" class="spd" :class="{ on: speed === value }" @click="speed = value">×{{ value }}</button>
           <span class="sep" />
-          <select v-model="loadMode" class="select sm sc-sel" aria-label="Сценарий нагрузки">
-            <option value="normal">Обычный поток</option>
-            <option value="peak">Пиковый период</option>
-            <option value="failure">Сбой роботов</option>
-          </select>
-          <input v-if="loadMode === 'peak'" v-model.number="peak" class="input input-mono sm num" type="number" min="1" max="3" step="0.1" aria-label="Коэффициент пика">
-          <input v-if="loadMode === 'failure'" v-model.number="failurePct" class="input input-mono sm num" type="number" min="5" max="90" step="5" aria-label="Доля недоступных роботов, %">
           <span class="clock"><span class="caption">смена {{ shiftHours }} ч</span><span class="mono-md">{{ clock }}</span></span>
         </div>
         <div class="statusline caption"><span>{{ hint }}</span></div>
@@ -851,7 +901,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
       <section v-if="!editing" class="check glass">
         <div class="ch-in">
           <div class="between">
-            <div><div class="h4">Проверка за смену</div><div class="caption">Смена {{ shiftHours }} ч прогоняется без анимации. Сценарий: {{ modeLabel.toLowerCase() }}.</div></div>
+            <div><div class="h4">Проверка за смену</div><div class="caption">Смена {{ shiftHours }} ч прогоняется без анимации при базовом потоке заданий. Поток и поломки вживую меняются в мониторе.</div></div>
             <span class="caption">{{ checking ? 'считаем' : check ? `${fmt(check.ms)} мс` : '' }}</span>
           </div>
           <div v-if="active.length" class="ch-grid">
@@ -873,7 +923,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
               </template>
             </div>
           </div>
-          <p v-else class="body-sm muted">Появится, когда хотя бы один процесс готов: откройте редактор и расставьте объекты или нажмите «Дособрать».</p>
+          <p v-else class="body-sm muted">{{ readonly ? 'Появится, когда администратор расставит объекты хотя бы одного процесса на этом демо.' : 'Появится, когда хотя бы один процесс готов: откройте редактор и расставьте объекты или нажмите «Дособрать».' }}</p>
           <div class="legend">
             <div class="lg"><i class="sw load" /> Откуда берут груз</div>
             <div class="lg"><i class="sw unload" /> Куда везут</div>
@@ -911,7 +961,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
             </div>
           </header>
 
-          <div class="canvas-in fs-canvas">
+          <div class="canvas-in fs-canvas" @dragover.prevent @drop.prevent="onDropItem" @pointerdown.capture="onCanvasPointer">
             <ClientOnly>
               <PlanEditor
                 ref="editor" :layout="layout" :floor-id="floorId" :mode="mode" :tool="tool" :process="toolProcess" :station-kind="stationKind" :station-item="stationItem" :link-kind="linkKind"
@@ -923,15 +973,44 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
             </ClientOnly>
 
             <div class="toolbar glass glass-strong">
-              <button v-for="item in tools" :key="item.id" type="button" class="tb" :class="{ on: tool === item.id }" :title="`${item.label} · ${item.key}`" @click="tool = item.id; pendingLink = ''">
+              <button v-for="item in tools" :key="item.id" type="button" class="tb" :class="{ on: tool === item.id }" :title="`${item.label} · ${item.key}`" @click="tool = item.id; pendingLink = ''; addOpen = false">
                 <component :is="item.icon" :size="18" weight="bold" /><kbd>{{ item.key }}</kbd>
               </button>
+              <template v-if="mode === 'robots'">
+                <span class="sep" />
+                <button type="button" class="tb add" :class="{ on: addOpen || !!armedItem }" title="Объекты процесса: перетащите на схему или кликните" @click="addOpen = !addOpen">
+                  <PhPlus :size="16" weight="bold" /><span>Добавить объект</span><PhCaretDown :size="12" weight="bold" class="caret" :class="{ open: addOpen }" />
+                </button>
+              </template>
             </div>
-            <div v-if="tool === 'station' || tool === 'zone'" class="subbar glass glass-strong">
-              <select v-model="toolProcess" class="select sm" aria-label="Процесс"><option v-for="proc in stageProcesses" :key="proc.code" :value="proc.code">{{ proc.name }}</option></select>
-              <select v-model="stationItem" class="select sm" aria-label="Объект" @change="stationKind = ROLE_KIND[(byCode[toolProcess]?.items.find((row) => row.key === stationItem)?.role ?? 'pickup')] ?? 'load'">
-                <option v-for="item in (byCode[toolProcess]?.items ?? []).filter((row) => tool === 'zone' ? row.role === 'work_zone' : ROLE_KIND[row.role])" :key="item.key" :value="item.key">{{ item.label }}</option>
-              </select>
+
+            <!-- Меню объектов процесса: тянуть на схему или кликнуть и указать место. -->
+            <div v-if="mode === 'robots' && addOpen" class="add-menu glass glass-strong">
+              <div class="am-in">
+                <label class="field">
+                  <span class="caption">Процесс</span>
+                  <select v-model="toolProcess" class="select sm"><option v-for="proc in stageProcesses" :key="proc.code" :value="proc.code">{{ proc.name }}</option></select>
+                </label>
+                <p class="caption">Перетащите объект на схему или кликните по нему и укажите место на плане.</p>
+                <div class="am-list">
+                  <button
+                    v-for="row in menuItems" :key="row.item.key" type="button" class="am-item" :class="{ done: row.have >= row.need }" draggable="true"
+                    @dragstart="onDragItem($event, row.item)" @click="pickItem(row.item, toolProcess)"
+                  >
+                    <i class="sw" :class="roleSwatch[row.item.role]" :style="row.item.role !== 'charge' && row.item.role !== 'obstacle' ? { '--c': colors[toolProcess] } : {}" />
+                    <span class="am-text"><span class="body-sm strong">{{ row.item.label }}</span><span class="caption">{{ roleName[row.item.role] }} · {{ row.item.shape === 'area' ? 'растянуть рамкой' : 'поставить точкой' }}</span></span>
+                    <span class="mono-sm am-count" :class="{ ok: row.have >= row.need }">{{ row.have }} / {{ row.need }}</span>
+                    <PhDotsSixVertical :size="16" weight="bold" class="grip" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="armedItem" class="subbar glass glass-strong armed">
+              <i class="sw" :class="roleSwatch[armedItem.role]" :style="{ '--c': colors[toolProcess] }" />
+              <span class="body-sm"><span class="strong">{{ armedItem.label }}</span> · {{ byCode[toolProcess]?.name }}</span>
+              <span class="caption">{{ armedItem.shape === 'area' ? 'растяните рамку на схеме' : 'кликните место на схеме' }}</span>
+              <button type="button" class="tb small" title="Отмена · Esc" @click="tool = 'select'"><PhX :size="14" weight="bold" /></button>
             </div>
             <div v-if="tool === 'link'" class="subbar glass glass-strong">
               <button type="button" class="tb wide" :class="{ on: linkKind === 'elevator' }" @click="linkKind = 'elevator'"><PhElevator :size="16" weight="bold" /><span>Лифт</span></button>
@@ -970,28 +1049,38 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
                 </template>
 
                 <template v-else>
-                  <div class="stages">
-                    <button
-                      v-for="(proc, index) in stageProcesses" :key="proc.code" type="button" class="stg" :class="{ on: guide.phase === 'process' && guide.process === proc.code, done: stageReady(proc), muted: settingsOf(proc.code).visibility !== 'full' }"
-                      @click="openStage('process', proc.code)"
-                    >
-                      <PhCheckCircle :size="15" weight="fill" />
-                      <span><span class="body-sm strong"><i class="dot" :style="{ background: colors[proc.code] }" />{{ index + 1 }} · {{ proc.name }}</span><span class="caption">{{ proc.kind === 'none' ? 'робот не выбран' : `${proc.robot.name} × ${proc.robot.count}` }}{{ settingsOf(proc.code).robots ? '' : ' · без роботов' }}</span></span>
-                      <span class="vis" :title="{ full: 'Показан', dim: 'Приглушён', hidden: 'Скрыт' }[settingsOf(proc.code).visibility]" @click.stop="cycleVisibility(proc.code)"><component :is="visIcon(proc.code)" :size="14" weight="bold" /></span>
-                    </button>
+                  <!-- Блок 1: какой процесс расставляем. -->
+                  <div class="sect">
+                    <div class="sect-head"><span class="label">Процесс</span><span class="caption">{{ readyCount }} из {{ stageProcesses.length }} готовы</span></div>
+                    <div class="stages">
+                      <button
+                        v-for="(proc, index) in stageProcesses" :key="proc.code" type="button" class="stg" :class="{ on: guide.phase === 'process' && guide.process === proc.code, done: stageReady(proc), muted: settingsOf(proc.code).visibility !== 'full' }"
+                        @click="openStage('process', proc.code)"
+                      >
+                        <PhCheckCircle :size="15" weight="fill" />
+                        <span><span class="body-sm strong"><i class="dot" :style="{ background: colors[proc.code] }" />{{ index + 1 }} · {{ proc.name }}</span><span class="caption">{{ proc.kind === 'none' ? 'робот не выбран' : `${proc.robot.name} × ${proc.robot.count}` }}{{ settingsOf(proc.code).robots ? '' : ' · без роботов' }}</span></span>
+                        <span class="vis" :title="{ full: 'Показан', dim: 'Приглушён', hidden: 'Скрыт' }[settingsOf(proc.code).visibility]" @click.stop="cycleVisibility(proc.code)"><component :is="visIcon(proc.code)" :size="14" weight="bold" /></span>
+                      </button>
+                    </div>
                   </div>
-                  <template v-if="guide.phase === 'process' && stageProc">
+
+                  <!-- Блок 2: что нужно поставить для выбранного процесса. -->
+                  <div v-if="guide.phase === 'process' && stageProc" class="sect req">
+                    <div class="sect-head"><span class="label">Требования стадии</span><span class="caption">{{ itemTasks.filter((t) => t.done).length }} из {{ itemTasks.length }}</span></div>
                     <ul class="tasks">
-                      <li v-for="task in itemTasks" :key="task.item.key" :class="{ done: task.done, on: stationItem === task.item.key && tool !== 'select' }">
-                        <button type="button" class="task" @click="pickItem(task.item)">
+                      <li v-for="task in itemTasks" :key="task.item.key" :class="{ done: task.done, on: stationItem === task.item.key && !!armedItem }">
+                        <div class="task">
                           <PhCheckCircle :size="15" weight="fill" />
-                          <span><span class="strong">{{ task.item.label }}</span> · {{ roleName[task.item.role] }} · {{ task.have }} из {{ task.need }}<span class="caption block">{{ task.item.hint }}</span></span>
-                        </button>
+                          <span class="task-text"><span class="strong">{{ task.item.label }}</span> · {{ roleName[task.item.role] }}<span class="caption block">{{ task.item.hint }}</span></span>
+                          <span class="task-side"><span class="mono-sm" :class="{ ok: task.done }">{{ task.have }} / {{ task.need }}</span><button type="button" class="tb small" :title="`Поставить: ${task.item.label}`" @click="pickItem(task.item, stageProc.code)"><PhPlus :size="13" weight="bold" /></button></span>
+                        </div>
                       </li>
                     </ul>
                     <label class="check"><input type="checkbox" :checked="settingsOf(stageProc.code).robots" @change="setSettings(stageProc.code, { robots: ($event.target as HTMLInputElement).checked })"> Роботы выходят на схему</label>
                     <span v-if="stageProc.kind === 'none'" class="caption">Робот не выбран в сравнении: модель по процессу не считается.</span>
-                  </template>
+                  </div>
+                  <p v-else class="caption">Выберите процесс выше: у каждого свой набор объектов на схеме.</p>
+
                   <div class="stage-act">
                     <UiButton variant="ghost" size="sm" @click="prevStage">Назад</UiButton>
                     <UiButton v-if="guide.phase === 'process'" size="sm" variant="secondary" @click="autoStage()"><template #icon><PhMagicWand :size="14" weight="bold" /></template>Авто</UiButton>
@@ -1082,10 +1171,10 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
                   <p class="caption">Тяните все вместе, стрелки двигают на 1 м, Shift + стрелки — на 5 м, Ctrl+D дублирует.</p>
                 </template>
                 <template v-else>
-                  <p class="caption">{{ mode === 'building' ? 'Кликните участок пола, препятствие, лифт или чертёж.' : 'Кликните станцию или зону. Объекты процесса — в задачах стадии справа.' }}</p>
+                  <p class="caption">{{ mode === 'building' ? 'Кликните участок пола, препятствие, лифт или чертёж.' : 'Объекты процесса — в меню «Добавить объект» сверху: перетащите на схему или кликните и укажите место. Кликните станцию или зону, чтобы поправить.' }}</p>
                   <div class="keys">
                     <div v-if="mode === 'building'"><kbd>V</kbd> выбрать · <kbd>H</kbd> рука · <kbd>F</kbd> пол · <kbd>R</kbd> препятствие · <kbd>L</kbd> лифт</div>
-                    <div v-else><kbd>V</kbd> выбрать · <kbd>H</kbd> рука · <kbd>S</kbd> станция · <kbd>Z</kbd> зона</div>
+                    <div v-else><kbd>V</kbd> выбрать · <kbd>H</kbd> рука · <kbd>Esc</kbd> отменить постановку</div>
                     <div><kbd>Space</kbd> сдвиг · <kbd>Ctrl</kbd>+колесо зум · <kbd>Ctrl+Z</kbd> отмена · <kbd>Delete</kbd> удалить · <kbd>Ctrl+D</kbd> дубликат · <kbd>Esc</kbd> закрыть</div>
                   </div>
                 </template>
@@ -1159,7 +1248,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 .flr { height: 28px; padding: 0 10px; border-radius: 8px; font-size: 12px; font-weight: 700; color: var(--ink-body); background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 1px var(--border-hairline); }
 .flr.on { background: var(--surface-graphite); color: #fff; box-shadow: none; }
 .flr.add { display: inline-flex; align-items: center; gap: 4px; padding: 0 8px; color: var(--ink-muted); background: transparent; }
-.stages { display: grid; gap: 2px; max-height: 34vh; overflow: auto; }
+.stages { display: grid; gap: 2px; max-height: 30vh; overflow: auto; }
 .stg { display: grid; grid-template-columns: 15px minmax(0, 1fr) auto; gap: 8px; align-items: center; text-align: left; padding: 6px 8px; border-radius: 10px; color: var(--ink-muted); }
 .stg > svg { color: var(--ink-faint); }
 .stg.done > svg { color: var(--state-ok); }
@@ -1181,6 +1270,8 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 .tasks li.done { color: var(--ink-body); }
 .tasks li.on { background: var(--surface-brand-tint); }
 .task { display: flex; gap: 8px; align-items: flex-start; text-align: left; width: 100%; padding: 5px 6px; color: inherit; font-size: 12.5px; line-height: 1.35; }
+.tasks li.on .task { color: var(--ink-strong); }
+.sect.req .tasks li.on { background: rgba(255, 255, 255, 0.7); }
 .task svg { flex: none; margin-top: 2px; color: var(--ink-faint); }
 .done .task svg { color: var(--state-ok); }
 .block { display: block; }
@@ -1237,6 +1328,40 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 .statusline { position: absolute; left: 12px; right: 12px; bottom: 0; z-index: 4; display: flex; justify-content: space-between; gap: 12px; padding: 4px 8px; pointer-events: none; }
 .fs-canvas .statusline { right: 330px; }
 
+/* Спящая схема на странице: клик включает управление. */
+.sleep { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; background: rgba(15, 20, 19, 0.16); cursor: pointer; transition: background var(--dur-fast) var(--ease); }
+.sleep:hover { background: rgba(15, 20, 19, 0.1); }
+.sleep-chip { position: relative; display: grid; justify-items: center; gap: 4px; padding: 14px 22px; border-radius: 14px; color: var(--ink-strong); font-size: 14px; font-weight: 700; }
+.sleep-chip > * { position: relative; z-index: 1; }
+.sleep-chip .caption { font-weight: 500; }
+
+/* Меню «Добавить объект» и чип постановки. */
+.tb.add { padding: 0 12px; }
+.tb.add .caret { transition: transform var(--dur-fast) var(--ease); }
+.tb.add .caret.open { transform: rotate(180deg); }
+.add-menu { position: absolute; z-index: 8; top: 62px; left: 50%; transform: translateX(-50%); width: 380px; border-radius: 14px; }
+.am-in { position: relative; z-index: 1; display: grid; gap: 8px; padding: 12px; }
+.am-in p { margin: 0; }
+.am-list { display: grid; gap: 2px; max-height: 46vh; overflow: auto; }
+.am-item { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto 16px; gap: 10px; align-items: center; text-align: left; padding: 8px 8px 8px 10px; border-radius: 10px; cursor: grab; color: var(--ink-body); }
+.am-item:hover { background: rgba(255, 255, 255, 0.7); }
+.am-item:active { cursor: grabbing; }
+.am-item .sw { width: 14px; height: 14px; }
+.am-text { display: grid; min-width: 0; }
+.am-count { color: var(--ink-muted); }
+.am-count.ok, .task-side .ok { color: var(--state-ok); }
+.am-item .grip { color: var(--ink-faint); }
+.subbar.armed { gap: 10px; padding: 6px 6px 6px 12px; }
+.subbar.armed .sw { width: 13px; height: 13px; flex: none; }
+
+/* Секции панели стадий. */
+.sect { display: grid; gap: 6px; padding: 10px; border-radius: 12px; background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 1px var(--border-hairline); }
+.sect.req { background: var(--surface-brand-tint); }
+.sect-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.task-text { flex: 1; min-width: 0; }
+.task-side { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.task-side .mono-sm { color: var(--ink-muted); }
+
 .field { display: grid; gap: 4px; }
 .pair { display: flex; gap: 8px; flex-wrap: wrap; }
 .pair .field { flex: 1; min-width: 70px; }
@@ -1258,11 +1383,12 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 .legend { display: flex; flex-wrap: wrap; gap: 8px 18px; padding-top: 10px; border-top: 1px solid rgba(15, 20, 19, 0.08); }
 .lg { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-body); }
 .sw { display: inline-block; width: 13px; height: 13px; flex: none; }
-.sw.load { border-radius: 50%; background: var(--brand-600); }
-.sw.unload { border-radius: 50%; background: #fff; border: 2px solid var(--brand-600); }
+.sw.load { border-radius: 50%; background: var(--c, var(--brand-600)); }
+.sw.unload { border-radius: 50%; background: #fff; border: 2px solid var(--c, var(--brand-600)); }
 .sw.chg { border-radius: 3px; background: #fff; border: 2px solid #e6a23c; }
-.sw.way { transform: rotate(45deg) scale(0.8); background: #fff; border: 2px solid var(--brand-600); }
-.sw.zone { border-radius: 3px; border: 1.5px dashed var(--brand-600); background: rgba(31, 122, 90, 0.08); }
+.sw.way { transform: rotate(45deg) scale(0.8); background: #fff; border: 2px solid var(--c, var(--brand-600)); }
+.sw.zone { border-radius: 3px; border: 1.5px dashed var(--c, var(--brand-600)); background: rgba(31, 122, 90, 0.08); }
+.sw.obs { border-radius: 3px; background: rgba(15, 20, 19, 0.14); border: 1px solid rgba(15, 20, 19, 0.3); }
 .sw.lift { border-radius: 3px; background: #175fb0; }
 .sw.robot { border-radius: 50%; background: var(--brand-600); box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(15, 20, 19, 0.2); }
 @media (max-width: 1100px) {

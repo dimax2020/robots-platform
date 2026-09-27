@@ -42,6 +42,23 @@ def catalog_object_fields(code: str) -> dict:
             raise HTTPException(404, "Объект не найден") from None
 
 
+@router.get("/api/v1/catalog/industries")
+def catalog_industries() -> dict:
+    """Отрасли и их объекты для мастера нового проекта: без входа, только имена и коды."""
+    from sqlalchemy import select
+
+    from app.infrastructure.db.catalog_repo import industries
+    from app.infrastructure.db.models import ObjectTypeRow
+
+    with session_factory()() as db:
+        names = {row.code: row.name for row in db.scalars(select(ObjectTypeRow))}
+        items = [
+            {"code": row["code"], "name": row["name"], "objects": [{"code": code, "name": names.get(code, code)} for code in row["objects"]]}
+            for row in industries(db)
+        ]
+        return {"items": items}
+
+
 @router.get("/api/v1/admin/objects")
 def admin_objects() -> list:
     with session_factory()() as db:

@@ -178,6 +178,10 @@ class ProjectRow(Base):
     site: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     economy_overrides: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     layout: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    # Демо-объект ведёт администратор; после публикации его видят все, но только для чтения.
+    is_demo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    slug: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
 
 
 class EconomyNormRow(Base):

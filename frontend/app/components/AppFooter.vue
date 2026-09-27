@@ -1,3 +1,9 @@
+<script setup lang="ts">
+import { demoPath, useDemoProjects } from '~/composables/useDemoProjects'
+/* Подвал ведёт на опубликованные демо: список приходит с платформы, а не зашит в код. */
+const demos = useDemoProjects()
+</script>
+
 <template>
   <footer class="footer graphite no-print">
     <div class="container inner">
@@ -14,10 +20,9 @@
           <NuxtLink to="/projects/new">Новый проект</NuxtLink>
         </div>
         <div>
-          <div class="label">Демо-площадки</div>
-          <NuxtLink to="/projects/demo-warehouse">Склад Внуково-Юг</NuxtLink>
-          <NuxtLink to="/projects/demo-airport">Терминал В</NuxtLink>
-          <NuxtLink to="/projects/demo-hospital">ГКБ № 52</NuxtLink>
+          <div class="label">Демо-объекты</div>
+          <NuxtLink v-for="d in demos.items.value" :key="d.id" :to="demoPath(d)">{{ d.name }}</NuxtLink>
+          <NuxtLink v-if="!demos.items.value.length" to="/projects">Все проекты</NuxtLink>
         </div>
         <div>
           <div class="label">Данные</div>
