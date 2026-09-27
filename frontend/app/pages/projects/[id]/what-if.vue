@@ -10,6 +10,7 @@ import {
   type EconReport,
 } from '~/composables/usePlatformEconomy'
 import { fetchErrorMessage } from '~/utils/errors'
+import { isAccent } from '~/utils/accent'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
@@ -151,7 +152,7 @@ const purchase = computed(() => report.value?.scenarios.find((item) => item.key 
             <template v-if="opened.includes(group.id)">
               <div v-for="item in group.items" :key="item.key" class="knob" :class="{ changed: draft[item.key] !== undefined }">
                 <div class="knob-head">
-                  <span class="knob-name"><UiTex :tex="item.symbol" class="sym" /><span class="body-sm strong">{{ item.label }}</span></span>
+                  <span class="knob-name"><UiTex :tex="item.symbol" class="sym" /><span class="body-sm strong" :class="{ 'cost-accent': isAccent(item.key, item.label) }">{{ item.label }}</span></span>
                   <span class="knob-val">
                     <input class="input input-mono num" type="number" :min="item.min" :max="item.max" :step="item.step" :value="valueOf(item)" :aria-label="item.label" @change="setValue(item, Number(($event.target as HTMLInputElement).value))">
                     <span class="muted unit">{{ item.unit }}</span>
@@ -212,7 +213,7 @@ const purchase = computed(() => report.value?.scenarios.find((item) => item.key 
             <div><div class="h3">Чувствительность покупки</div><div class="caption">Как меняется эффект в год и срок окупаемости, если параметр меньше или больше на 20%</div></div>
             <div class="sens-list">
               <div v-for="item in sens" :key="item.key" class="sens-row">
-                <span class="body-sm">{{ item.label }}</span>
+                <span class="body-sm" :class="{ 'cost-accent': isAccent(item.key, item.label) }">{{ item.label }}</span>
                 <span class="sens-bar"><span :style="{ width: `${(Math.abs(item.effect_high - item.effect_low) / sensMax) * 100}%` }" /></span>
                 <span class="mono-sm sens-v">
                   {{ millions(item.effect_low) }} … {{ millions(item.effect_high) }}

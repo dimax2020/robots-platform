@@ -13,6 +13,7 @@ import {
   type EconScenario,
 } from '~/composables/usePlatformEconomy'
 import { fetchErrorMessage } from '~/utils/errors'
+import { isAccent } from '~/utils/accent'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
@@ -169,8 +170,8 @@ const skipped = computed(() => report.value?.fleet.filter((row) => !row.included
               <ul class="lines">
                 <li v-for="line in col.lines" :key="line.key">
                   <button type="button" class="line" @click="toggle(`${col.key}:${line.key}`)">
-                    <span class="body-sm">{{ line.label }}</span>
-                    <span class="mono-md" :class="{ dim: !line.included }">{{ line.included ? rubles(line.value) : 'не входит' }}</span>
+                    <span class="body-sm" :class="{ 'cost-accent': isAccent(line.key, line.label) }">{{ line.label }}</span>
+                    <span class="mono-md" :class="{ dim: !line.included, 'cost-accent': isAccent(line.key, line.label) }">{{ line.included ? rubles(line.value) : 'не входит' }}</span>
                     <PhCaretDown :size="12" weight="bold" class="caret" :class="{ up: open === `${col.key}:${line.key}` }" />
                   </button>
                   <EconFormula v-if="open === `${col.key}:${line.key}`" :fig="line" />
@@ -214,7 +215,7 @@ const skipped = computed(() => report.value?.fleet.filter((row) => !row.included
               <div v-for="item in group.items" :key="item.key" class="coef" :class="{ open: openParam === item.key }">
                 <button type="button" class="coef-btn" @click="openParam = openParam === item.key ? null : item.key">
                   <UiTex :tex="item.symbol" class="sym" />
-                  <span class="body-sm strong">{{ item.label }}</span>
+                  <span class="body-sm strong" :class="{ 'cost-accent': isAccent(item.key, item.label) }">{{ item.label }}</span>
                   <span class="mono-md">{{ item.value.toLocaleString('ru-RU') }} <span class="muted">{{ item.unit }}</span></span>
                   <UiBadge :tone="SOURCE_TONE[item.source]" size="sm">{{ sourceText(item) }}</UiBadge>
                   <PhCaretDown :size="14" weight="bold" class="caret" />
