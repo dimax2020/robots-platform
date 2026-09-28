@@ -161,6 +161,24 @@ export function formulaParts(source: Record<string, unknown>): FormulaPart[] {
   return parts.sort((left, right) => rank(left) - rank(right))
 }
 
+const looseFig = (key: string, label: string, unit: string, raw: unknown): EconFig | null => {
+  if (!raw || typeof raw !== 'object') return null
+  const row = raw as Partial<EconFig>
+  if (typeof row.tex !== 'string' || !row.tex) return null
+  return {
+    key,
+    label: row.label || label,
+    value: row.value ?? null,
+    unit: row.unit || unit,
+    tex: row.tex,
+    subst: row.subst ?? '',
+    vars: Array.isArray(row.vars) ? row.vars : [],
+    note: row.note ?? '',
+    included: row.value != null,
+    symbol: row.symbol ?? '',
+  }
+}
+
 const sensitivityRows = (rows: readonly object[]) => {
   const records = rows.map((item) => item as Record<string, unknown>)
   const keys = [...new Set(records.flatMap((item) => Object.keys(item)))]
@@ -348,12 +366,56 @@ export function useProjectReport(id: Ref<string>) {
   })
 
   const formulas = computed(() => {
-    const report = economy.report.value
+    const report = economy.report.value as (typeof economy.report.value & { hours?: unknown; operator?: unknown }) | null
     if (!report) return []
+    const bases = [
+      looseFig('hours', 'Фонд рабочих часов', 'ч', report.hours),
+      looseFig('operator', 'Стоимость одного оператора', '₽/год', report.operator),
+    ].filter((fig): fig is EconFig => Boolean(fig))
+    const support = (report.subsidies ?? []).map((item) => {
+      const state = item.enabled ? 'Мера включена в расчёт.' : 'Мера выключена: сумма показана как доступная, в сценарии не входит.'
+      const total = item.total == null ? '' : ` За горизонт ${report.horizon_years} лет: ${millions(item.total)}.`
+      return {
+        ...item.fig,
+        note: `${state}${total} ${item.subtitle} ${item.fig.note}`.trim(),
+      }
+    })
     return [
+      ...bases.map((fig) => ({ key: fig.key, title: fig.label, parts: formulaParts({ [fig.key]: fig }) })),
       { key: 'payroll', title: report.payroll.label, parts: formulaParts({ payroll: report.payroll }) },
       ...ordered.value.map((item) => ({ key: item.key, title: item.title, parts: formulaParts(item as unknown as Record<string, unknown>) })),
+      ...(support.length ? [{ key: 'subsidy', title: 'Господдержка', parts: formulaParts(Object.fromEntries(support.map((fig) => [fig.key, fig]))) }] : []),
     ]
+  })
+
+  const processes = computed(() => {
+    const report = economy.report.value
+    if (!report?.processes?.length) return []
+    return report.processes.map((item) => {
+      const purchase = item.scenarios.find((row) => row.key === 'purchase')
+      const raas = item.scenarios.find((row) => row.key === 'raas')
+      return {
+        key: item.process_code,
+        name: item.process_name,
+        robot: item.robot_name,
+        included: item.included,
+        share: item.included ? `${(item.share * 100).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} %` : '—',
+        reason: item.reason,
+        profitable: item.profitable,
+        capex: purchase ? money(purchase.capex) : '—',
+        effect: purchase ? money(purchase.effect) : '—',
+        payback: purchase ? paybackText(purchase) : '—',
+        tcoPurchase: purchase ? money(purchase.tco) : '—',
+        tcoRaas: raas ? money(raas.tco) : '—',
+        suggestions: item.suggestions.map((hint) => ({
+          key: `${hint.scope}:${hint.key}`,
+          label: hint.label,
+          change: hint.scope === 'subsidy' ? 'включить меру' : `${hint.from.toLocaleString('ru-RU')} → ${hint.to.toLocaleString('ru-RU')} ${hint.unit}`.trim(),
+          effect: millions(hint.effect),
+          payback: hint.payback == null ? 'нет' : figValue(hint.payback, 'лет'),
+        })),
+      }
+    })
   })
 
   const sceneProcesses = computed<SimProcess[]>(() => groups.value.map((group) => {
@@ -432,6 +494,13 @@ export function useProjectReport(id: Ref<string>) {
         rows: [
           ['Группа', 'Параметр', 'Символ', 'Значение', 'Единица', 'Стандарт', 'Источник', 'Обоснование', 'Происхождение'],
           ...paramGroups.value.flatMap((group) => group.items.map((item) => [group.label, item.label, item.symbol, String(item.value), item.unit, String(item.standard), item.source, item.rationale, item.origin])),
+        ],
+      },
+      {
+        name: 'Процессы',
+        rows: [
+          ['Процесс', 'Робот', 'В расчёте', 'Доля ФОТ', 'CAPEX покупки', 'Эффект', 'Окупаемость', 'TCO покупки', 'TCO аренды', 'Вывод'],
+          ...processes.value.map((item) => [item.name, item.robot, item.included ? 'да' : 'нет', item.share, item.capex, item.effect, item.payback, item.tcoPurchase, item.tcoRaas, item.reason]),
         ],
       },
       {
@@ -516,6 +585,7 @@ export function useProjectReport(id: Ref<string>) {
     payroll,
     robots,
     formulas,
+    processes,
     paramGroups,
     econ: economy.report,
     params,

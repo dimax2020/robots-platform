@@ -561,9 +561,49 @@ const robotGloss = computed(() => {
           </div>
         </section>
 
-        <section v-if="doc.econ.value?.sensitivity.length" class="r-sec">
+        <section v-if="doc.processes.value.length" class="r-sec">
           <header class="sec-head">
             <span class="sec-n">06</span>
+            <div>
+              <h3 class="sec-title">Экономика по процессам</h3>
+              <p class="sec-lead">Те же коэффициенты, что в допущениях, но эффект и затраты разложены по процессам: у каждого своя доля ФОТ и свой робот. Если покупка не окупается, ниже — что нужно изменить.</p>
+            </div>
+          </header>
+          <table class="table proc-table">
+            <thead>
+              <tr>
+                <th>Процесс</th>
+                <th class="num">Доля ФОТ</th>
+                <th class="num">CAPEX</th>
+                <th class="num">Эффект</th>
+                <th class="num">Окуп.</th>
+                <th class="num">TCO покупки</th>
+                <th class="num">TCO аренды</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in doc.processes.value" :key="row.key" :class="{ best: row.profitable }">
+                <td><b>{{ row.name }}</b><div class="caption">{{ row.robot }}{{ row.included ? '' : ' · не в расчёте' }}</div><div class="caption">{{ row.reason }}</div></td>
+                <td class="num">{{ row.share }}</td>
+                <td class="num">{{ row.capex }}</td>
+                <td class="num">{{ row.effect }}</td>
+                <td class="num">{{ row.payback }}</td>
+                <td class="num">{{ row.tcoPurchase }}</td>
+                <td class="num">{{ row.tcoRaas }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <article v-for="row in doc.processes.value.filter((item) => item.suggestions.length)" :key="`${row.key}-fix`" class="proc-fix">
+            <h4>{{ row.name }}: что меняет окупаемость</h4>
+            <ul>
+              <li v-for="hint in row.suggestions" :key="hint.key">{{ hint.label }}: {{ hint.change }}. Эффект {{ hint.effect }}, окупаемость {{ hint.payback }}.</li>
+            </ul>
+          </article>
+        </section>
+
+        <section v-if="doc.econ.value?.sensitivity.length" class="r-sec">
+          <header class="sec-head">
+            <span class="sec-n">07</span>
             <div>
               <h3 class="sec-title">Чувствительность</h3>
               <p class="sec-lead">Как меняются эффект и окупаемость покупки, если допущение сдвинуть. Строки приходят из расчёта целиком.</p>
@@ -581,7 +621,7 @@ const robotGloss = computed(() => {
 
         <section v-if="doc.params.value.length" class="r-sec">
           <header class="sec-head">
-            <span class="sec-n">07</span>
+            <span class="sec-n">08</span>
             <div>
               <h3 class="sec-title">Параметры объекта</h3>
               <p class="sec-lead">Исходные данные площадки, на которых посчитана экономика.</p>
@@ -594,7 +634,7 @@ const robotGloss = computed(() => {
 
         <section v-if="doc.limits.value.length" class="r-sec">
           <header class="sec-head">
-            <span class="sec-n">08</span>
+            <span class="sec-n">09</span>
             <div><h3 class="sec-title">Оговорки расчёта</h3></div>
           </header>
           <ol class="limits">
@@ -736,6 +776,11 @@ const robotGloss = computed(() => {
 .formula-line-h.cost-accent,
 .formula-line-h.cost-accent b { font-weight: 800; }
 
+.proc-table { width: 100%; }
+.proc-table td, .proc-table th { vertical-align: top; }
+.proc-fix { display: grid; gap: 4px; }
+.proc-fix h4 { margin: 0; font-size: 14px; color: var(--ink-strong); }
+.proc-fix ul { margin: 0; padding-left: 18px; font-size: 13px; }
 .assume { display: grid; gap: 0; }
 .assume-row { display: grid; gap: 2px 12px; padding: 6px 0; border: 0; border-bottom: 1px solid var(--border-hairline); border-radius: 0; background: none; }
 .assume-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }

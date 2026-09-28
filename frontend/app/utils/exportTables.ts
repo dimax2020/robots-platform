@@ -49,6 +49,18 @@ export const toExcelXml = (sheets: TableSheet[], disclaimer: string) => {
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">${worksheets}</Workbook>`
 }
 
+export const downloadBytes = (filename: string, mime: string, bytes: Uint8Array) => {
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  const blob = new Blob([copy], { type: mime })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 export const downloadText = (filename: string, mime: string, text: string) => {
   const blob = new Blob([text], { type: mime })
   const url = URL.createObjectURL(blob)

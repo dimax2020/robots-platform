@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { PhPencilSimple, PhArrowRight, PhSparkle, PhCopy } from '@phosphor-icons/vue'
+import { PhPencilSimple, PhArrowRight, PhSparkle, PhCopy, PhDownloadSimple, PhUploadSimple } from '@phosphor-icons/vue'
 import { objectTypeLabel, isFullPath, type ObjectType } from '~/data/projects'
-import { fieldSources, labelProcess, processesByObject, siteFieldMeta, warehouseDatasetGroups } from '~/data/siteFields'
+import { fieldSources, labelProcess, processLabel, processesByObject, siteFieldMeta, warehouseDatasetGroups } from '~/data/siteFields'
 import { fetchErrorMessage } from '~/utils/errors'
+import { downloadBytes, downloadText } from '~/utils/exportTables'
+import { parseCell, parseTables, readImportTables, TASK_COLUMNS, templateCsv, templateSheets, templateXlsx, type ImportField } from '~/utils/siteImport'
 import { platformGet, platformSend } from '~/composables/usePlatform'
 import { asObjectType, useLiveProject } from '~/composables/useLiveProject'
 import { useDemoProjects } from '~/composables/useDemoProjects'
@@ -225,6 +227,10 @@ const validateSite = () => {
   }
   return Object.keys(siteErrors).length === 0
 }
+const problemLines = () => {
+  const fields = formFields.value ?? legacyFields()
+  return Object.entries(siteErrors).map(([key, msg]) => `${fields.find((field) => field.key === key)?.label ?? key}: ${msg}`)
+}
 const taskSource = (process: string, field?: string) =>
   (field && sources.value[`tasks.${process}.${field}`]) || sources.value[`tasks.${process}`]
 const taskEdited = (_t: ApiTask, _field: keyof ApiTask) => false
@@ -264,7 +270,7 @@ const onProcess = (t: ApiTask, code: string) => {
 }
 
 const saving = ref(false)
-const notice = ref<{ ok: boolean; text: string } | null>(null)
+const notice = ref<{ ok: boolean; text: string; items?: string[] } | null>(null)
 const siteErrors = reactive<Record<string, string>>({})
 const taskErrors = reactive<Record<number, Record<string, string>>>({})
 
@@ -323,8 +329,7 @@ const payload = (): { site: ApiSiteProfile; tasks: ApiTask[] } => ({
 const save = async (quiet = false) => {
   if (!project.value || saving.value || readonly.value) return false
   if (!validateSite()) {
-    const n = Object.keys(siteErrors).length
-    notice.value = { ok: false, text: `На форме ${n} ${n === 1 ? 'проблема' : n < 5 ? 'проблемы' : 'проблем'} — исправьте поля ниже` }
+    notice.value = { ok: false, text: 'Сохранить нельзя: часть значений вне допустимых границ.', items: problemLines() }
     focusErrorPane()
     return false
   }
@@ -339,8 +344,7 @@ const save = async (quiet = false) => {
     return true
   } catch (e: unknown) {
     if (applyFieldErrors(e)) {
-      const n = fieldErrorCount.value
-      notice.value = { ok: false, text: `На форме ${n} ${n === 1 ? 'проблема' : n < 5 ? 'проблемы' : 'проблем'} — исправьте поля ниже` }
+      notice.value = { ok: false, text: 'Сервер не принял часть значений.', items: problemLines() }
       focusErrorPane()
     } else {
       clearFieldErrors()
@@ -493,10 +497,124 @@ const taskSummary = (t: ApiTask) => {
   return 'поток не задан'
 }
 
+const importFields = (): ImportField[] => (formFields.value ?? legacyFields()).map((field) => ({
+  key: field.key,
+  label: field.label,
+  unit: field.unit,
+  kind: field.kind,
+  group: field.group,
+}))
+
+const templateOf = () => templateSheets(
+  importFields(),
+  site as unknown as Record<string, unknown>,
+  tasks.value as unknown as Record<string, unknown>[],
+)
+
+const downloadTemplate = (kind: 'csv' | 'xlsx') => {
+  const sheets = templateOf()
+  if (kind === 'csv') downloadText('parametry-ploshchadki.csv', 'text/csv;charset=utf-8', templateCsv(sheets))
+  else downloadBytes('parametry-ploshchadki.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', templateXlsx(sheets))
+}
+
+const fileRef = ref<HTMLInputElement | null>(null)
+const importing = ref(false)
+const dragOver = ref(false)
+const importFile = async (file: File) => {
+  if (readonly.value) return
+  const name = file.name.toLowerCase()
+  if (!name.endsWith('.csv') && !name.endsWith('.xls') && !name.endsWith('.xlsx')) {
+    notice.value = { ok: false, text: 'Нужен файл CSV или Excel (.xlsx, .xls) по шаблону с этого экрана.' }
+    return
+  }
+  importing.value = true
+  try {
+    const parsed = parseTables(await readImportTables(await file.arrayBuffer(), file.name), importFields())
+    const fields = importFields()
+    let applied = 0
+    const skipped: string[] = []
+    for (const item of parsed.site) {
+      const field = fields.find((row) => row.key === item.key)
+      if (!field) continue
+      const value = parseCell(item.raw, field.kind)
+      if (value === null) {
+        skipped.push(`${field.label}: в файле «${item.raw}». ${field.kind === 'bool' ? 'Нужно «да» или «нет».' : 'Число не разобрано.'}`)
+        continue
+      }
+      ;(site as unknown as Record<string, unknown>)[item.key] = value
+      applied += 1
+    }
+    const byCode = new Map(tasks.value.map((task) => [task.process_code, task]))
+    let taskCount = 0
+    for (const row of parsed.tasks) {
+      const named = Object.entries(processLabel).find(([, label]) => label.toLowerCase() === (row.name ?? '').trim().toLowerCase())
+      const code = row.process_code?.trim() || named?.[0] || ''
+      if (!code) continue
+      const task = byCode.get(code) ?? emptyTask(code)
+      if (!byCode.has(code)) {
+        tasks.value.push(task)
+        byCode.set(code, task)
+      }
+      if (row.name) task.name = row.name
+      for (const col of TASK_COLUMNS) {
+        if (col.kind !== 'number' || !row[col.key]) continue
+        const value = parseCell(row[col.key]!, 'number')
+        if (typeof value === 'number') (task as unknown as Record<string, unknown>)[col.key] = value
+      }
+      taskCount += 1
+    }
+    if (!applied && !taskCount && !skipped.length) {
+      notice.value = { ok: false, text: 'В файле нет значений по шаблону. Скачайте шаблон и заполните столбец «Значение».' }
+      return
+    }
+    clearFieldErrors()
+    const valid = validateSite()
+    const unknown = parsed.unknown.filter(Boolean).slice(0, 4)
+    const tail = unknown.length ? ` Не распознаны строки: ${unknown.join(', ')}.` : ''
+    const items = [...problemLines(), ...skipped]
+    if (!valid || skipped.length) {
+      notice.value = {
+        ok: false,
+        text: `Файл прочитан: параметров ${applied}${taskCount ? `, процессов ${taskCount}` : ''}. Сохранить нельзя, пока значения не попадут в допустимые границы.${tail}`,
+        items,
+      }
+      focusErrorPane()
+      return
+    }
+    notice.value = {
+      ok: true,
+      text: `Из файла прочитано параметров: ${applied}${taskCount ? `, процессов: ${taskCount}` : ''}. Проверьте значения и нажмите «${advanceLabel.value}», чтобы сохранить.${tail}`,
+    }
+  } catch {
+    notice.value = { ok: false, text: 'Файл не разобран. Скачайте шаблон CSV или Excel, заполните столбец «Значение» и загрузите его снова.' }
+  } finally {
+    importing.value = false
+  }
+}
+const onImport = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (file) await importFile(file)
+}
+const onDrop = async (event: DragEvent) => {
+  dragOver.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (file) await importFile(file)
+}
+
+const rejectedTitle = (count: number) => {
+  const mod10 = count % 10
+  const mod100 = count % 100
+  if (mod10 === 1 && mod100 !== 11) return `${count} значение не принято`
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${count} значения не приняты`
+  return `${count} значений не принято`
+}
 const focusErrorPane = () => {
   if (siteErrorCount.value && part.value !== 'object') {
     void router.replace({ path: `/projects/${id.value}/params` })
   }
+  void nextTick(() => document.querySelector('.fld.err')?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
 }
 
 watch(() => tasks.value.length, (n) => {
@@ -512,7 +630,7 @@ watch(() => tasks.value.length, (n) => {
     :substages="substages"
     :current-sub="part"
     :title="part === 'object' ? 'Параметры объекта' : 'Процессы объекта'"
-    :lead="part === 'object' ? 'Общие данные площадки. Дальше — какие процессы объекта включать в подбор.' : 'Снимите процесс, если его не нужно включать в подбор.'"
+    :lead="part === 'object' ? 'Общие данные площадки: вручную или из шаблона Excel и CSV. Дальше — какие процессы объекта включать в подбор.' : 'Снимите процесс, если его не нужно включать в подбор.'"
   >
     <template #actions>
       <UiButton v-if="live && !readonly && part === 'object'" variant="secondary" size="lg" :disabled="demoFilling" @click="fillFromDemo">
@@ -540,9 +658,33 @@ watch(() => tasks.value.length, (n) => {
           <UiButton v-else to="/login" size="sm">Войти, чтобы скопировать и править</UiButton>
         </div>
       </UiCallout>
-      <UiCallout v-else-if="notice" :tone="notice.ok ? 'ok' : 'danger'" :title="!notice.ok && fieldErrorCount ? `${fieldErrorCount} ${fieldErrorCount === 1 ? 'проблема' : fieldErrorCount < 5 ? 'проблемы' : 'проблем'} на форме` : undefined">{{ notice.text }}</UiCallout>
+      <UiCallout v-else-if="notice" :tone="notice.ok ? 'ok' : 'danger'" :title="notice.items?.length ? rejectedTitle(notice.items.length) : undefined">
+        {{ notice.text }}
+        <ul v-if="notice.items?.length" class="notice-list">
+          <li v-for="item in notice.items" :key="item">{{ item }}</li>
+        </ul>
+      </UiCallout>
 
       <div v-if="part === 'object'" class="groups" :class="{ still: readonly }">
+        <section
+          v-if="!readonly"
+          class="import-bar glass"
+          :class="{ over: dragOver }"
+          @dragover.prevent="dragOver = true"
+          @dragleave.prevent="dragOver = false"
+          @drop.prevent="onDrop"
+        >
+          <div>
+            <div class="h4">Загрузка из файла</div>
+            <p class="caption">Скачайте шаблон, заполните столбец «Значение» и лист «Процессы». Затем перетащите сюда CSV или Excel либо выберите файл. Пустая ячейка не затирает то, что уже введено. После проверки нажмите «{{ advanceLabel }}», чтобы сохранить.</p>
+          </div>
+          <div class="import-actions">
+            <UiButton variant="secondary" size="sm" @click="downloadTemplate('csv')"><template #icon><PhDownloadSimple :size="14" weight="bold" /></template>Шаблон CSV</UiButton>
+            <UiButton variant="secondary" size="sm" @click="downloadTemplate('xlsx')"><template #icon><PhDownloadSimple :size="14" weight="bold" /></template>Шаблон Excel</UiButton>
+            <UiButton variant="secondary" size="sm" :disabled="importing" @click="fileRef?.click()"><template #icon><PhUploadSimple :size="14" weight="bold" /></template>{{ importing ? 'Читаем…' : 'Загрузить файл' }}</UiButton>
+            <input ref="fileRef" class="file-in" type="file" accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" @change="onImport">
+          </div>
+        </section>
         <UiCallout v-if="formFallback" tone="warn">Справочник полей платформы не ответил: форма собрана из встроенного набора, без границ и значений по умолчанию.</UiCallout>
         <section v-for="(g, gi) in groups" :key="g.title" class="group" :class="g.extra ? 'extra' : 'glass'">
           <div class="sec-head">
@@ -586,7 +728,7 @@ watch(() => tasks.value.length, (n) => {
                 <PhPencilSimple v-if="siteEdited(f.key)" :size="14" weight="bold" class="edit-ic" />
               </span>
               <span v-if="siteError(f.key)" class="caption err-note">{{ siteError(f.key) }}</span>
-              <span v-else-if="siteEdited(f.key)" class="caption edited-note">Правка вручную. По умолчанию {{ defaultHint(f) }}.</span>
+              <span v-else-if="siteEdited(f.key)" class="caption edited-note">Изменено. По умолчанию {{ defaultHint(f) }}.</span>
               <span v-else-if="siteSource(f.key)" class="caption src-note">{{ siteSource(f.key) }}</span>
               <span v-if="rangeHint(f) && !siteError(f.key)" class="caption range-note">Допустимо {{ rangeHint(f) }}</span>
             </label>
@@ -608,6 +750,14 @@ watch(() => tasks.value.length, (n) => {
 .params { display: grid; gap: var(--space-4); }
 .pane-switch { max-width: 480px; }
 .groups { display: grid; gap: var(--space-4); }
+.import-bar { padding: var(--space-5); display: flex; justify-content: space-between; align-items: center; gap: var(--space-5); }
+.import-bar.over { outline: 2px dashed var(--brand-600); outline-offset: -8px; }
+.import-bar > * { position: relative; z-index: 1; }
+.import-bar .h4 { margin-bottom: 4px; }
+.import-bar .caption { max-width: 62ch; }
+.import-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.notice-list { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 2px; }
+.file-in { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
 .groups.still .input:disabled, .groups.still .select:disabled { opacity: 1; color: var(--ink-strong); background: rgba(255, 255, 255, 0.5); cursor: default; }
 .group { padding: var(--space-6); display: grid; gap: var(--space-5); }
 .group > * { position: relative; z-index: 1; }
@@ -657,6 +807,7 @@ watch(() => tasks.value.length, (n) => {
 .call-actions { margin-top: 10px; }
 .missing { padding-top: var(--space-12); display: grid; gap: var(--space-4); justify-items: start; }
 @media (max-width: 1100px) {
+  .import-bar { flex-direction: column; align-items: stretch; }
   .fields, .task-grid { grid-template-columns: 1fr; }
   .proc-layout { grid-template-columns: 1fr; }
   .proc-nav { position: static; }

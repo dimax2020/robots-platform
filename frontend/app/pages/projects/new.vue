@@ -87,7 +87,7 @@ const submit = async () => {
     <div class="intro" v-reveal>
       <div class="label">Новый проект</div>
       <h1 class="hero-2">Рамка расчёта</h1>
-      <p class="body-lg muted">Имя, отрасль и объект внутри отрасли. Параметры площадки заполняются на следующем шаге — вручную или из демо-объекта.</p>
+      <p class="body-lg muted">Имя, отрасль и объект внутри отрасли. Параметры площадки заполняются на следующем шаге: вручную, из демо-объекта или из файла Excel и CSV.</p>
     </div>
 
     <UiCallout v-if="createError" tone="danger" title="Проект не создан">{{ createError }}</UiCallout>
