@@ -15,6 +15,8 @@ def upgrade() -> None:
     op.add_column("project", sa.Column("published", sa.Boolean(), nullable=False, server_default=sa.false()))
     op.add_column("project", sa.Column("slug", sa.Text(), nullable=True))
     op.create_unique_constraint("uq_project_slug", "project", ["slug"])
+    # Демо создаются текущими ORM-моделями: колонки из поздних миграций должны уже существовать.
+    op.execute("ALTER TABLE project_process ADD COLUMN IF NOT EXISTS disabled_reason text")
 
     from app.application.reference_data import seed_demo_projects
 

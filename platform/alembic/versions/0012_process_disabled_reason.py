@@ -1,6 +1,5 @@
 """Причина, по которой процесс выключили в проекте: невыгоден по экономике."""
 
-import sqlalchemy as sa
 from alembic import op
 
 revision = "0012_process_disabled_reason"
@@ -10,8 +9,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("project_process", sa.Column("disabled_reason", sa.Text(), nullable=True))
+    # На чистой базе колонку уже завела 0011_demo_projects.
+    op.execute("ALTER TABLE project_process ADD COLUMN IF NOT EXISTS disabled_reason text")
 
 
 def downgrade() -> None:
-    op.drop_column("project_process", "disabled_reason")
+    op.execute("ALTER TABLE project_process DROP COLUMN IF EXISTS disabled_reason")
