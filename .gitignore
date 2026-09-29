@@ -16,3 +16,8 @@ frontend/.cache
 frontend/.data
 frontend/dist
 frontend/*.log
+
+# отчёты make audit-platform / normalize-platform
+reports/
+.vscode/
+.local-backups/
