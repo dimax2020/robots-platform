@@ -4,15 +4,14 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   css: ['katex/dist/katex.min.css', '~/assets/css/main.css'],
   runtimeConfig: {
+    // Куда server/routes/platform отправляет /platform/**, уже без префикса. Меняется при запуске
+    // переменной NUXT_PLATFORM_API_UPSTREAM: в контейнере — http://platform-api:8000,
+    // в `npm run dev` — traefik из compose, который сам снимает /platform.
+    platformApiUpstream: `${process.env.NUXT_DEV_API_ORIGIN || 'http://localhost'}/platform`,
     public: {
-      // Браузер и SSR ходят на тот же origin. В compose путь /platform отдаёт traefik,
-      // в dev-режиме — прокси из routeRules ниже.
+      // Браузер и SSR ходят на тот же origin, что и сайт.
       platformApiBase: process.env.NUXT_PUBLIC_PLATFORM_API_BASE || '/platform/api/v1',
     },
-  },
-  // В режиме `bun run dev` Nuxt слушает 3000, а API внутри compose: прокидываем /platform через traefik
-  routeRules: {
-    '/platform/**': { proxy: `${process.env.NUXT_DEV_API_ORIGIN || 'http://localhost'}/platform/**` },
   },
   app: {
     head: {

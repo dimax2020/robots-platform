@@ -18,6 +18,8 @@ make up            # или: docker compose up -d --build
 
 Остановить: `make down`. Сбросить данные: `make reset`.
 
+Развёртывание на сервере с Coolify (у него свой Traefik и HTTPS): файл `docker-compose.coolify.yaml`, инструкция в [docs/deploy-coolify.md](docs/deploy-coolify.md).
+
 ## Сервисы
 
 | Сервис | Назначение | Адрес |

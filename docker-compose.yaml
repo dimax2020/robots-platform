@@ -17,6 +17,7 @@ services:
     build: ./frontend
     environment:
       NUXT_PUBLIC_PLATFORM_API_BASE: /platform/api/v1
+      NUXT_PLATFORM_API_UPSTREAM: http://platform-api:8000
     labels:
       - traefik.enable=true
       - traefik.http.routers.web.rule=PathPrefix(`/`)

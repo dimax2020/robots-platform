@@ -70,6 +70,7 @@ docker compose up -d --build
 | `JOB_STALE_S` | worker | `1800` | Через сколько секунд зависшее задание считается брошенным |
 | `LIST_PAGE_SIZE` | api | `24` | Размер порции карточек каталога |
 | `NUXT_PUBLIC_PLATFORM_API_BASE` | web | `/platform/api/v1` | Путь к API относительно origin сайта |
+| `NUXT_PLATFORM_API_UPSTREAM` | web | `http://platform-api:8000` | Куда сайт проксирует `/platform/**`, уже без префикса. Нужен для SSR и для запуска без своего Traefik (Coolify) |
 | `NUXT_DEV_API_ORIGIN` | web (только dev) | `http://localhost` | Куда проксировать `/platform` при `npm run dev` |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | db | `robots` / `robots` / `robots` | Учётные данные PostgreSQL |
 
@@ -92,6 +93,8 @@ docker compose up -d --build
 2. Убрать проброс порта `5432` из `docker-compose.yaml` и сменить пароль PostgreSQL.
 3. Поставить перед Traefik терминатор TLS или включить в Traefik entrypoint `websecure` с сертификатом. Cookie сессии без TLS передаётся открытым текстом.
 4. Настроить резервное копирование томов `pgdata` и `platform_uploads`.
+
+Для сервера с Coolify пункты 1–3 закрывает отдельный файл `docker-compose.coolify.yaml`: TLS даёт прокси Coolify, база наружу не открыта, пароль БД и секрет сессии задаются переменными. Порядок действий: [deploy-coolify.md](deploy-coolify.md).
 
 ## 3.7. Локальная разработка без контейнеров для сайта
 

@@ -75,7 +75,11 @@ def _ensure_database(admin_url: str, name: str) -> None:
     with psycopg.connect(url, autocommit=True) as conn:
         exists = conn.execute("SELECT 1 FROM pg_database WHERE datname = %s", (name,)).fetchone()
         if exists is None:
-            conn.execute(f'CREATE DATABASE "{name}"')
+            # API и воркер стартуют одновременно: базу мог создать соседний контейнер между проверкой и CREATE.
+            try:
+                conn.execute(f'CREATE DATABASE "{name}"')
+            except (psycopg.errors.DuplicateDatabase, psycopg.errors.UniqueViolation):
+                pass
 
 
 if __name__ == "__main__":

@@ -1,0 +1,61 @@
+# Запуск в Coolify. Прокси и TLS даёт Coolify, поэтому своего traefik здесь нет,
+# и наружу смотрит только web: /platform/** он сам отправляет в platform-api по внутренней сети.
+# Инструкция: docs/deploy-coolify.md
+
+services:
+  web:
+    build: ./frontend
+    environment:
+      NUXT_PUBLIC_PLATFORM_API_BASE: /platform/api/v1
+      NUXT_PLATFORM_API_UPSTREAM: http://platform-api:8000
+    depends_on:
+      - platform-api
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: robots
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Задайте POSTGRES_PASSWORD в переменных Coolify}
+      POSTGRES_DB: robots
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U robots -d robots"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  platform-api:
+    build: ./platform
+    environment:
+      DATABASE_URL: postgresql+psycopg://robots:${POSTGRES_PASSWORD}@db:5432/platform
+      POSTGRES_ADMIN_URL: postgresql+psycopg://robots:${POSTGRES_PASSWORD}@db:5432/postgres
+      UPLOAD_DIR: /app/uploads
+      ROOT_PATH: /platform
+      SESSION_SECRET: ${SESSION_SECRET:?Задайте SESSION_SECRET в переменных Coolify}
+    volumes:
+      - platform_uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  platform-worker:
+    build: ./platform
+    command: ["sh", "-c", "python -m app.bootstrap && python -m app.worker"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://robots:${POSTGRES_PASSWORD}@db:5432/platform
+      POSTGRES_ADMIN_URL: postgresql+psycopg://robots:${POSTGRES_PASSWORD}@db:5432/postgres
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - platform_uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  platform_uploads:
