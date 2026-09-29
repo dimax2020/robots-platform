@@ -5,10 +5,18 @@ import { cardToProduct, platformGet, type PlatformPage } from '~/composables/use
 import { demoObjectType, demoPath, useDemoProjects } from '~/composables/useDemoProjects'
 import type { Product } from '~/data/catalog'
 
-useHead({ title: 'Платформа роботизации. Каталог и подбор решений' })
+useHead({ title: 'Платформа роботизации. Подбор роботов и расчёт окупаемости' })
+
+interface PlatformTree {
+  industries: { code: string; name: string }[]
+  objects: { code: string; name: string; in_match?: boolean; processes: string[] }[]
+  processes: { code: string; name: string; product_count: number }[]
+}
 
 const featured = ref<Product[]>([])
 const catalogTotal = ref(0)
+const typesTotal = ref(0)
+const tree = ref<PlatformTree | null>(null)
 onMounted(() => {
   platformGet<PlatformPage>('/catalog/products?limit=24')
     .then((page) => {
@@ -16,16 +24,19 @@ onMounted(() => {
       featured.value = [...page.items].sort((a, b) => (b.trl ?? 0) - (a.trl ?? 0)).slice(0, 4).map(cardToProduct)
     })
     .catch(() => { featured.value = [] })
+  platformGet<PlatformTree>('/catalog/tree').then((data) => { tree.value = data }).catch(() => { tree.value = null })
+  platformGet<unknown[]>('/catalog/solution-types').then((items) => { typesTotal.value = items.length }).catch(() => { typesTotal.value = 0 })
 })
+const stat = (value: number | undefined) => (value ? String(value) : '—')
 const { role } = useRole()
 const demoStore = useDemoProjects()
 const demos = demoStore.items
 const demoReport = computed(() => (demoStore.first.value ? `${demoPath(demoStore.first.value)}/report` : '/projects'))
 
 const rules = [
-  { icon: PhDatabase, title: 'У каждого числа есть источник', text: 'Достоверность выводится из типа источника: производитель, дилер, СМИ, каталог, аналог, допущение. Буква не ставится вручную.' },
-  { icon: PhGitBranch, title: 'Подбор трёхзначный', text: 'Подходит, исключён, требует проверки. Пустое поле не выкидывает решение, а переводит его в отдельный список с запросом вендору.' },
-  { icon: PhChartLineUp, title: 'Экономика интервалом', text: 'Нижняя, центральная и верхняя оценка. Рядом характеристика, которая даёт больше всего неопределённости, и что её сузит.' },
+  { icon: PhDatabase, title: 'У каждого значения есть источник', text: 'Характеристики приходят из каталога ФЦ БАС, ручной таблицы и парсеров сайтов. В карточке видно, откуда взято значение, а ручная правка не затирается следующим импортом.' },
+  { icon: PhGitBranch, title: 'Подбор по процессам объекта', text: 'У каждого процесса свои фильтры: поля площадки сравниваются с характеристиками робота. Не хватает данных — робот не пропадает, а попадает во вкладку «Уточнить» с причиной.' },
+  { icon: PhChartLineUp, title: 'Экономика в трёх сценариях', text: 'Без роботизации, покупка и аренда. У каждого числа формула и источник, а what-if показывает, как срок окупаемости меняется при отклонении параметра на 20%.' },
 ]
 
 /* Hero: параллакс слоёв от курсора. Слои сдвигаются с разной амплитудой, отсюда глубина. */
@@ -65,9 +76,9 @@ watch(rich, (on) => {
 onBeforeUnmount(() => cancelAnimationFrame(raf))
 
 const objects = [
-  { type: 'warehouse' as const, title: 'Склад', text: 'Параметры, подбор, три сценария, экономика, what-if, симуляция смены, 2D-план, отчёт.', processes: ['Перемещение', 'Комплектация', 'Паллетирование', 'Инвентаризация'] },
-  { type: 'airport' as const, title: 'Аэропорт', text: 'Параметры площадки и список применимых решений.', processes: ['Багаж', 'Периметр', 'Дезинфекция'] },
-  { type: 'hospital' as const, title: 'Медучреждение', text: 'Параметры корпуса и список применимых решений.', processes: ['Дезинфекция', 'Доставка'] },
+  { type: 'warehouse' as const, title: 'Склад' },
+  { type: 'airport' as const, title: 'Аэропорт' },
+  { type: 'hospital' as const, title: 'Медучреждение' },
 ]
 const matchable = ref<string[] | null>(null)
 onMounted(() => {
@@ -75,6 +86,18 @@ onMounted(() => {
     .then((page) => { matchable.value = page.items.flatMap((row) => row.objects.map((obj) => obj.code)) })
     .catch(() => { matchable.value = null })
 })
+/* Теги процессов берём из справочника платформы: чаще всего встречающиеся у объекта, где есть роботы. */
+const processTags = (code: string) => {
+  const data = tree.value
+  const object = data?.objects.find((item) => item.code === code)
+  if (!data || !object) return []
+  const byCode = new Map(data.processes.map((item) => [item.code, item]))
+  return object.processes
+    .map((item) => byCode.get(item))
+    .filter((item): item is PlatformTree['processes'][number] => Boolean(item && item.product_count > 0))
+    .sort((a, b) => b.product_count - a.product_count)
+    .map((item) => item.name)
+}
 const visibleObjects = computed(() => (matchable.value ? objects.filter((item) => matchable.value!.includes(item.type)) : objects))
 </script>
 
@@ -94,11 +117,11 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
 
         <!-- Слой 1: заголовок, уходит за робота -->
         <div class="layer l-text" v-reveal>
-          <div class="label kicker">Каталог и подбор роботизированных решений</div>
+          <div class="label kicker">Каталог, подбор и экономика роботизации</div>
           <h1 class="hero-1 headline">
-            <span class="line">Роботизация</span>
-            <span class="line">с расчётом, который</span>
-            <span class="line">можно проверить</span>
+            <span class="line">Подберите роботов</span>
+            <span class="line">под свой объект</span>
+            <span class="line">и оцените выгоду</span>
           </h1>
         </div>
 
@@ -114,13 +137,13 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
           <div class="float f1 glass glass-sheen" v-reveal="2">
             <span class="sheen" aria-hidden="true" />
             <div class="f-head">
-              <span class="label">Подбор · склад 12 000 м²</span>
+              <span class="label">Перевозка паллет · склад 12 000 м²</span>
               <UiBadge tone="ok" pulse>Подходит</UiBadge>
             </div>
             <div class="f-row">
               <div>
                 <div class="h4">Ronavi H1500</div>
-                <div class="caption">AMR палетный · Ronavi Robotics</div>
+                <div class="caption">AMR · Ронави Роботикс</div>
               </div>
               <div class="f-n"><span class="display-4">7</span><span class="caption">машин</span></div>
             </div>
@@ -128,20 +151,20 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
           </div>
 
           <div class="float f2 glass" v-reveal="3">
-            <div class="label">Окупаемость</div>
+            <div class="label">Окупаемость · покупка</div>
             <div class="f-int">
               <span class="mono-md">2,4</span>
               <span class="bar"><span /></span>
               <span class="mono-md">4,2</span>
               <span class="caption">года</span>
             </div>
-            <div class="caption">Ширину даёт производительность: <span class="strong">оценка по аналогу</span></div>
+            <div class="caption">Разброс при ±20%: сильнее всего влияет <span class="strong">производительность</span></div>
           </div>
 
           <div class="float f3 glass-graphite glass-graphite-solid" v-reveal="4">
-            <div class="mono-sm">A · производитель</div>
+            <div class="mono-sm">Источник · производитель</div>
             <div class="body-sm">Грузоподъёмность 1 500 кг</div>
-            <div class="caption">получено 14 авг 2026</div>
+            <div class="caption">у каждого значения виден источник</div>
           </div>
         </div>
 
@@ -151,10 +174,10 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
     <!-- Метрики -->
     <section class="container metrics" v-reveal>
       <div class="metrics-grid glass glass-xl">
-        <UiStat label="Решений в каталоге" value="47" note="в 11 категориях, два формата исходников" />
-        <UiStat label="В эксплуатации" value="23" note="ещё 12 в пилоте и 2 в разработке" />
-        <UiStat label="Типа объектов" value="3" note="склад, аэропорт, медучреждение" />
-        <UiStat label="Горизонт TCO" value="5 лет" note="не меньше, чем требует организатор" />
+        <UiStat label="Решений в каталоге" :value="stat(catalogTotal)" note="карточки роботов с источником у каждой характеристики" />
+        <UiStat label="Типов решений" :value="stat(typesTotal)" note="AMR, уборщики, манипуляторы, БАС и другие" />
+        <UiStat label="Процессов" :value="stat(tree?.processes.length)" note="у каждого свои фильтры подбора" />
+        <UiStat label="Отраслей" :value="stat(tree?.industries.length)" note="склад, аэропорт и медучреждение доступны для проекта" />
       </div>
     </section>
 
@@ -167,10 +190,7 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
           <div class="obj-scrim" />
           <div class="obj-panel glass glass-strong">
             <h3 class="h2">{{ o.title }}</h3>
-            <p class="body-sm muted">{{ o.text }}</p>
-            <div class="obj-tags">
-              <span v-for="p in o.processes" :key="p" class="tag">{{ p }}</span>
-            </div>
+            <TagsClamp :tags="processTags(o.type)" :rows="2" />
           </div>
           <span class="obj-arrow glass"><PhArrowUpRight :size="20" weight="bold" /></span>
         </NuxtLink>
@@ -186,8 +206,8 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
           <span class="orbit o3" />
         </div>
         <div class="how-head">
-          <div class="label">Как работает подбор</div>
-          <h2 class="hero-2">Три правила, которые интерфейс показывает, а не прячет</h2>
+          <div class="label">Как это работает</div>
+          <h2 class="hero-2">Откуда берутся роботы, вердикты и цифры</h2>
         </div>
         <div class="rules">
           <div v-for="(r, i) in rules" :key="r.title" class="rule glass-graphite" v-reveal="i">
@@ -226,7 +246,7 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
 
     <!-- Каталог -->
     <section class="container section">
-      <SectionHead title="Каталог решений" lead="Дерево отрасль → объект → процесс → тип решения → продукт. Один продукт может быть в нескольких ветках без дублей карточек.">
+      <SectionHead title="Каталог решений" lead="Отрасль → объект → процесс → тип решения → продукт. Один робот может стоять в нескольких ветках, а карточка у него одна. Отмеченные кнопкой «Сравнить» модели собираются в таблицу.">
         <UiButton to="/catalog" variant="secondary">{{ catalogTotal ? `Все ${catalogTotal} решений` : 'Все решения' }}<template #after><PhArrowRight :size="16" weight="bold" /></template></UiButton>
       </SectionHead>
       <div class="grid grid-4">
@@ -239,7 +259,7 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
       <div class="disclaimer glass glass-xl">
         <div>
           <div class="h2">Это экспресс-оценка, не акт обследования</div>
-          <p class="body muted">Платформа даёт прединвестиционную гипотезу для перехода к полноценному ТЭО. Расчёт открывается снова на той же версии каталога и модели.</p>
+          <p class="body muted">Платформа даёт прединвестиционную гипотезу для перехода к полноценному ТЭО: параметры площадки, подбор, экономика и 2D-план собираются в один отчёт.</p>
         </div>
         <div class="row">
           <UiButton to="/projects/new" size="lg">{{ role === 'guest' ? 'Выбрать демо-проект' : 'Начать проект' }}</UiButton>
@@ -333,8 +353,6 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
 .obj-panel { position: absolute; left: 16px; right: 16px; bottom: 16px; padding: 18px 20px; display: grid; gap: 10px; border-radius: 18px; }
 .obj-panel > * { position: relative; z-index: 1; }
 .obj.warehouse .obj-panel { right: auto; width: min(460px, calc(100% - 32px)); }
-.obj-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.tag { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: var(--radius-pill); background: rgba(15, 20, 19, 0.06); color: var(--ink-body); }
 .obj-arrow { position: absolute; top: 16px; right: 16px; width: 44px; height: 44px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; color: var(--ink-strong); transition: transform var(--dur-fast) var(--ease); }
 .obj-arrow svg { position: relative; z-index: 1; }
 .obj:hover .obj-arrow { transform: translate(2px, -2px); }
