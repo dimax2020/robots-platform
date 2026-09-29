@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhArrowRight } from '@phosphor-icons/vue'
+import { PhArrowRight, PhArrowUpRight } from '@phosphor-icons/vue'
 import { fetchErrorMessage } from '~/utils/errors'
 import { platformSend } from '~/composables/usePlatform'
 import { useLiveProject } from '~/composables/useLiveProject'
@@ -82,6 +82,7 @@ const buttonLabel = computed(() => {
   return 'Следующий процесс'
 })
 
+const isImmature = (hit: MatchHit) => hit.notes.some((note) => note.startsWith('Готовность:'))
 const countText = (hit: MatchHit | null) => {
   if (!hit || hit.count == null) return hit?.count_note || 'количество не задано'
   const value = Number(hit.count)
@@ -192,14 +193,16 @@ onBeforeUnmount(stopClock)
         <UiTabs v-model="statusTab" :tabs="statusTabs" />
       </div>
 
+      <p v-if="statusTab === 'unknown' && visibleHits.some(isImmature)" class="caption tab-note">Сюда же попадают роботы с низким УГТ или на стадии разработки: так работает общий фильтр готовности. Их можно добавить в сравнение вручную.</p>
       <section v-if="visibleHits.length" class="glass sheet">
         <article v-for="hit in visibleHits" :key="hit.product_id" class="hit">
-          <NuxtLink :to="`/catalog/card/${hit.slug}`" class="thumb" :aria-label="hit.name">
+          <NuxtLink :to="`/catalog/card/${hit.slug}`" target="_blank" rel="noopener" class="thumb" :aria-label="`${hit.name}: карточка в новой вкладке`">
             <img :src="photoFor(hit.image_url, hit.name, activeGroup.process_code)" :alt="hit.name" loading="lazy">
           </NuxtLink>
           <div class="who">
-            <NuxtLink :to="`/catalog/card/${hit.slug}`" class="h4">{{ hit.name }}</NuxtLink>
+            <NuxtLink :to="`/catalog/card/${hit.slug}`" target="_blank" rel="noopener" class="h4 card-link">{{ hit.name }}<PhArrowUpRight :size="14" weight="bold" /></NuxtLink>
             <span class="mono-sm">{{ countText(hit) }}</span>
+            <RobotReadiness :trl="hit.trl" :stage="hit.stage" :flagged="isImmature(hit)" />
           </div>
           <UiBadge :tone="verdictTone[hit.verdict] || 'neutral'" size="sm">{{ verdictLabel[hit.verdict] || hit.verdict }}</UiBadge>
           <span class="caption">{{ hit.notes.join(' · ') || 'замечаний нет' }}</span>
@@ -239,6 +242,11 @@ onBeforeUnmount(stopClock)
 .thumb { display: block; width: 132px; height: 96px; border-radius: 14px; overflow: hidden; background: #e9eeec; }
 .thumb img { width: 100%; height: 100%; object-fit: contain; }
 .hit .h4 { color: var(--ink-strong); }
+.card-link { display: inline-flex; align-items: baseline; gap: 4px; }
+.card-link svg { flex: none; color: var(--ink-faint); transition: color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
+.card-link:hover { color: var(--link); }
+.card-link:hover svg { color: var(--link); transform: translate(1px, -1px); }
+.tab-note { margin: 0; }
 .empty { padding: var(--space-10); text-align: center; display: grid; gap: 8px; justify-items: center; }
 .empty > * { position: relative; z-index: 1; }
 .call-actions { margin-top: 10px; }

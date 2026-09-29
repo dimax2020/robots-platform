@@ -1,7 +1,7 @@
 import type { Component } from 'vue'
 import {
   PhSquaresFour, PhBuildings, PhSlidersHorizontal, PhListChecks, PhCalculator, PhStack,
-  PhPackage, PhTag, PhRocketLaunch, PhUploadSimple, PhLinkSimple, PhTreeStructure, PhFactory, PhShapes, PhPlay,
+  PhPackage, PhTag, PhRocketLaunch, PhUploadSimple, PhLinkSimple, PhTreeStructure, PhFactory, PhShapes, PhPlay, PhFunnel,
 } from '@phosphor-icons/vue'
 
 export interface AdminNavItem { to: string; label: string; icon: Component; note: string }
@@ -21,6 +21,7 @@ export const adminNav: AdminNavGroup[] = [
     items: [
       { to: '/admin/objects', label: 'Объекты', icon: PhBuildings, note: 'Поля расчёта и процессы объекта' },
       { to: '/admin/processes', label: 'Процессы', icon: PhSlidersHorizontal, note: 'Условия подбора, количество, схема' },
+      { to: '/admin/filters', label: 'Общие фильтры', icon: PhFunnel, note: 'Правила для всех процессов: готовность робота' },
       { to: '/admin/coverage', label: 'Список продуктов', icon: PhListChecks, note: 'Роботы процесса и недостающие данные' },
     ],
   },

@@ -8,6 +8,8 @@ export interface MatchHit {
   verdict: string
   notes: string[]
   image_url?: string | null
+  trl?: number | null
+  stage?: string | null
   count?: number | null
   count_note?: string
   specs?: RobotSpec[]

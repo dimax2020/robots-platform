@@ -12,9 +12,32 @@ from app.infrastructure.db.object_repo import (
     site_fields,
 )
 from app.infrastructure.db.session import session_factory
-from app.infrastructure.db.taxonomy_repo import object_setup
+from app.infrastructure.db.taxonomy_repo import match_filters, object_setup, save_match_filters
 
 router = APIRouter()
+
+
+class ReadinessIn(BaseModel):
+    enabled: bool = True
+    min_trl: int = Field(6, ge=0, le=9)
+    review_stages: list[str] = Field(default_factory=lambda: ["rnd"])
+    review_missing_trl: bool = False
+
+
+class MatchFiltersIn(BaseModel):
+    readiness: ReadinessIn
+
+
+@router.get("/api/v1/admin/match-filters", tags=["Админка · подбор"], summary="Общие фильтры подбора для всех процессов")
+def admin_match_filters() -> dict:
+    with session_factory()() as db:
+        return match_filters(db)
+
+
+@router.put("/api/v1/admin/match-filters", tags=["Админка · подбор"], summary="Сохранить общие фильтры подбора")
+def admin_match_filters_save(body: MatchFiltersIn) -> dict:
+    with session_factory()() as db:
+        return save_match_filters(db, body.readiness.model_dump())
 
 
 class NewObjectIn(BaseModel):

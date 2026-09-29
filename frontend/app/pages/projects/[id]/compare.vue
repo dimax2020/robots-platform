@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhCaretLeft, PhCaretRight, PhCaretDown, PhArrowLeft, PhArrowRight, PhCheck, PhCheckCircle } from '@phosphor-icons/vue'
+import { PhCaretLeft, PhCaretRight, PhCaretDown, PhArrowLeft, PhArrowRight, PhArrowUpRight, PhCheck, PhCheckCircle } from '@phosphor-icons/vue'
 import { fetchErrorMessage } from '~/utils/errors'
 import { platformSend } from '~/composables/usePlatform'
 import { useLiveProject } from '~/composables/useLiveProject'
@@ -61,6 +61,7 @@ const lineup = computed(() => readyGroups.value.map((group) => ({
 const readyCount = computed(() => lineup.value.filter((row) => row.robot).length)
 const canEconomy = computed(() => lineup.value.some((row) => row.robot) && lineup.value.every((row) => row.robot || !row.open))
 
+const isImmature = (hit: MatchHit) => hit.notes.some((note) => note.startsWith('Готовность:'))
 const specsOf = (hit: MatchHit | null) => {
   const rows = [...(hit?.specs ?? [])]
   if (hit?.count != null) rows.push({ key: 'count', label: 'Роботов нужно', unit: 'шт', direction: 'low', value: hit.count })
@@ -234,7 +235,8 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
           <div class="in">
             <div class="picked-tag"><PhCheckCircle :size="16" weight="fill" /> Выбран для процесса</div>
             <img class="portrait" :src="photoFor(chosen?.image_url, chosen?.name || '', activeGroup.process_code)" :alt="chosen?.name || ''">
-            <div class="h3">{{ chosen?.name }}</div>
+            <NuxtLink v-if="chosen" :to="`/catalog/card/${chosen.slug}`" target="_blank" rel="noopener" class="h3 card-link" title="Карточка робота в новой вкладке">{{ chosen.name }}<PhArrowUpRight :size="16" weight="bold" /></NuxtLink>
+            <RobotReadiness v-if="chosen" :trl="chosen.trl" :stage="chosen.stage" :flagged="isImmature(chosen)" />
             <UiBadge v-if="selectedIsOptimal" tone="ok" size="sm">Оптимальный по версии платформы</UiBadge>
             <div class="mono-sm">{{ chosen?.count != null ? `${chosen.count.toLocaleString('ru-RU')} шт.` : (chosen?.count_note || 'количество не задано') }}</div>
             <div v-if="optimal && !selectedIsOptimal" class="optimal">
@@ -255,7 +257,8 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
                 <img class="portrait" :src="photoFor(viewed?.image_url, viewed?.name || '', activeGroup.process_code)" :alt="viewed?.name || ''">
                 <div class="who">
                   <div class="caption">{{ viewIndex + 1 }} из {{ pool.length }}<template v-if="viewed?.product_id === optimal?.product_id"> · оптимальный</template></div>
-                  <div class="h4">{{ viewed?.name }}</div>
+                  <NuxtLink v-if="viewed" :to="`/catalog/card/${viewed.slug}`" target="_blank" rel="noopener" class="h4 card-link" title="Карточка робота в новой вкладке">{{ viewed.name }}<PhArrowUpRight :size="14" weight="bold" /></NuxtLink>
+                  <RobotReadiness v-if="viewed" :trl="viewed.trl" :stage="viewed.stage" :flagged="isImmature(viewed)" />
                 </div>
               </div>
               <button type="button" class="arrow" aria-label="Следующий робот" :disabled="pool.length < 2" @click="step(1)"><PhCaretRight :size="18" weight="bold" /></button>
@@ -328,6 +331,10 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
   box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06);
 }
 .base .h3 { margin: 0; }
+.card-link { display: inline-flex; align-items: baseline; gap: 6px; color: var(--ink-strong); justify-self: start; }
+.card-link svg { flex: none; color: var(--ink-faint); transition: color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
+.card-link:hover { color: var(--link); }
+.card-link:hover svg { color: var(--link); transform: translate(1px, -1px); }
 .optimal { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 10px; align-items: center; padding-top: 8px; border-top: 1px solid var(--border-hairline); }
 .optimal img { width: 56px; height: 44px; object-fit: contain; border-radius: 10px; background: #e9eeec; }
 .optimal span { display: grid; gap: 2px; min-width: 0; }

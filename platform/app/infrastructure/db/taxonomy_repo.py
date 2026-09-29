@@ -9,13 +9,14 @@ from app.domain.economy import NORM_BY_KEY, NORMS, TYPE_NORMS, blend_by_type, ca
 from app.domain.layout_items import clean_items, default_items
 from app.domain.formula import _number, identifiers
 from app.domain.specs import CANON_LABELS
-from app.domain.match import FilterRule, RobotView, match_robots, robot_count, usage_for
+from app.domain.match import STAGES, FilterRule, Readiness, RobotView, match_robots, robot_count, usage_for
 from app.infrastructure.db.models import (
     AttributeDefRow,
     EconomyNormLogRow,
     EconomyNormOverrideRow,
     EconomyNormRow,
     IndustryRow,
+    MatchSettingRow,
     ObjectFieldRow,
     ObjectIndustryRow,
     ObjectInputBindingRow,
@@ -315,8 +316,8 @@ def preview_process(db: Session, process_code: str, payload: dict) -> dict:
         if (item.get("formula") or "").strip()
     )
     rows = products_for_process(db, process.id)
-    robots = tuple(RobotView(str(row.id), row.name, row.slug, _values(row), row.image_url) for row in rows)
-    hits = match_robots(process_code=process.code, process_name=process.name, site=site, rules=rules, robots=robots, bindings=bindings)
+    robots = tuple(_robot_view(row) for row in rows)
+    hits = match_robots(process_code=process.code, process_name=process.name, site=site, rules=rules, robots=robots, bindings=bindings, readiness=readiness_filter(db))
     by_id = {str(row.id): _values(row) for row in rows}
     count_inputs = tuple((row.get("key", ""), row.get("label", "")) for row in (payload.get("count_inputs") or []) if isinstance(row, dict))
     counted = []
@@ -350,6 +351,8 @@ def preview_process(db: Session, process_code: str, payload: dict) -> dict:
                 "slug": hit.slug,
                 "verdict": hit.verdict,
                 "notes": list(hit.notes),
+                "trl": hit.trl,
+                "stage": hit.stage,
                 "count": amount,
                 "count_note": note,
             }
@@ -851,6 +854,7 @@ def match_object(db: Session, object_code: str, site: dict | None) -> dict:
 
 
 def _match_groups(db: Session, object_type_id: int, processes: list, values: dict) -> list:
+    readiness = readiness_filter(db)
     groups = []
     for process in processes:
         bindings = {
@@ -873,7 +877,7 @@ def _match_groups(db: Session, object_type_id: int, processes: list, values: dic
             for item in db.scalars(select(ProcessFilterRow).where(ProcessFilterRow.process_id == process.id).order_by(ProcessFilterRow.id))
         )
         rows = products_for_process(db, process.id)
-        robots = tuple(RobotView(str(row.id), row.name, row.slug, _values(row), row.image_url) for row in rows)
+        robots = tuple(_robot_view(row) for row in rows)
         hits = match_robots(
             process_code=process.code,
             process_name=process.name,
@@ -881,6 +885,7 @@ def _match_groups(db: Session, object_type_id: int, processes: list, values: dic
             rules=rules,
             robots=robots,
             bindings=bindings,
+            readiness=readiness,
         )
         by_id = {str(row.id): _values(row) for row in rows}
         counted = []
@@ -907,6 +912,8 @@ def _match_groups(db: Session, object_type_id: int, processes: list, values: dic
                     "verdict": hit.verdict,
                     "notes": list(hit.notes),
                     "image_url": hit.image_url,
+                    "trl": hit.trl,
+                    "stage": hit.stage,
                     "count": amount,
                     "count_note": note,
                     "specs": _compare_specs(by_id.get(hit.product_id, {})),
@@ -1259,6 +1266,44 @@ def _best(counted: list, attrs: dict[str, dict], rank_key: str, rank_order: str)
 
     pool.sort(key=sort_key)
     return pool[0][0].product_id
+
+
+def _robot_view(row: ProductRow) -> RobotView:
+    return RobotView(str(row.id), row.name, row.slug, _values(row), row.image_url, row.trl, row.availability or None)
+
+
+READINESS = "readiness"
+
+
+def readiness_filter(db: Session) -> Readiness:
+    row = db.get(MatchSettingRow, READINESS)
+    return Readiness.from_value(row.value if row else None)
+
+
+def match_filters(db: Session) -> dict:
+    """Общие фильтры подбора и раскладка роботов по УГТ и стадии: админка по ней считает, сколько уйдёт в «Уточнить»."""
+    assigned = select(ProductProcessRow.product_id).distinct()
+    rows = db.execute(
+        select(ProductRow.trl, ProductRow.availability, func.count())
+        .where(ProductRow.id.in_(assigned))
+        .group_by(ProductRow.trl, ProductRow.availability)
+    ).all()
+    return {
+        "readiness": readiness_filter(db).as_value(),
+        "stages": [{"code": code, "label": label} for code, label in STAGES.items()],
+        "products": [{"trl": trl, "stage": stage or None, "count": int(count)} for trl, stage, count in rows],
+    }
+
+
+def save_match_filters(db: Session, readiness: dict) -> dict:
+    value = Readiness.from_value(readiness).as_value()
+    row = db.get(MatchSettingRow, READINESS)
+    if row is None:
+        db.add(MatchSettingRow(code=READINESS, value=value))
+    else:
+        row.value = value
+    db.commit()
+    return match_filters(db)
 
 
 def _values(row: ProductRow) -> dict:

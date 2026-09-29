@@ -225,6 +225,13 @@ class ProjectProcessRow(Base):
     disabled_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class MatchSettingRow(Base):
+    __tablename__ = "match_setting"
+    code: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
 class ParserSettingRow(Base):
     __tablename__ = "parser_setting"
     code: Mapped[str] = mapped_column(Text, primary_key=True)

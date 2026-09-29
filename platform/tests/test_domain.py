@@ -3,7 +3,7 @@ import pytest
 from app.application.assign_processes import classify
 from app.domain.csv_parse import parse_catalog_csv, parse_manual_csv, parse_price
 from app.domain.specs import expand_known_specs
-from app.domain.match import FilterRule, RobotView, match_robots
+from app.domain.match import FilterRule, Readiness, RobotView, match_robots
 from app.parsers.robot_moscow import records_from_html, specs_from_html
 
 
@@ -73,6 +73,43 @@ def test_formula_filter_uses_object_binding():
     by_name = {hit.name: hit.verdict for hit in hits}
     assert by_name["Узкий"] == "pass"
     assert by_name["Широкий"] == "fail"
+
+
+def test_readiness_moves_immature_robots_to_review():
+    rules = (FilterRule("Проезд", (), (), "formula", "hard", (("aisle", "Ширина проезда"),), "min_aisle_width_m <= aisle"),)
+    hits = match_robots(
+        process_code="pallet_transport",
+        process_name="Перевозка паллет",
+        site={"aisle_width_m": 2.8},
+        rules=rules,
+        bindings={"aisle": "aisle_width_m"},
+        readiness=Readiness(min_trl=6, review_stages=("rnd",)),
+        robots=(
+            RobotView("1", "Серийный", "serial", {"min_aisle_width_m": 1.2}, trl=8, stage="operation"),
+            RobotView("2", "Низкий УГТ", "low", {"min_aisle_width_m": 1.2}, trl=4, stage="piloting"),
+            RobotView("3", "Разработка", "rnd", {"min_aisle_width_m": 1.2}, trl=7, stage="rnd"),
+            RobotView("4", "Без УГТ", "bare", {"min_aisle_width_m": 1.2}),
+            RobotView("5", "Широкий", "wide", {"min_aisle_width_m": 3.4}, trl=4, stage="rnd"),
+        ),
+    )
+    by_name = {hit.name: hit for hit in hits}
+    assert by_name["Серийный"].verdict == "pass"
+    assert by_name["Низкий УГТ"].verdict == "unknown"
+    assert by_name["Низкий УГТ"].notes[0] == "Готовность: УГТ 4 ниже порога 6"
+    assert by_name["Разработка"].verdict == "unknown"
+    assert by_name["Без УГТ"].verdict == "pass"
+    assert by_name["Широкий"].verdict == "fail"
+    assert by_name["Разработка"].stage == "rnd" and by_name["Серийный"].trl == 8
+
+    off = match_robots(
+        process_code="p", process_name="P", site={}, rules=(),
+        readiness=Readiness(enabled=False),
+        robots=(RobotView("1", "Разработка", "rnd", {}, trl=3, stage="rnd"),),
+    )
+    assert off[0].verdict == "pass"
+    strict = Readiness.from_value({"min_trl": 12, "review_stages": ["rnd", "moon"], "review_missing_trl": True})
+    assert strict.min_trl == 9 and strict.review_stages == ("rnd",)
+    assert strict.notes(None, None) == ["Готовность: УГТ не указан"]
 
 
 def test_number_inside_text_with_unit():

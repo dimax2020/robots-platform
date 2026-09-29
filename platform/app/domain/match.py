@@ -63,6 +63,56 @@ class FilterRule:
     formula: str = ""
 
 
+STAGES = {"operation": "В эксплуатации", "piloting": "Пилот", "rnd": "Разработка (R&D)"}
+
+
+@dataclass(frozen=True)
+class Readiness:
+    """Общий фильтр готовности: незрелый робот не отсеивается, а уходит в «Уточнить»."""
+
+    enabled: bool = True
+    min_trl: int = 6
+    review_stages: tuple[str, ...] = ("rnd",)
+    review_missing_trl: bool = False
+
+    @classmethod
+    def from_value(cls, value: dict | None) -> "Readiness":
+        data = value or {}
+        base = cls()
+        try:
+            min_trl = int(data.get("min_trl", base.min_trl))
+        except (TypeError, ValueError):
+            min_trl = base.min_trl
+        stages = data.get("review_stages", list(base.review_stages))
+        return cls(
+            enabled=bool(data.get("enabled", base.enabled)),
+            min_trl=max(0, min(9, min_trl)),
+            review_stages=tuple(code for code in stages if code in STAGES) if isinstance(stages, list) else base.review_stages,
+            review_missing_trl=bool(data.get("review_missing_trl", base.review_missing_trl)),
+        )
+
+    def as_value(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "min_trl": self.min_trl,
+            "review_stages": list(self.review_stages),
+            "review_missing_trl": self.review_missing_trl,
+        }
+
+    def notes(self, trl: int | None, stage: str | None) -> list[str]:
+        if not self.enabled:
+            return []
+        out = []
+        if trl is None:
+            if self.review_missing_trl:
+                out.append("Готовность: УГТ не указан")
+        elif self.min_trl and trl < self.min_trl:
+            out.append(f"Готовность: УГТ {trl} ниже порога {self.min_trl}")
+        if stage in self.review_stages:
+            out.append(f"Готовность: стадия «{STAGES[stage]}»")
+        return out
+
+
 @dataclass(frozen=True)
 class RobotView:
     id: str
@@ -70,6 +120,8 @@ class RobotView:
     slug: str
     attrs: dict[str, Any]
     image_url: str | None = None
+    trl: int | None = None
+    stage: str | None = None
 
 
 @dataclass(frozen=True)
@@ -82,6 +134,8 @@ class MatchHit:
     verdict: str
     notes: tuple[str, ...]
     image_url: str | None = None
+    trl: int | None = None
+    stage: str | None = None
 
 
 def match_robots(
@@ -92,11 +146,12 @@ def match_robots(
     rules: tuple[FilterRule, ...],
     robots: tuple[RobotView, ...],
     bindings: dict[str, str] | None = None,
+    readiness: Readiness | None = None,
 ) -> list[MatchHit]:
     """Вердикт по каждому роботу процесса. Базы здесь нет."""
     linked = bindings or {}
     return [
-        _one(process_code, process_name, site, rules, robot, linked)
+        _one(process_code, process_name, site, rules, robot, linked, readiness)
         for robot in robots
     ]
 
@@ -108,6 +163,7 @@ def _one(
     rules: tuple[FilterRule, ...],
     robot: RobotView,
     bindings: dict[str, str],
+    readiness: Readiness | None = None,
 ) -> MatchHit:
     fails: list[str] = []
     unknowns: list[str] = []
@@ -136,15 +192,16 @@ def _one(
                 conditions.append(note)
             else:
                 fails.append(note)
+    immature = readiness.notes(robot.trl, robot.stage) if readiness else []
     if fails:
-        verdict, notes = "fail", tuple(fails + unknowns + conditions)
-    elif unknowns:
-        verdict, notes = "unknown", tuple(unknowns + conditions)
+        verdict, notes = "fail", tuple(fails + unknowns + conditions + immature)
+    elif unknowns or immature:
+        verdict, notes = "unknown", tuple(immature + unknowns + conditions)
     elif conditions:
         verdict, notes = "conditional", tuple(conditions)
     else:
         verdict, notes = "pass", ()
-    return MatchHit(robot.id, robot.name, robot.slug, process_code, process_name, verdict, notes, robot.image_url)
+    return MatchHit(robot.id, robot.name, robot.slug, process_code, process_name, verdict, notes, robot.image_url, robot.trl, robot.stage)
 
 
 def _formula_rule(rule: FilterRule, site: dict, bindings: dict[str, str], robot: RobotView, fails: list[str], unknowns: list[str], conditions: list[str]) -> None:
