@@ -12,6 +12,7 @@ _QUIET.update({
     "energy_kwh": 0,
     "energy_tariff": 7.2,
     "raas_rate_pct": 2,
+    "fte_hours": 1970,
 })
 
 
@@ -68,6 +69,52 @@ def test_equal_share_marks_expensive_process_and_suggests_price():
     assert price["scope"] == "process"
     assert price["to"] <= 90
     assert price["payback"] <= 3
+
+
+def test_task_payroll_stays_on_its_process():
+    rate = 1_000_000
+    result = calculate(
+        [
+            {"process_code": "baggage", "process_name": "Багаж", "name": "Тягач", "price_rub": 1_000_000, "count": 1},
+            {"process_code": "facade", "process_name": "Фасад", "name": "Мойка", "price_rub": 1_000_000, "count": 1},
+        ],
+        {"staff_salary_year_rub": rate, "shift_hours": 8, "shifts_per_day": 1, "days_year": 365},
+        standard=_QUIET,
+        tasks=[
+            {"process_code": "baggage", "name": "Багаж", "staff_fte_now": 320},
+            {"process_code": "passenger", "name": "Терминал", "staff_fte_now": 180},
+        ],
+    )
+    # Фасад без численности: 1 робот × 2 920 ч / 1 970 ч на человека. 180 человек терминала в парк не входят.
+    facade_fte = 1 * 8 * 365 / 1970
+    assert result["payroll"]["value"] == pytest.approx((320 + facade_fte) * rate)
+    baggage = _process(result, "baggage")
+    facade = _process(result, "facade")
+    assert baggage["payroll"]["value"] == 320 * rate
+    assert facade["payroll"]["value"] == pytest.approx(facade_fte * rate)
+    assert facade["payroll"]["value"] > 0
+    assert baggage["payroll"]["value"] + facade["payroll"]["value"] == pytest.approx(result["payroll"]["value"])
+
+
+def test_estimated_staff_follows_hours_norm():
+    rows = [{"process_code": "patrol", "process_name": "Охрана", "name": "Патруль", "price_rub": 1_000_000, "count": 2}]
+    site = {"staff_salary_year_rub": 1_000_000, "shift_hours": 24, "shifts_per_day": 1, "days_year": 365}
+    tasks = [{"process_code": "other", "staff_fte_now": 10}]
+    base = calculate(rows, site, standard=_QUIET, tasks=tasks)
+    longer = calculate(rows, site, standard=_QUIET, tasks=tasks, overrides={"fte_hours": 2920})
+    assert _process(base, "patrol")["payroll"]["value"] == pytest.approx(2 * 8760 / 1970 * 1_000_000)
+    assert _process(longer, "patrol")["payroll"]["value"] == pytest.approx(2 * 8760 / 2920 * 1_000_000)
+
+
+def test_roles_site_keeps_equal_split():
+    rows = [
+        {"process_code": "a", "process_name": "A", "name": "A", "price_rub": 1_000_000, "count": 1},
+        {"process_code": "b", "process_name": "B", "name": "B", "price_rub": 1_000_000, "count": 1},
+    ]
+    result = calculate(rows, _SITE, standard=_QUIET)
+    assert result["payroll"]["value"] == 12_000_000
+    assert _process(result, "a")["payroll"]["value"] == 6_000_000
+    assert _process(result, "b")["payroll"]["value"] == 6_000_000
 
 
 def test_staff_fte_weights_the_share():

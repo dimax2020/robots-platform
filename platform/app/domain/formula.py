@@ -41,20 +41,27 @@ def build_env(
 ) -> tuple[str, dict, str]:
     """ok с окружением, skip если величина объекта не задана, missing если нет характеристики."""
     env: dict = {}
-    for name in identifiers(formula):
+    names = identifiers(formula)
+    # Сначала входы площадки: если ограничения нет, правило не применяется,
+    # даже когда у робота тоже нет характеристики, которая стоит в формуле раньше.
+    for name in names:
+        bare = name.split(".", 1)[1] if name.startswith("robot.") else name
+        if bare not in input_keys:
+            continue
+        site_key = bindings.get(bare, "")
+        if not site_key:
+            return "skip", {}, bare
+        raw = site.get(site_key)
+        if raw is None or raw == "":
+            return "skip", {}, bare
+        number = _number(raw)
+        if number is None:
+            return "bad", {}, bare
+        env[name] = number
+        env[bare] = number
+    for name in names:
         bare = name.split(".", 1)[1] if name.startswith("robot.") else name
         if bare in input_keys:
-            site_key = bindings.get(bare, "")
-            if not site_key:
-                return "skip", {}, bare
-            raw = site.get(site_key)
-            if raw is None or raw == "":
-                return "skip", {}, bare
-            number = _number(raw)
-            if number is None:
-                return "bad", {}, bare
-            env[name] = number
-            env[bare] = number
             continue
         raw = robot.get(bare)
         if raw is None or raw == "":

@@ -219,13 +219,14 @@ export function usePlatformEconomy(id: Ref<string>) {
   const loading = ref(false)
   const failure = ref('')
   let token = 0
+  let asked: Record<string, number> | null | undefined
 
   const ensureProject = async () => id.value
 
   /* Демо считается тем же движком через те же ручки проекта: опубликованное демо сервер отдаёт без входа. */
   const request = async (preview: Record<string, number> | null = null) => {
     if (!source.value || !objectCode.value) throw new Error('Нет параметров площадки')
-    const match = await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site: source.value.site })
+    const match = await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site: source.value.site, tasks: source.value.tasks })
     skipped.value = skippedOf(match.groups)
     const body: Record<string, unknown> = {
       site: source.value.site,
@@ -238,6 +239,7 @@ export function usePlatformEconomy(id: Ref<string>) {
   }
 
   const load = async (preview: Record<string, number> | null = null) => {
+    asked = preview
     if (import.meta.server || !source.value || !objectCode.value) return
     const mine = ++token
     loading.value = true
@@ -251,6 +253,12 @@ export function usePlatformEconomy(id: Ref<string>) {
       if (mine === token) loading.value = false
     }
   }
+
+  /* Отчёт зовёт расчёт сразу, а площадка демо подгружается следом. Без повтора экран остаётся пустым, а кнопки выгрузки — неактивными. */
+  watch([source, objectCode], () => {
+    if (asked === undefined || !source.value || !objectCode.value) return
+    void load(asked)
+  })
 
   /* Только просмотр: коэффициенты меняются в what-if локально, но в проект не пишутся. */
   const saveOverrides = async (values: Record<string, number>) => {

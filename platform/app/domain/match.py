@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any
 
 from app.domain.formula import FormulaError, MissingName, build_env, evaluate
@@ -266,6 +267,58 @@ def _compare(op: str, robot_value: Any, site_value: Any) -> tuple[bool | None, s
     if op == ">":
         return left > right, detail
     return None, f"оператор {op} не поддерживается"
+
+
+# Суточный объём и длина рейса в формулах аэропорта и медучреждения записаны числами.
+_HARD_FLOW = re.compile(r"ceil\(\((\d+(?:\.\d+)?)")
+_HARD_LEG = re.compile(r"(\d+(?:\.\d+)?)(\s*/\s*robot\.speed_loaded_ms)")
+# Доля убираемой площади, если в датасете её нет: у склада активная зона — половина площади.
+CLEAN_AREA_SHARE = 0.5
+
+
+def _plain(value: float) -> str:
+    return str(int(value)) if float(value).is_integer() else str(value)
+
+
+def formula_with_task(formula: str, task: dict | None) -> str:
+    """Подставляет объём и маршрут задачи вместо зашитых 420/850/1200 и 584/360.
+
+    В формуле путь уже туда и обратно, поэтому длина маршрута задачи удваивается.
+    Формулы склада этой подстановки не касаются: там объём и маршрут — имена полей.
+    """
+    if not formula or not isinstance(task, dict):
+        return formula
+    text = formula
+    flow = task.get("flow_per_day")
+    route = task.get("route_len_m")
+    try:
+        flow_n = float(flow) if flow not in (None, "") else None
+    except (TypeError, ValueError):
+        flow_n = None
+    try:
+        route_n = float(route) if route not in (None, "") else None
+    except (TypeError, ValueError):
+        route_n = None
+    if flow_n is not None:
+        text = _HARD_FLOW.sub(lambda match: f"ceil(({_plain(flow_n)}", text, count=1)
+    if route_n is not None:
+        distance = _plain(route_n * 2)
+        text = _HARD_LEG.sub(lambda match: distance + match.group(2), text, count=1)
+    return text
+
+
+def count_site(site: dict | None) -> dict:
+    """Площадь уборки из доли общей, если у объекта её нет в датасете."""
+    out = dict(site or {})
+    if out.get("clean_area_m2") not in (None, ""):
+        return out
+    try:
+        area = float(out.get("area_m2"))
+    except (TypeError, ValueError):
+        return out
+    if area > 0:
+        out["clean_area_m2"] = area * CLEAN_AREA_SHARE
+    return out
 
 
 def robot_count(formula: str, inputs: tuple[tuple[str, str], ...], bindings: dict[str, str], site: dict, robot: dict) -> tuple[float | None, str]:

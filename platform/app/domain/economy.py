@@ -65,6 +65,9 @@ NORMS: tuple[Norm, ...] = (
          "Демо-склад: 24 ставки из 38 переходят на роботов. Остальные люди остаются на исключениях и контроле.", "Демо-проект склада", 0, 100, 1),
     Norm("robots_per_operator", "staff", "Роботов на одного оператора", r"m", 10.0, "шт.",
          "Каталог не говорит, сколько людей нужно парку. Допущение: один оператор или диспетчер на 10 машин.", "Допущение команды", 1, 50, 1),
+    Norm("fte_hours", "staff", "Рабочих часов одного сотрудника", r"h_{\text{чел}}", 1970.0, "ч в год",
+         "Если у процесса нет численности в данных, людей считаем по часам работы его роботов: часы парка делятся на годовой фонд "
+         "одного сотрудника. Около 1 970 ч — 40-часовая неделя по производственному календарю.", "Допущение команды", 1000, 3000, 10),
     Norm("raas_rate_pct", "raas", "Ставка аренды", r"k_{\text{RaaS}}", 2.2, "% цены робота в месяц",
          "Выведено из демо: аренда дороже покупки на 19 млн ₽ в год при оборудовании 71,4 млн ₽, это около 26,6% в год или 2,2% в месяц. "
          "В ставку входят сервис, ремонт, расходники и лицензии.", "Демо-проект склада", 0.5, 6, 0.1),
@@ -172,6 +175,11 @@ _SHARE_FTE = (
     "Экономия на персонале распределена по численности на задаче процесса. "
     "Процесс посчитан отдельно: как если бы роботизировали только его."
 )
+_SHARE_OWN = (
+    "ФОТ процесса — численность его задачи на годовую ставку. "
+    "В эффект парка входят только люди процессов, которые роботизируются."
+)
+_SHARE_NONE = "У задачи этого процесса численность не задана, свой ФОТ не считается."
 
 
 def blend_by_type(
@@ -224,6 +232,24 @@ def scale_load(site: dict, load_pct: float) -> dict:
         value = _num(site.get(key))
         if value is not None:
             scaled[key] = value * load_pct / 100
+    return scaled
+
+
+def scale_task_flows(tasks: list | None, load_pct: float) -> list:
+    """Та же нагрузка, что у паллет склада, для суточного объёма задач аэропорта и медучреждения."""
+    rows = [task for task in (tasks or [])]
+    if load_pct == 100:
+        return rows
+    scaled = []
+    for task in rows:
+        if not isinstance(task, dict):
+            scaled.append(task)
+            continue
+        row = dict(task)
+        flow = _num(row.get("flow_per_day"))
+        if flow is not None:
+            row["flow_per_day"] = flow * load_pct / 100
+        scaled.append(row)
     return scaled
 
 
@@ -345,10 +371,10 @@ def _compute(
     hours = _hours(site)
     tariff = _norm_var(params, "energy_tariff")
     fleet = [_line(row, params, hours, tariff, by_process) for row in rows]
-    payroll = _payroll(site, tasks, params)
+    included = [item for item in fleet if item["included"]]
+    payroll = _payroll(site, tasks, params, included, hours)
     operator = _operator_cost(site, params)
 
-    included = [item for item in fleet if item["included"]]
     robots = sum(item["count_used"] for item in included)
     equipment = sum(item["cost_rub"] for item in included)
     shared = {
@@ -443,11 +469,15 @@ def _line(row: dict, params: dict[str, dict], hours: dict, tariff: dict, by_proc
     return item
 
 
-def _payroll(site: dict, tasks: list[dict], params: dict[str, dict]) -> dict:
+def _payroll(site: dict, tasks: list[dict], params: dict[str, dict], included: list[dict] | None = None, hours: dict | None = None) -> dict:
     p = {key: item["value"] for key, item in params.items()}
+    factor = p["salary_factor"] / 100
+    staffed = _task_staff(tasks)
+    if staffed and included is not None:
+        return _payroll_by_process(site, staffed, included, params, hours or {})
+
     burden_raw = _num(site.get("payroll_burden"))
     burden = burden_raw if burden_raw is not None else 1.0
-    factor = p["salary_factor"] / 100
     lines = []
     terms = []
     subst = []
@@ -480,23 +510,22 @@ def _payroll(site: dict, tasks: list[dict], params: dict[str, dict]) -> dict:
             note += f" Без зарплаты на площадке, в ФОТ не входят: {', '.join(item.lower() for item in skipped)}."
         return {"total": total, "lines": lines, "fig": _fig("payroll", "ФОТ ролей до роботизации", total, "₽/год", tex, sub, vars_, note)}
 
-    fte = sum(_num(task.get("staff_fte_now")) or 0 for task in tasks if isinstance(task, dict))
+    loose = sum(_num(task.get("staff_fte_now")) or 0 for task in tasks if isinstance(task, dict) and not task.get("process_code"))
     year_cost = _num(site.get("staff_salary_year_rub"))
-    if fte > 0 and year_cost:
-        total = fte * year_cost * factor
-        lines.append({"label": "Персонал задач объекта", "headcount": fte, "salary_month_rub": year_cost / 12, "rub": total})
+    if loose > 0 and year_cost:
+        total = loose * year_cost * factor
         return {
             "total": total,
-            "lines": lines,
+            "lines": [{"label": "Персонал задач объекта", "headcount": loose, "salary_month_rub": year_cost / 12, "rub": total}],
             "fig": _fig(
                 "payroll",
                 "ФОТ персонала задач до роботизации",
                 total,
                 "₽/год",
                 r"\text{ФОТ}_{\text{база}} = \sum L_{\text{задач}} \times W_{\text{год}} \times f_{\text{ФОТ}}",
-                rf"{_t(fte)} \times {_t(year_cost)} \times {_t(factor, 2)} = {_t(total)}\ \text{{₽}}",
+                rf"{_t(loose)} \times {_t(year_cost)} \times {_t(factor, 2)} = {_t(total)}\ \text{{₽}}",
                 [
-                    _var(r"L_{\text{задач}}", "Сотрудники на задачах объекта сейчас", fte, "чел.", "site"),
+                    _var(r"L_{\text{задач}}", "Сотрудники на задачах объекта сейчас", loose, "чел.", "site"),
                     _var(r"W_{\text{год}}", "Годовая стоимость сотрудника целевой группы с начислениями", year_cost, "₽/год", "site"),
                     _norm_var_fraction(p, "salary_factor", params),
                 ],
@@ -508,6 +537,112 @@ def _payroll(site: dict, tasks: list[dict], params: dict[str, dict]) -> dict:
         "lines": [],
         "fig": _fig("payroll", "ФОТ ролей до роботизации", 0.0, "₽/год", r"\text{ФОТ}_{\text{база}} = 0", "0", [],
                     "На площадке нет численности и зарплаты ролей. Эффект от замещения не считается.", included=False),
+    }
+
+
+def _task_staff(tasks: list[dict]) -> dict[str, dict]:
+    """Численность задач, привязанных к процессу. Ставка задачи, если она задана, важнее ставки площадки."""
+    staffed: dict[str, dict] = {}
+    for task in tasks or []:
+        if not isinstance(task, dict):
+            continue
+        code = str(task.get("process_code") or "")
+        fte = _num(task.get("staff_fte_now"))
+        if not code or not fte or fte <= 0:
+            continue
+        row = staffed.setdefault(code, {"fte": 0.0, "rate": None, "name": str(task.get("name") or code)})
+        row["fte"] += fte
+        own = _num(task.get("staff_salary_year_rub"))
+        if own:
+            row["rate"] = own
+    return staffed
+
+
+def _default_rate(site: dict) -> tuple[float | None, str]:
+    year_cost = _num(site.get("staff_salary_year_rub"))
+    if year_cost:
+        return year_cost, "Годовая стоимость сотрудника целевой группы с начислениями."
+    burden = _num(site.get("payroll_burden")) or 1.0
+    for _count_key, salary_key, label, _tag in _ROLES:
+        salary = _num(site.get(salary_key))
+        if salary:
+            return salary * 12 * burden, f"{label}: зарплата × 12 × начисления."
+    return None, ""
+
+
+def _payroll_by_process(site: dict, staffed: dict[str, dict], included: list[dict], params: dict[str, dict], hours: dict) -> dict:
+    """ФОТ каждого процесса парка: численность задачи, а без неё — люди, которых заменяют часы работы роботов."""
+    p = {key: item["value"] for key, item in params.items()}
+    factor = p["salary_factor"] / 100
+    rate_default, rate_note = _default_rate(site)
+    fte_hours = p["fte_hours"]
+    robot_hours = (hours or {}).get("value")
+    lines: list[dict] = []
+    by_process: dict[str, float] = {}
+    vars_: list[dict] = []
+    parts: list[str] = []
+    for item in included:
+        code = item["process_code"]
+        if code in by_process:
+            continue
+        task = staffed.get(code)
+        robots = item.get("count_used") or 0
+        if task:
+            fte = task["fte"]
+            rate = task["rate"] or rate_default
+            estimated = False
+        elif robot_hours and robots and fte_hours:
+            fte = robots * robot_hours / fte_hours
+            rate = rate_default
+            estimated = True
+        else:
+            fte, rate, estimated = 0.0, rate_default, True
+        amount = fte * rate * factor if rate else 0.0
+        by_process[code] = amount
+        name = task["name"] if task else (item.get("process_name") or code)
+        lines.append({
+            "label": name,
+            "process_code": code,
+            "headcount": fte,
+            "salary_month_rub": (rate or 0) / 12,
+            "rub": amount,
+            "estimated": estimated,
+            "robots": robots,
+            "robot_hours": robot_hours,
+            "fte_hours": fte_hours,
+            "factor": factor,
+            "rate_note": rate_note,
+        })
+        index = len(lines)
+        parts.append(rf"L_{{{index}}} \times W_{{{index}}}")
+        how = (
+            f"Оценка: {_t_plain(robots)} роб. × {_t_plain(robot_hours or 0)} ч / {_t_plain(fte_hours)} ч на человека."
+            if estimated else "Численность задачи на площадке."
+        )
+        vars_.append(_var(f"L_{{{index}}}", f"{name}: численность", fte, "чел.", "calc" if estimated else "site", how))
+        vars_.append(_var(f"W_{{{index}}}", f"{name}: стоимость сотрудника в год", rate, "₽/год", "site", rate_note if not (task and task["rate"]) else "Ставка задачи."))
+    total = sum(by_process.values())
+    estimated_count = sum(1 for line in lines if line["estimated"] and line["rub"])
+    note = "У каждого процесса свой ФОТ: численность его задачи."
+    if estimated_count:
+        note += (
+            f" Для {estimated_count} процессов численности в данных нет: людей считаем по часам работы роботов,"
+            f" один сотрудник — {_t_plain(fte_hours)} ч в год."
+        )
+    return {
+        "total": total,
+        "lines": lines,
+        "by_process": by_process,
+        "fig": _fig(
+            "payroll",
+            "ФОТ процессов парка до роботизации",
+            total,
+            "₽/год",
+            rf"\text{{ФОТ}}_{{\text{{база}}}} = \left({' + '.join(parts)}\right) \times f_{{\text{{ФОТ}}}}",
+            rf"{_t(total)}\ \text{{₽}}",
+            [*vars_, _norm_var(params, "fte_hours"), _norm_var_fraction(p, "salary_factor", params)],
+            note,
+        ),
     }
 
 
@@ -1290,11 +1425,17 @@ def _raas_payment_fig(s: dict) -> dict:
     return fig
 
 
-def _shares(included: list[dict], tasks: list[dict]) -> tuple[dict[str, float], str]:
+def _shares(included: list[dict], tasks: list[dict], payroll: dict | None = None) -> tuple[dict[str, float], str]:
     codes: list[str] = []
     for item in included:
         if item["process_code"] not in codes:
             codes.append(item["process_code"])
+    by_process = (payroll or {}).get("by_process")
+    if by_process:
+        total = sum(float(by_process.get(code) or 0) for code in codes)
+        if total > 0:
+            return {code: float(by_process.get(code) or 0) / total for code in codes}, _SHARE_OWN
+        return {code: 0.0 for code in codes}, _SHARE_NONE
     ftes: dict[str, float] = {}
     for task in tasks:
         if not isinstance(task, dict):
@@ -1342,6 +1483,58 @@ def _scaled_payroll(payroll: dict, share: float, note: str) -> dict:
     return {"total": total, "lines": [], "fig": fig}
 
 
+def _payroll_slice(payroll: dict, code: str, share: float, note: str) -> dict:
+    """ФОТ одного процесса: своя численность, а не доля чужого фонда."""
+    by_process = payroll.get("by_process")
+    if by_process is None:
+        return _scaled_payroll(payroll, share, note)
+    total = float(by_process.get(code) or 0)
+    line = next((item for item in payroll.get("lines") or [] if item.get("process_code") == code), None)
+    if line and total:
+        headcount = line["headcount"]
+        year_cost = line["salary_month_rub"] * 12
+        factor = line.get("factor", 1)
+        rate_var = _var(r"W_{\text{год}}", "Стоимость сотрудника в год с начислениями", year_cost, "₽/год", "site", line.get("rate_note") or "")
+        factor_var = _var(r"f_{\text{ФОТ}}", "Стоимость персонала, доля", factor, "", "calc")
+        if line.get("estimated"):
+            fig = _fig(
+                "payroll",
+                "ФОТ процесса до роботизации",
+                total,
+                "₽/год",
+                r"\text{ФОТ}_{\text{проц}} = \frac{N \times H}{h_{\text{чел}}} \times W_{\text{год}} \times f_{\text{ФОТ}}",
+                rf"\frac{{{_t(line['robots'])} \times {_t(line['robot_hours'])}}}{{{_t(line['fte_hours'])}}} \times {_t(year_cost)} \times {_t(factor, 2)} = {_t(total)}\ \text{{₽}}",
+                [
+                    _var("N", "Роботов процесса", line["robots"], "шт.", "fleet"),
+                    _var("H", "Часов работы в год", line["robot_hours"], "ч", "site", "Смена × смен в сутки × дней в году."),
+                    _var(r"h_{\text{чел}}", "Рабочих часов одного сотрудника", line["fte_hours"], "ч в год", "norm"),
+                    rate_var,
+                    factor_var,
+                ],
+                "Численности этого процесса в данных нет: людей считаем по часам работы его роботов. "
+                f"Выходит {_t_plain(headcount)} чел.",
+            )
+        else:
+            fig = _fig(
+                "payroll",
+                "ФОТ задачи до роботизации",
+                total,
+                "₽/год",
+                r"\text{ФОТ}_{\text{проц}} = L_{\text{задачи}} \times W_{\text{год}} \times f_{\text{ФОТ}}",
+                rf"{_t(headcount)} \times {_t(year_cost)} \times {_t(factor, 2)} = {_t(total)}\ \text{{₽}}",
+                [_var(r"L_{\text{задачи}}", f"{line['label']}: численность", headcount, "чел.", "site"), rate_var, factor_var],
+                _SHARE_OWN,
+            )
+        return {"total": total, "lines": [line], "by_process": {code: total}, "fig": fig}
+    return {
+        "total": 0.0,
+        "lines": [],
+        "by_process": {},
+        "fig": _fig("payroll", "ФОТ задачи до роботизации", 0.0, "₽/год", r"\text{ФОТ}_{\text{проц}} = 0", "0", [],
+                    "Нет ни численности задачи, ни ставки сотрудника на площадке: ФОТ процесса посчитать не из чего.", included=False),
+    }
+
+
 def _process_bundle(
     s: dict,
     item: dict,
@@ -1351,7 +1544,9 @@ def _process_bundle(
     full: bool = True,
     subsidies: frozenset[str] | None = None,
 ) -> tuple[dict, dict, dict, dict]:
-    payroll = _payroll(s["site"], s["tasks"], params)
+    # Пересчёт с параметрами процесса: подсказки what-if меняют ставку и часы, и ФОТ должен сдвигаться вместе с ними.
+    fleet_payroll = _payroll(s["site"], s["tasks"], params, s["included"], s["hours"])
+    payroll = _payroll_slice(fleet_payroll, item["process_code"], share, note)
     operator = _operator_cost(s["site"], params)
     probe = {
         "p": {key: value["value"] for key, value in params.items()},
@@ -1370,7 +1565,7 @@ def _process_bundle(
         "robots": clone["count_used"] or 0,
         "equipment": clone["cost_rub"] or 0,
         "hours": s["hours"],
-        "payroll": _scaled_payroll(payroll, share, note),
+        "payroll": payroll,
         "operator": operator,
         "params": params,
         "p": {key: value["value"] for key, value in params.items()},
@@ -1539,7 +1734,7 @@ def _subsidy_hint(codes: list[str], labels: dict[str, str], purchase: dict) -> d
 
 
 def _process_views(s: dict) -> list[dict]:
-    shares, share_note = _shares(s["included"], s.get("tasks") or [])
+    shares, share_note = _shares(s["included"], s.get("tasks") or [], s["payroll"])
     out = []
     for item in s["fleet"]:
         base = {

@@ -1,5 +1,5 @@
 import type { MaybeRefOrGetter } from 'vue'
-import type { ObjectType, Project } from '~/data/projects'
+import { steps, type ObjectType, type Project } from '~/data/projects'
 import { platformGet, platformSend } from '~/composables/usePlatform'
 
 export interface LiveProcess {
@@ -38,7 +38,7 @@ export const shellOf = (record: LiveRecord): Project => ({
   updatedAt: '',
   catalogVersion: 'платформа',
   modelVersion: 'платформа',
-  step: 2,
+  step: steps.length + 1,
   tasks: record.processes.filter((item) => item.enabled).length,
   isDemo: record.is_demo,
   published: record.published,

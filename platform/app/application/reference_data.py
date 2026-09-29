@@ -79,6 +79,87 @@ DEMO_PROJECTS = (
     ("demo-hospital", "ГКБ № 52, корпус 3", "hospital"),
 )
 
+# Объёмы и численность из датасета организатора. Без численности ФОТ в экономике равен нулю,
+# и срок окупаемости не считается. Маршрут — в одну сторону: формула количества удваивает его.
+DEMO_TASKS = {
+    "airport": (
+        {"process_code": "baggage_transport", "name": "Перевозка багажа", "flow_per_day": 420, "route_len_m": 292, "max_load_kg": 18, "staff_fte_now": 320},
+        {"process_code": "apron_transport", "name": "Перевозка грузов на перроне", "flow_per_day": 420, "route_len_m": 292, "staff_fte_now": None},
+        {"process_code": "passenger_service", "name": "Информирование и сопровождение посетителей", "flow_per_day": 420, "route_len_m": 292, "staff_fte_now": 180},
+    ),
+    "hospital": (
+        # 65 санитаров и транспортировщиков — одна группа на обе доставки. Объёмы одинаковые, 1 200 задач в сутки, поэтому люди делятся пополам и в парке не считаются дважды.
+        {"process_code": "biomaterial_delivery", "name": "Доставка биоматериалов", "flow_per_day": 1200, "route_len_m": 180, "staff_fte_now": 32.5},
+        {"process_code": "medicine_delivery", "name": "Доставка лекарств и медицинских материалов", "flow_per_day": 1200, "route_len_m": 180, "staff_fte_now": 32.5},
+        {"process_code": "ward_service", "name": "Помощь пациентам в отделениях", "flow_per_day": 850, "route_len_m": 180, "staff_fte_now": None},
+    ),
+}
+
+
+def demo_task_rows(object_code: str) -> list[dict]:
+    rows = []
+    for item in DEMO_TASKS.get(object_code, ()):
+        row = {
+            "process_code": item["process_code"],
+            "name": item["name"],
+            "flow_per_hour": None,
+            "flow_per_day": item.get("flow_per_day"),
+            "peak_factor": None,
+            "route_len_m": item.get("route_len_m"),
+            "max_load_kg": item.get("max_load_kg"),
+            "t_load_s": 0,
+            "t_unload_s": 0,
+            "container_types": [],
+            "staff_fte_now": item.get("staff_fte_now"),
+            "staff_salary_year_rub": item.get("staff_salary_year_rub"),
+        }
+        rows.append(row)
+    return rows
+
+
+def attach_demo_tasks(db: Session) -> None:
+    """Дописывает численность в уже существующие демо и возвращает процессы, выключенные старым расчётом."""
+    from app.infrastructure.db.models import ProcessRow, ProjectProcessRow, ProjectRow
+
+    bind = db.get_bind()
+    if bind is None or not sa_inspect(bind).has_table("project"):
+        return
+    slugs = [slug for slug, _name, _code in DEMO_PROJECTS]
+    rows = db.execute(
+        select(ProjectRow, ObjectTypeRow.code)
+        .join(ObjectTypeRow, ObjectTypeRow.id == ProjectRow.object_type_id)
+        .where(ProjectRow.slug.in_(slugs))
+    ).all()
+    for project, code in rows:
+        fresh = demo_task_rows(code)
+        site = dict(project.site or {})
+        current = site.get("__tasks")
+        merged: list[dict] = [dict(item) for item in current if isinstance(item, dict)] if isinstance(current, list) else []
+        by_code = {str(item.get("process_code") or ""): item for item in merged if item.get("process_code")}
+        for item in fresh:
+            found = by_code.get(item["process_code"])
+            if found is None:
+                merged.append(item)
+                by_code[item["process_code"]] = item
+                continue
+            for key, value in item.items():
+                if value is not None:
+                    found[key] = value
+        if fresh:
+            site["__tasks"] = merged
+            project.site = site
+        for link, _code in db.execute(
+            select(ProjectProcessRow, ProcessRow.code)
+            .join(ProcessRow, ProcessRow.id == ProjectProcessRow.process_id)
+            .where(ProjectProcessRow.project_id == project.id, ProjectProcessRow.enabled.is_(False))
+        ):
+            text = link.disabled_reason or ""
+            if "Выключен на шаге экономики" not in text:
+                continue
+            link.enabled = True
+            link.disabled_reason = None
+    db.flush()
+
 
 def seed_demo_projects(db: Session) -> None:
     """Три опубликованных демо-объекта у администратора. Уже существующие адреса не трогаем."""
@@ -107,6 +188,7 @@ def seed_demo_projects(db: Session) -> None:
         row.is_demo = True
         row.published = True
         row.slug = slug
+    attach_demo_tasks(db)
     db.flush()
 
 

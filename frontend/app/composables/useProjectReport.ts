@@ -548,9 +548,10 @@ export function useProjectReport(id: Ref<string>) {
       if (closed.value) return
       if (!hasParams.value) return
       const currentSite = site.value
-      const match = isDemo.value
-        ? await platformSend<{ groups: ReportGroup[] }>('/catalog/preview/match', 'POST', { object_code: code, site: currentSite })
-        : await platformSend<{ groups: ReportGroup[] }>(`/projects/${id.value}/match`, 'POST', { site: currentSite })
+      const match = await platformSend<{ groups: ReportGroup[] }>(`/projects/${id.value}/match`, 'POST', {
+        site: currentSite,
+        tasks: live.tasks.value,
+      })
       if (mine !== token) return
       groups.value = match.groups
       if (!isDemo.value) {
@@ -571,8 +572,14 @@ export function useProjectReport(id: Ref<string>) {
     }
   }
 
-  watch([() => project.value?.id, () => JSON.stringify(site.value), () => JSON.stringify(compare.choices.value), () => live.pending.value], () => {
-    if (live.pending.value) return
+  watch([
+    () => project.value?.id,
+    () => JSON.stringify(site.value),
+    () => JSON.stringify(compare.choices.value),
+    () => live.pending.value,
+    () => economy.pending.value,
+  ], () => {
+    if (live.pending.value || economy.pending.value || !project.value) return
     void load()
   }, { immediate: true })
 

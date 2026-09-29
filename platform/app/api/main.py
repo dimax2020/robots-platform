@@ -217,6 +217,7 @@ class PreviewIn(BaseModel):
 
 class MatchIn(BaseModel):
     site: dict = Field(default_factory=dict)
+    tasks: list[dict] | None = None
 
 
 class EconomyIn(BaseModel):
@@ -628,7 +629,12 @@ def remove_project(project_key: str, user: SessionUser | None = Depends(optional
 def match_project(project_key: str, body: MatchIn | None = None, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
         project = _readable(db, project_key, user)
-        return run_match(db, project.id, site=None if body is None else body.site)
+        return run_match(
+            db,
+            project.id,
+            site=None if body is None else body.site,
+            tasks=None if body is None else body.tasks,
+        )
 
 
 @app.post("/api/v1/projects/{project_key}/economy", tags=["Экономика"], summary="Посчитать бюджет и окупаемость по выбранным роботам")

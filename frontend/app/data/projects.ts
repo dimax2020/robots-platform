@@ -49,7 +49,7 @@ export const shortPathSteps = 3
 /** Демо-объекты и проекты живут на платформе (`/projects`, `/projects/demo`); здесь только справочник шагов. */
 export const projects: Project[] = []
 
-export const isFullPath = (p: Project) => p.objectType === 'warehouse'
+export const isFullPath = (p: Project) => p.objectType === 'warehouse' || p.objectType === 'airport' || p.objectType === 'hospital'
 
 export interface Task {
   id: string

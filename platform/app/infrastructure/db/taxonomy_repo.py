@@ -5,11 +5,11 @@ from uuid import UUID, uuid4
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 
-from app.domain.economy import NORM_BY_KEY, NORMS, TYPE_NORMS, blend_by_type, calculate, clamp_overrides, scale_load
+from app.domain.economy import NORM_BY_KEY, NORMS, TYPE_NORMS, blend_by_type, calculate, clamp_overrides, scale_load, scale_task_flows
 from app.domain.layout_items import clean_items, default_items
 from app.domain.formula import _number, identifiers
 from app.domain.specs import CANON_LABELS
-from app.domain.match import STAGES, FilterRule, Readiness, RobotView, match_robots, robot_count, usage_for
+from app.domain.match import STAGES, FilterRule, Readiness, RobotView, count_site, formula_with_task, match_robots, robot_count, usage_for
 from app.infrastructure.db.models import (
     AttributeDefRow,
     EconomyNormLogRow,
@@ -826,21 +826,24 @@ def layout_files_in_use(db: Session) -> set[str]:
     return used
 
 
-def run_match(db: Session, project_id: UUID, site: dict | None = None) -> dict:
+def run_match(db: Session, project_id: UUID, site: dict | None = None, tasks: list | None = None) -> dict:
     project = db.get(ProjectRow, project_id)
     if project is None:
         raise KeyError(str(project_id))
-    values = _public_site(site if site is not None else (project.site or {}))
+    stored_site, stored_tasks = _split_site(project.site or {})
+    values = _public_site(site if site is not None else stored_site)
+    if tasks is None:
+        tasks = stored_tasks
     processes = list(db.scalars(
         select(ProcessRow)
         .join(ProjectProcessRow, ProjectProcessRow.process_id == ProcessRow.id)
         .where(ProjectProcessRow.project_id == project.id, ProjectProcessRow.enabled.is_(True))
         .order_by(ProcessRow.name)
     ))
-    return {"project_id": str(project.id), "groups": _match_groups(db, project.object_type_id, processes, values)}
+    return {"project_id": str(project.id), "groups": _match_groups(db, project.object_type_id, processes, values, tasks)}
 
 
-def match_object(db: Session, object_code: str, site: dict | None) -> dict:
+def match_object(db: Session, object_code: str, site: dict | None, tasks: list | None = None) -> dict:
     obj = db.scalar(select(ObjectTypeRow).where(ObjectTypeRow.code == object_code))
     if obj is None:
         raise KeyError(object_code)
@@ -850,11 +853,24 @@ def match_object(db: Session, object_code: str, site: dict | None) -> dict:
         .where(ObjectProcessRow.object_type_id == obj.id)
         .order_by(ProcessRow.name)
     ))
-    return {"project_id": None, "groups": _match_groups(db, obj.id, processes, _public_site(site))}
+    return {"project_id": None, "groups": _match_groups(db, obj.id, processes, _public_site(site), tasks or [])}
 
 
-def _match_groups(db: Session, object_type_id: int, processes: list, values: dict) -> list:
+def _tasks_by_code(tasks: list | None) -> dict[str, dict]:
+    found: dict[str, dict] = {}
+    for task in tasks or []:
+        if isinstance(task, dict) and task.get("process_code"):
+            found[str(task["process_code"])] = task
+    return found
+
+
+def _match_groups(db: Session, object_type_id: int, processes: list, values: dict, tasks: list | None = None) -> list:
     readiness = readiness_filter(db)
+    # У склада «уточнить» не становится лучшим: иначе в экономику демо-склада попадут процессы без прошедших фильтр.
+    obj = db.get(ObjectTypeRow, object_type_id)
+    fallback_unknown = bool(obj and obj.code in {"airport", "hospital"})
+    by_task = _tasks_by_code(tasks)
+    sized = count_site(values)
     groups = []
     for process in processes:
         bindings = {
@@ -888,17 +904,18 @@ def _match_groups(db: Session, object_type_id: int, processes: list, values: dic
             readiness=readiness,
         )
         by_id = {str(row.id): _values(row) for row in rows}
+        formula = formula_with_task(process.count_formula or "", by_task.get(process.code))
         counted = []
         for hit in hits:
             amount, note = robot_count(
-                process.count_formula or "",
+                formula,
                 tuple((row.get("key", ""), row.get("label", "")) for row in (process.count_inputs or []) if isinstance(row, dict)),
                 bindings,
-                values,
+                sized,
                 by_id.get(hit.product_id, {}),
             )
             counted.append((hit, amount, note))
-        best = _best(counted, by_id, process.rank_key or "", process.rank_order or "asc")
+        best = _best(counted, by_id, process.rank_key or "", process.rank_order or "asc", fallback_unknown=fallback_unknown)
         groups.append({
             "process_code": process.code,
             "process_name": process.name,
@@ -1128,12 +1145,14 @@ def project_economy(
     project = db.get(ProjectRow, project_id)
     if project is None:
         raise KeyError(str(project_id))
-    site = _public_site(site if site is not None else (project.site or {}))
+    stored_site, stored_tasks = _split_site(project.site or {})
+    site = _public_site(site if site is not None else stored_site)
+    use_tasks = tasks if tasks else stored_tasks
     overrides = dict(preview) if preview is not None else dict(project.economy_overrides or {})
     standard = economy_standards(db)
     load = overrides.get("load_factor", standard.get("load_factor", NORM_BY_KEY["load_factor"].value))
-    matched = run_match(db, project_id, scale_load(site, float(load)))
-    return _economy_report(db, matched, site, choices, tasks, overrides, dict(project.economy_overrides or {}), picks)
+    matched = run_match(db, project_id, scale_load(site, float(load)), scale_task_flows(use_tasks, float(load)))
+    return _economy_report(db, matched, site, choices, use_tasks, overrides, dict(project.economy_overrides or {}), picks)
 
 
 def preview_economy(
@@ -1149,8 +1168,9 @@ def preview_economy(
     overrides = dict(preview or {})
     standard = economy_standards(db)
     load = overrides.get("load_factor", standard.get("load_factor", NORM_BY_KEY["load_factor"].value))
-    matched = match_object(db, object_code, scale_load(values, float(load)))
-    return _economy_report(db, matched, values, choices, tasks, overrides, {}, picks)
+    use_tasks = tasks or []
+    matched = match_object(db, object_code, scale_load(values, float(load)), scale_task_flows(use_tasks, float(load)))
+    return _economy_report(db, matched, values, choices, use_tasks, overrides, {}, picks)
 
 
 def _economy_report(
@@ -1243,8 +1263,27 @@ def _compare_specs(attrs: dict) -> list[dict]:
     return rows
 
 
-def _best(counted: list, attrs: dict[str, dict], rank_key: str, rank_order: str) -> str | None:
+def _site_blocked(note: str) -> bool:
+    text = (note or "").casefold()
+    return "не задан" in text
+
+
+def _priced(attrs: dict[str, dict], product_id: str) -> bool:
+    return _number((attrs.get(product_id) or {}).get("price_rub")) is not None
+
+
+def _best(counted: list, attrs: dict[str, dict], rank_key: str, rank_order: str, fallback_unknown: bool = False) -> str | None:
     pool = [item for item in counted if item[0].verdict == "pass"] or [item for item in counted if item[0].verdict == "conditional"]
+    if not pool and fallback_unknown:
+        # Процесс без «подходит» всё равно входит в экономику, если количество считается
+        # или не хватает только характеристики робота, а не параметра площадки.
+        pool = [
+            item for item in counted
+            if item[0].verdict == "unknown" and _priced(attrs, item[0].product_id) and (item[1] is not None or not _site_blocked(item[2]))
+        ]
+        counted_ones = [item for item in pool if item[1] is not None]
+        if counted_ones:
+            pool = counted_ones
     if not pool:
         return None
 

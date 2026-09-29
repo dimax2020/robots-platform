@@ -393,6 +393,73 @@ def test_moscow_spec_grid():
     assert specs_from_html(html) == {"Время работы": "4 часа"}
 
 
+def test_missing_site_limit_skips_even_if_robot_spec_is_first():
+    from app.domain.formula import build_env
+
+    status, _env, detail = build_env(
+        "robot.min_aisle_width_m <= aisle",
+        {"aisle"},
+        {"aisle": "aisle_width_m"},
+        {},
+        {},
+    )
+    assert status == "skip"
+    assert detail == "aisle"
+
+
+def test_task_volume_replaces_hardcoded_airport_formula_only():
+    from app.domain.match import count_site, formula_with_task
+
+    formula = "ceil((420 / (shift_hours * shifts_per_day)) / (3600 / (584 / robot.speed_loaded_ms + 80) * 0.82)) + 1"
+    changed = formula_with_task(formula, {"flow_per_day": 800, "route_len_m": 100})
+    assert changed.startswith("ceil((800 /")
+    assert "200 / robot.speed_loaded_ms" in changed
+
+    warehouse = (
+        "ceil(((inbound_pallets_per_day + outbound_pallets_per_day) / (shift_hours * shifts_per_day)) "
+        "/ (3600 / (2 * picker_route_m / robot.speed_loaded_ms + 80) * 0.82)) + 1"
+    )
+    assert formula_with_task(warehouse, {"flow_per_day": 10, "route_len_m": 5}) == warehouse
+    assert count_site({"area_m2": 45000})["clean_area_m2"] == 22500
+    assert count_site({"area_m2": 85000, "clean_area_m2": 51000})["clean_area_m2"] == 51000
+
+
+def test_unknown_best_is_used_only_as_fallback():
+    from app.domain.match import MatchHit
+    from app.infrastructure.db.taxonomy_repo import _best
+
+    def hit(pid, verdict):
+        return MatchHit(pid, pid, pid, "p", "P", verdict, ())
+
+    attrs = {"priced": {"price_rub": 100}, "other": {"price_rub": 50}}
+    counted = [(hit("priced", "unknown"), 3.0, ""), (hit("other", "unknown"), None, "параметр объекта не задан")]
+    assert _best(counted, attrs, "payload_kg", "desc") is None
+    assert _best(counted, attrs, "payload_kg", "desc", fallback_unknown=True) == "priced"
+    passed = [(hit("priced", "pass"), 1.0, ""), (hit("other", "unknown"), 9.0, "")]
+    assert _best(passed, attrs, "", "asc", fallback_unknown=True) == "priced"
+
+
+def test_airport_staff_gives_a_payback():
+    from app.domain.economy import calculate, scale_task_flows
+
+    result = calculate(
+        [{"process_code": "baggage_transport", "process_name": "Багаж", "name": "Тягач", "price_rub": 4_000_000, "count": 3}],
+        {"staff_salary_year_rub": 1_365_538, "shift_hours": 24, "shifts_per_day": 1, "days_year": 365},
+        tasks=[
+            {"process_code": "baggage_transport", "staff_fte_now": 320},
+            {"process_code": "passenger_service", "staff_fte_now": 180},
+        ],
+    )
+    # 180 человек терминала не в парке: их ФОТ в эффект не входит.
+    assert result["payroll"]["value"] == pytest.approx(320 * 1_365_538)
+    purchase = _scenario(result, "purchase")
+    assert purchase["effect"]["value"] > 0
+    assert purchase["payback"]["value"] is not None
+    scaled = scale_task_flows([{"flow_per_day": 420, "staff_fte_now": 320}], 150)
+    assert scaled[0]["flow_per_day"] == 630
+    assert scaled[0]["staff_fte_now"] == 320
+
+
 def test_moscow_html_keeps_only_priced():
     html = r'''<script>self.__next_f.push([1,"{\"rows\":[{\"id\":\"a\",\"name\":\"Дешевый\",\"slug\":\"cheap\",\"maker\":\"M\",\"country\":\"Китай\",\"description\":\"Описание\",\"image\":\"/img.webp\",\"categoryName\":\"Уборка\",\"categorySlug\":\"u\",\"industries\":[\"Логистика\"],\"priceValue\":100,\"offersCount\":1,\"featured\":false,\"isNew\":false},{\"id\":\"b\",\"name\":\"Без цены\",\"slug\":\"free\",\"maker\":\"M\",\"country\":\"Китай\",\"description\":\"\",\"image\":\"\",\"categoryName\":\"Уборка\",\"categorySlug\":\"u\",\"industries\":[],\"priceValue\":null,\"offersCount\":1,\"featured\":false,\"isNew\":false}]}"])</script>'''
     records = records_from_html(html)

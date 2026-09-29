@@ -206,7 +206,7 @@ onBeforeUnmount(stopClock)
           </div>
           <UiBadge :tone="verdictTone[hit.verdict] || 'neutral'" size="sm">{{ verdictLabel[hit.verdict] || hit.verdict }}</UiBadge>
           <span class="caption">{{ hit.notes.join(' · ') || 'замечаний нет' }}</span>
-          <UiButton size="sm" :variant="inCompare(activeGroup.process_code, hit) ? 'primary' : 'secondary'" @click="toggleCompare(activeGroup.process_code, hit)">
+          <UiButton size="sm" :variant="inCompare(activeGroup.process_code, hit, activeGroup) ? 'primary' : 'secondary'" @click="toggleCompare(activeGroup.process_code, hit, activeGroup)">
             {{ inCompare(activeGroup.process_code, hit) ? 'В сравнении' : 'В сравнение' }}
           </UiButton>
         </article>

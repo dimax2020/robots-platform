@@ -52,16 +52,23 @@ export function usePlatformCompare(projectId: Ref<string>) {
 
   const listed = (bucket: Record<string, string[]>, process: string) => bucket[process] ?? []
 
-  const inCompare = (process: string, hit: MatchHit) => {
+  const passesLeft = (group: MatchGroup) => group.hits.some((row) => row.verdict === 'pass' && !listed(store.value.excluded, group.process_code).includes(row.product_id))
+
+  /* Если фильтр никто не прошёл, в сравнение берётся лучший из «уточнить», иначе процесс не попадает в экономику. */
+  const standsIn = (group: MatchGroup | undefined, hit: MatchHit) =>
+    Boolean(group && !passesLeft(group) && hit.verdict === 'unknown' && hit.product_id === group.best_product_id)
+
+  const inCompare = (process: string, hit: MatchHit, group?: MatchGroup) => {
     if (listed(store.value.excluded, process).includes(hit.product_id)) return false
     if (hit.verdict === 'pass') return true
-    return listed(store.value.extra, process).includes(hit.product_id)
+    if (listed(store.value.extra, process).includes(hit.product_id)) return true
+    return standsIn(group, hit)
   }
 
-  const toggleCompare = (process: string, hit: MatchHit) => {
+  const toggleCompare = (process: string, hit: MatchHit, group?: MatchGroup) => {
     const next = { ...store.value, extra: { ...store.value.extra }, excluded: { ...store.value.excluded } }
     const drop = (rows: string[]) => rows.filter((id) => id !== hit.product_id)
-    if (hit.verdict === 'pass') {
+    if (hit.verdict === 'pass' || standsIn(group, hit)) {
       const excluded = listed(next.excluded, process)
       next.excluded[process] = excluded.includes(hit.product_id) ? drop(excluded) : [...excluded, hit.product_id]
     } else {
@@ -71,7 +78,7 @@ export function usePlatformCompare(projectId: Ref<string>) {
     store.value = next
   }
 
-  const includedHits = (group: MatchGroup) => group.hits.filter((hit) => inCompare(group.process_code, hit))
+  const includedHits = (group: MatchGroup) => group.hits.filter((hit) => inCompare(group.process_code, hit, group))
 
   const chosenId = (group: MatchGroup) => {
     const pool = includedHits(group)
