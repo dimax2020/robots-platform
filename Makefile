@@ -1,4 +1,4 @@
-.PHONY: up down logs reset ps audit-platform normalize-platform
+.PHONY: up down logs reset ps audit-platform normalize-platform snapshot
 
 # Поднять платформу. Пустая база platform наполняется снимком каталога при старте контейнера.
 up:
@@ -26,6 +26,16 @@ ps:
 
 logs:
 	docker compose logs -f platform-api platform-worker web
+
+# Снимок текущей локальной БД в platform/seed/platform.sql: с него стартует чистая установка (и Coolify).
+# Пользовательские проекты не попадают, остаются только демо. Рабочая база не меняется: правка идёт в копии.
+snapshot:
+	docker compose exec -T db psql -U robots -d postgres -qc "DROP DATABASE IF EXISTS platform_snapshot" -c "CREATE DATABASE platform_snapshot"
+	docker compose exec -T db sh -c "pg_dump -U robots --no-owner --no-privileges platform | psql -q -U robots -d platform_snapshot" >/dev/null
+	docker compose exec -T db psql -U robots -d platform_snapshot -v ON_ERROR_STOP=1 -qc "DELETE FROM project_process WHERE project_id IN (SELECT id FROM project WHERE NOT is_demo)" -c "DELETE FROM project WHERE NOT is_demo"
+	docker compose exec -T db pg_dump -U robots --no-owner --no-privileges platform_snapshot > platform/seed/platform.sql
+	docker compose exec -T db psql -U robots -d postgres -qc "DROP DATABASE platform_snapshot"
+	@echo "Снимок обновлён: platform/seed/platform.sql"
 
 # Аудит каталога: по умолчанию БД не меняется.
 audit-platform:
