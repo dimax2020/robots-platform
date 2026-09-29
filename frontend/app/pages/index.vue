@@ -65,9 +65,9 @@ watch(rich, (on) => {
 onBeforeUnmount(() => cancelAnimationFrame(raf))
 
 const objects = [
-  { type: 'warehouse' as const, title: 'Склад', text: 'Полный путь: параметры, подбор, три сценария, экономика, what-if, симуляция смены, 2D-план, отчёт.', full: true, processes: ['Перемещение', 'Комплектация', 'Паллетирование', 'Инвентаризация'] },
-  { type: 'airport' as const, title: 'Аэропорт', text: 'Параметры площадки и список применимых решений.', full: false, processes: ['Багаж', 'Периметр', 'Дезинфекция'] },
-  { type: 'hospital' as const, title: 'Медучреждение', text: 'Параметры корпуса и список применимых решений.', full: false, processes: ['Дезинфекция', 'Доставка'] },
+  { type: 'warehouse' as const, title: 'Склад', text: 'Параметры, подбор, три сценария, экономика, what-if, симуляция смены, 2D-план, отчёт.', processes: ['Перемещение', 'Комплектация', 'Паллетирование', 'Инвентаризация'] },
+  { type: 'airport' as const, title: 'Аэропорт', text: 'Параметры площадки и список применимых решений.', processes: ['Багаж', 'Периметр', 'Дезинфекция'] },
+  { type: 'hospital' as const, title: 'Медучреждение', text: 'Параметры корпуса и список применимых решений.', processes: ['Дезинфекция', 'Доставка'] },
 ]
 const matchable = ref<string[] | null>(null)
 onMounted(() => {
@@ -160,16 +160,13 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
 
     <!-- Тип объекта -->
     <section class="container section">
-      <SectionHead title="С какого объекта начать" lead="Склад проходит весь сценарий. Аэропорт и медучреждение в MVP останавливаются на подборе, об этом сказано на кабинете проекта." size="hero-2" />
+      <SectionHead title="С какого объекта начать" lead="Склад, аэропорт или медучреждение: от объекта зависят параметры площадки и набор процессов." size="hero-2" />
       <div class="objects">
         <NuxtLink v-for="(o, i) in visibleObjects" :key="o.type" :to="`/projects/new?type=${o.type}`" class="obj" :class="o.type" v-reveal="i">
           <img :src="objectTypeImage[o.type]" :alt="o.title" loading="lazy">
           <div class="obj-scrim" />
           <div class="obj-panel glass glass-strong">
-            <div class="between">
-              <h3 class="h2">{{ o.title }}</h3>
-              <UiBadge :tone="o.full ? 'ok' : 'info'">{{ o.full ? 'Полный путь' : 'Параметры и подбор' }}</UiBadge>
-            </div>
+            <h3 class="h2">{{ o.title }}</h3>
             <p class="body-sm muted">{{ o.text }}</p>
             <div class="obj-tags">
               <span v-for="p in o.processes" :key="p" class="tag">{{ p }}</span>

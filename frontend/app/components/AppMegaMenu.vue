@@ -31,7 +31,6 @@ onMounted(() => {
     const counts = new Map(tree.processes.map((item) => [item.code, item.product_count]))
     const industryName = new Map(tree.industries.map((item) => [item.code, item.name]))
     objectsList.value = tree.objects
-      .filter((object) => object.in_match !== false)
       .map((object) => ({
         industry: industryName.get(object.industries[0] || '') || '',
         label: object.name,
@@ -60,11 +59,6 @@ watch(role, () => {
 }, { immediate: true })
 
 /* Проекты */
-const objectMeta: Record<ObjectType, { text: string; full: boolean }> = {
-  warehouse: { text: 'Полный путь до отчёта и 2D-плана', full: true },
-  airport: { text: 'Параметры площадки и подбор', full: false },
-  hospital: { text: 'Параметры корпуса и подбор', full: false },
-}
 const objectTypes = Object.keys(objectTypeLabel) as ObjectType[]
 const projectObjects = computed(() => (matchable.value ? objectTypes.filter((code) => matchable.value!.includes(code)) : objectTypes))
 const demos = demoStore.items
@@ -139,9 +133,7 @@ const adminItems = [adminOverview, ...adminNav.flatMap((group) => group.items)]
           <img :src="objectTypeImage[k]" :alt="objectTypeLabel[k]">
           <span class="tile-body">
             <span class="row-t">{{ objectTypeLabel[k] }}</span>
-            <span class="row-s">{{ objectMeta[k].text }}</span>
           </span>
-          <UiBadge :tone="objectMeta[k].full ? 'ok' : 'info'" size="sm">{{ objectMeta[k].full ? 'Полный' : 'Подбор' }}</UiBadge>
         </NuxtLink>
       </div>
       <div class="col">

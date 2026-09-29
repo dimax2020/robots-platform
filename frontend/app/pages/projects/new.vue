@@ -41,12 +41,7 @@ const industryCode = ref('')
 const type = ref('')
 const name = ref('')
 
-/* Полный путь до отчёта пока собран только для склада; остальные объекты идут до подбора и сравнения. */
-const fullPath = (code: string) => asObjectType(code) === 'warehouse'
 const objectImage = (code: string) => objectTypeImage[asObjectType(code)]
-const objectText = (code: string) => fullPath(code)
-  ? 'Параметры, подбор, сравнение, экономика, what-if, визуализация, отчёт.'
-  : 'Параметры, подбор и сравнение. Экономика и визуализация в MVP закрыты.'
 
 const industry = computed(() => industries.value.find((row) => row.code === industryCode.value) ?? null)
 const objects = computed(() => industry.value?.objects ?? [])
@@ -136,7 +131,7 @@ const submit = async () => {
         <NuxtLink v-for="(d, i) in demoList" :key="d.id" :to="demoPath(d)" class="demo glass" v-reveal="i">
           <img :src="objectImage(d.object_code)" :alt="d.object_name">
           <span class="demo-body">
-            <span class="between"><span class="label">{{ d.object_name }}{{ d.industry ? ` · ${d.industry}` : '' }}</span><UiBadge :tone="fullPath(d.object_code) ? 'ok' : 'info'" size="sm">{{ fullPath(d.object_code) ? 'Полный путь' : 'До подбора' }}</UiBadge></span>
+            <span class="label">{{ d.object_name }}{{ d.industry ? ` · ${d.industry}` : '' }}</span>
             <span class="h4">{{ d.name }}</span>
             <span class="caption">{{ d.area_m2 ? `${Number(d.area_m2).toLocaleString('ru-RU')} м² · ` : '' }}{{ d.processes }} процессов</span>
             <span class="demo-go"><PhEye :size="14" weight="bold" /> Смотреть демо</span>
@@ -189,8 +184,7 @@ const submit = async () => {
             <button v-for="obj in objects" :key="obj.code" type="button" class="type" :class="{ on: type === obj.code }" @click="type = obj.code">
               <img :src="objectImage(obj.code)" alt="">
               <span class="type-body">
-                <span class="between"><span class="h4">{{ obj.name }}</span><UiBadge :tone="fullPath(obj.code) ? 'ok' : 'info'" size="sm">{{ fullPath(obj.code) ? 'Полный путь' : 'До подбора' }}</UiBadge></span>
-                <span class="caption">{{ objectText(obj.code) }}</span>
+                <span class="h4">{{ obj.name }}</span>
               </span>
             </button>
           </div>
@@ -204,7 +198,6 @@ const submit = async () => {
             <div class="s-row"><span class="caption">Имя</span><span class="strong">{{ name || 'Без названия' }}</span></div>
             <div class="s-row"><span class="caption">Отрасль</span><span class="strong">{{ industry?.name ?? '—' }}</span></div>
             <div class="s-row"><span class="caption">Объект</span><span class="strong">{{ picked?.name ?? '—' }}</span></div>
-            <div class="s-row"><span class="caption">Путь</span><span class="strong">{{ picked ? (fullPath(picked.code) ? '7 шагов до отчёта' : '3 шага: параметры, подбор и сравнение') : '—' }}</span></div>
             <div class="hairline" />
             <UiButton type="submit" size="lg" block :disabled="creating || !picked">{{ creating ? 'Создаём…' : 'Создать и перейти к параметрам' }}<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
             <div class="caption">Проект сохраняется на текущей версии каталога и модели платформы.</div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhArrowLeft } from '@phosphor-icons/vue'
+import { PhArrowLeft, PhCheck, PhScales } from '@phosphor-icons/vue'
 import { platformGet } from '~/composables/usePlatform'
 import { formatRub, availabilityLabel, type Availability } from '~/data/catalog'
 import { formatAttributeValue } from '~/data/attributeValue'
@@ -17,6 +17,7 @@ interface Card {
   summary: string | null
   image_url: string | null
   highlights?: string[]
+  solution_type: { code: string; name: string } | null
   attrs: Attr[]
 }
 const product = ref<Card | null>(null)
@@ -25,6 +26,18 @@ useHead({ title: () => product.value ? `${product.value.name} · Каталог`
 
 const known = computed(() => product.value?.attrs.filter((attr) => attr.status === 'known' && attr.value != null) ?? [])
 const photo = computed(() => photoFor(product.value?.image_url, product.value?.name ?? ''))
+const { has, toggle } = useCompare()
+const inCompare = computed(() => has(slug.value))
+const onCompare = () => {
+  const card = product.value
+  if (!card) return
+  toggle(slug.value, {
+    name: card.name,
+    image: photo.value,
+    solutionType: card.solution_type?.name ?? '',
+    manufacturer: card.manufacturer ?? '',
+  })
+}
 const statusText = computed(() => {
   const raw = product.value?.availability
   if (!raw) return ''
@@ -74,6 +87,10 @@ onMounted(async () => {
               <div class="caption">Стоимость единицы</div>
               <div class="display-4">{{ formatRub(product.price_rub ?? undefined) }}</div>
             </div>
+            <button type="button" class="cmp" :class="{ on: inCompare }" :aria-pressed="inCompare" @click="onCompare">
+              <PhCheck v-if="inCompare" :size="16" weight="bold" /><PhScales v-else :size="16" weight="bold" />
+              {{ inCompare ? 'В сравнении' : 'В сравнение' }}
+            </button>
           </div>
         </div>
       </div>
@@ -115,6 +132,9 @@ onMounted(async () => {
 .hl-item .mono-lg { color: var(--ink-strong); font-size: 18px; }
 .price-row { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); padding: var(--space-5) var(--space-6); }
 .price-row > * { position: relative; z-index: 1; }
+.cmp { display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px; border-radius: 10px; font-size: 14px; font-weight: 700; color: var(--ink-strong); background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--border-hairline); white-space: nowrap; }
+.cmp:hover { background: #fff; box-shadow: inset 0 0 0 1px var(--border-strong); }
+.cmp.on { background: var(--surface-brand-tint); color: var(--brand-ink); box-shadow: inset 0 0 0 1px rgba(10, 107, 69, 0.2); }
 .group { padding: var(--space-6); }
 .group > * { position: relative; z-index: 1; }
 .g-head { display: flex; gap: 14px; align-items: flex-start; margin-bottom: var(--space-5); }

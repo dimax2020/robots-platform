@@ -9,7 +9,7 @@ const router = useRouter()
 
 const accounts: { role: Role; login: string; icon: any; text: string; goes: string }[] = [
   { role: 'guest', login: 'guest', icon: PhEye, text: 'Демо-наборы, каталог, проход по складу без сохранения.', goes: 'Остаётся на демо-складе' },
-  { role: 'user', login: 'user', icon: PhUser, text: 'Свои проекты и полный путь по складу. Аэропорт и медучреждение до подбора.', goes: 'Попадает в список проектов' },
+  { role: 'user', login: 'user', icon: PhUser, text: 'Свои проекты: склад, аэропорт и медучреждение.', goes: 'Попадает в список проектов' },
   { role: 'admin', login: 'admin', icon: PhUserGear, text: 'Всё пользовательское плюс каталог, справочники, нормативы, источники.', goes: 'Проекты и админка' },
 ]
 

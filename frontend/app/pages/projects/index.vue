@@ -123,7 +123,7 @@ const removeProject = async (id: string) => {
         <NuxtLink v-for="p in demo" :key="p.id" :to="demoPath(p)" class="demo glass">
           <img :src="imageOf(p)" :alt="labelOf(p)">
           <div class="demo-body">
-            <div class="between"><span class="label">{{ labelOf(p) }}</span><UiBadge :tone="typeOf(p.object_code) === 'warehouse' ? 'ok' : 'info'" size="sm">{{ typeOf(p.object_code) === 'warehouse' ? 'Полный путь' : 'До подбора' }}</UiBadge></div>
+            <div class="label">{{ labelOf(p) }}</div>
             <div class="h4">{{ p.name }}</div>
             <div class="caption"><PhEye :size="12" /> Только просмотр · {{ p.industry || labelOf(p) }}{{ p.area_m2 ? ` · ${Number(p.area_m2).toLocaleString('ru-RU')} м²` : '' }}</div>
           </div>

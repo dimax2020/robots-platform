@@ -19,7 +19,7 @@ onMounted(() => {
       label: industry.name,
       token: '',
       children: tree.objects
-        .filter((object) => object.in_match !== false && object.industries.includes(industry.code))
+        .filter((object) => object.industries.includes(industry.code))
         .map((object) => ({
           label: object.name,
           token: `object:${object.code}`,
@@ -93,6 +93,8 @@ const filterFeed = (items: Product[]) => {
   return list
 }
 const plural = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? 'модель' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'модели' : 'моделей')
+const clientNarrowed = () => Boolean(avail.value.length || onlyAuto.value || minTrl.value > 1 || q.value.trim())
+const listSize = (items: Product[], total: number) => (clientNarrowed() ? filterFeed(items).length : total)
 const emptyHint = computed(() => {
   if (avail.value.length && avail.value.length < 3) return `Снимите фильтр по статусу «${availabilityLabel[avail.value[0]!]}»`
   if (minTrl.value > 7) return 'Опустите порог УГТ: большинство решений имеют УГТ 7–9'
@@ -156,10 +158,10 @@ const emptyHint = computed(() => {
         </div>
       </aside>
 
-      <PlatformFeed v-slot="{ items, loading, error, done }" class="results" :solution-type="solutionType" :process="processCode" :object-code="objectCode">
+      <PlatformFeed v-slot="{ items, total, loading, error, done }" class="results" :solution-type="solutionType" :process="processCode" :object-code="objectCode">
         <div class="results-head">
           <div class="chips">
-            <span class="count h4">В списке {{ filterFeed(items).length }} {{ plural(filterFeed(items).length) }}</span>
+            <span class="count h4">В списке {{ listSize(items, total) }} {{ plural(listSize(items, total)) }}</span>
             <UiChip v-for="c in activeChips" :key="c.key" removable @remove="c.clear" @click="c.clear">{{ c.label }}</UiChip>
             <button v-if="activeChips.length" type="button" class="link body-sm" @click="reset">Сбросить всё</button>
           </div>
@@ -201,7 +203,6 @@ const emptyHint = computed(() => {
 .s-hint { grid-column: 2; position: relative; z-index: 1; }
 
 .body-grid { display: grid; grid-template-columns: clamp(280px, 18vw, 320px) minmax(0, 1fr); gap: var(--space-6); align-items: start; }
-.side { position: sticky; top: 96px; }
 .side-inner { display: grid; gap: var(--space-4); padding: var(--space-4); }
 .side-inner > * { position: relative; z-index: 1; }
 .side-block { display: grid; gap: 10px; }
@@ -227,5 +228,5 @@ const emptyHint = computed(() => {
 .cards-move { transition: transform var(--dur-slow) var(--ease); }
 .empty { padding: var(--space-12); text-align: center; display: grid; gap: var(--space-3); justify-items: center; }
 .empty > * { position: relative; z-index: 1; }
-@media (max-width: 1100px) { .body-grid { grid-template-columns: 1fr; } .side { position: static; } .top { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .body-grid { grid-template-columns: 1fr; } .top { grid-template-columns: 1fr; } }
 </style>

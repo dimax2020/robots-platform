@@ -6,6 +6,7 @@ import { photoFor } from '~/data/placeholders'
 const props = defineProps<{ solutionType?: string; process?: string; objectCode?: string }>()
 const pageSize = 24
 const items = ref<Product[]>([])
+const total = ref(0)
 const cursor = ref<string | null>(null)
 const done = ref(false)
 const loading = ref(false)
@@ -75,6 +76,7 @@ const loadMore = async () => {
     const page = await platformGet<PlatformPage>(`/catalog/products?${query}`)
     if (asked !== `${props.solutionType ?? ''}|${props.process ?? ''}|${props.objectCode ?? ''}`) return
     items.value = items.value.concat(page.items.map(toProduct))
+    total.value = page.total
     cursor.value = page.next_cursor
     done.value = !page.next_cursor
   } catch (err) {
@@ -95,6 +97,7 @@ onMounted(async () => {
 
 watch([() => props.solutionType, () => props.process, () => props.objectCode], async () => {
   items.value = []
+  total.value = 0
   cursor.value = null
   done.value = false
   loading.value = false
@@ -103,12 +106,12 @@ watch([() => props.solutionType, () => props.process, () => props.objectCode], a
 
 onBeforeUnmount(() => observer?.disconnect())
 
-defineExpose({ items, loading, error, done })
+defineExpose({ items, total, loading, error, done })
 </script>
 
 <template>
   <div>
-    <slot :items="items" :loading="loading" :error="error" :done="done" />
+    <slot :items="items" :total="total" :loading="loading" :error="error" :done="done" />
     <div ref="sentinel" class="sentinel" />
   </div>
 </template>

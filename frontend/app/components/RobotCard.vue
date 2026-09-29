@@ -33,7 +33,7 @@ const statusKnown = computed(() => (props.product as Product & { statusKnown?: b
           <span class="mono-lg">{{ formatRub(product.priceRub) }}</span>
           <span v-if="product.priceNote" class="caption">{{ product.priceNote }}</span>
         </div>
-        <button v-if="!to" type="button" class="cmp" :class="{ on: inCompare }" :aria-pressed="inCompare" @click="toggle(product.slug, { name: product.name, image: product.image, solutionType: product.solutionType, manufacturer: product.manufacturer })">
+        <button type="button" class="cmp" :class="{ on: inCompare }" :aria-pressed="inCompare" @click="toggle(product.slug, { name: product.name, image: product.image, solutionType: product.solutionType, manufacturer: product.manufacturer })">
           <PhCheck v-if="inCompare" :size="16" weight="bold" /><PhScales v-else :size="16" weight="bold" />
           {{ inCompare ? 'В сравнении' : 'Сравнить' }}
         </button>
