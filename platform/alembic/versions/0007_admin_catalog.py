@@ -59,6 +59,9 @@ def upgrade() -> None:
     op.add_column("economy_norm", sa.Column("origin", sa.Text(), nullable=True))
     op.add_column("economy_norm", sa.Column("url", sa.Text(), nullable=True))
     op.add_column("economy_norm_log", sa.Column("origin", sa.Text(), nullable=True))
+    # Сид ниже читает актуальную модель объекта. Колонка штатно появляется в 0013;
+    # здесь она нужна раньше, повторное добавление там идемпотентно.
+    op.execute("ALTER TABLE object_type ADD COLUMN IF NOT EXISTS in_match boolean NOT NULL DEFAULT true")
     op.create_table(
         "economy_norm_override",
         sa.Column("norm_key", sa.Text(), primary_key=True),
@@ -76,6 +79,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.execute("ALTER TABLE object_type DROP COLUMN IF EXISTS in_match")
     op.drop_table("economy_norm_override")
     op.drop_column("economy_norm_log", "origin")
     op.drop_column("economy_norm", "url")
