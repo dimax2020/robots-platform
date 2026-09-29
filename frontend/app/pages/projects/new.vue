@@ -107,19 +107,21 @@ const submit = async () => {
         <div class="step glass">
           <div class="step-head"><span class="n mono-sm">2</span><span class="h3">Отрасль</span></div>
           <div v-if="loading" class="opts"><UiSkeleton h="44px" w="180px" /><UiSkeleton h="44px" w="140px" /><UiSkeleton h="44px" w="160px" /></div>
+          <p v-else-if="!industries.length" class="body-sm muted">Нет отраслей с объектами, включёнными в подбор.</p>
           <div v-else class="opts">
             <button v-for="row in industries" :key="row.code" type="button" class="opt" :class="{ on: industryCode === row.code }" @click="pickIndustry(row)">
               <span class="chk"><PhCheck v-if="industryCode === row.code" :size="12" weight="bold" /></span>{{ row.name }}
               <span class="cnt mono-sm">{{ row.objects.length }}</span>
             </button>
           </div>
-          <div class="caption">Отрасли и объекты ведутся в справочнике платформы (Админка → Каталог → Отрасли).</div>
+          <div class="caption">В списке только объекты с галочкой «В подборе». Её ставит администратор на странице объекта.</div>
         </div>
 
         <div class="step glass">
           <div class="step-head"><span class="n mono-sm">3</span><span class="h3">Объект отрасли{{ industry ? ` «${industry.name}»` : '' }}</span></div>
           <div v-if="loading" class="types"><UiSkeleton h="220px" /><UiSkeleton h="220px" /></div>
-          <p v-else-if="!objects.length" class="body-sm muted">В этой отрасли пока нет объектов: добавьте их в справочнике.</p>
+          <p v-else-if="!industries.length" class="body-sm muted">В подбор пока не включён ни один объект. Галочка ставится в админке, на странице объекта.</p>
+          <p v-else-if="!objects.length" class="body-sm muted">В этой отрасли нет объектов, включённых в подбор.</p>
           <div v-else class="types" :class="{ single: objects.length === 1 }">
             <button v-for="obj in objects" :key="obj.code" type="button" class="type" :class="{ on: type === obj.code }" @click="type = obj.code">
               <img :src="objectImage(obj.code)" alt="">

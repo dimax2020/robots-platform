@@ -65,7 +65,7 @@ def hierarchy(db: Session) -> dict:
     for obj in db.scalars(select(ObjectTypeRow).order_by(ObjectTypeRow.name)):
         process_ids = list(db.scalars(select(ObjectProcessRow.process_id).where(ObjectProcessRow.object_type_id == obj.id)))
         items = sorted((processes[pid] for pid in process_ids if pid in processes), key=lambda item: item["name"])
-        objects[obj.id] = {"code": obj.code, "name": obj.name, "processes": items}
+        objects[obj.id] = {"code": obj.code, "name": obj.name, "in_match": obj.in_match, "processes": items}
     linked: set[int] = set()
     industries = []
     for industry in db.scalars(select(IndustryRow).order_by(IndustryRow.name)):

@@ -54,7 +54,13 @@ def tree(db: Session) -> dict:
             .join(ObjectProcessRow, ObjectProcessRow.process_id == ProcessRow.id)
             .where(ObjectProcessRow.object_type_id == obj.id)
         ))
-        objects.append({"code": obj.code, "name": obj.name, "industries": industry_codes, "processes": process_codes})
+        objects.append({
+            "code": obj.code,
+            "name": obj.name,
+            "industries": industry_codes,
+            "processes": process_codes,
+            "in_match": obj.in_match,
+        })
     processes = []
     for proc in db.scalars(select(ProcessRow).order_by(ProcessRow.name)):
         count = db.scalar(select(func.count()).select_from(ProductProcessRow).where(ProductProcessRow.process_id == proc.id)) or 0
@@ -379,6 +385,7 @@ def object_setup(db: Session, object_code: str) -> dict:
         "industries": object_industries(db, obj.id),
         "fields": object_fields(db, obj.id),
         "projects": db.scalar(select(func.count()).select_from(ProjectRow).where(ProjectRow.object_type_id == obj.id)) or 0,
+        "in_match": obj.in_match,
         "processes": processes,
     }
 
@@ -388,6 +395,8 @@ def save_object_setup(db: Session, object_code: str, payload: dict) -> dict:
     if obj is None:
         raise KeyError(object_code)
     set_object_identity(db, obj, name=payload.get("name"), industries=payload.get("industries"))
+    if payload.get("in_match") is not None:
+        obj.in_match = bool(payload["in_match"])
     if payload.get("fields") is not None:
         replace_object_fields(db, obj, payload["fields"])
     db.execute(delete(ObjectProcessRow).where(ObjectProcessRow.object_type_id == obj.id))
@@ -639,6 +648,8 @@ def create_project(db: Session, *, name: str, object_code: str, site: dict, owne
     obj = db.scalar(select(ObjectTypeRow).where(ObjectTypeRow.code == object_code))
     if obj is None:
         raise KeyError(object_code)
+    if not obj.in_match:
+        raise ValueError("Объект выключен из подбора: его нельзя выбрать для нового проекта")
     project = ProjectRow(id=uuid4(), name=name, object_type_id=obj.id, site=_store_site(site, None, None), owner_id=owner_id)
     db.add(project)
     db.flush()

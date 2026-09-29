@@ -108,6 +108,7 @@ class ObjectTypeRow(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    in_match: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default=text("true"))
 
 
 class ProcessRow(Base):

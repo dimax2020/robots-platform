@@ -21,6 +21,7 @@ class NewObjectIn(BaseModel):
     name: str
     industries: list[str] = Field(default_factory=list)
     copy_fields_from: str | None = None
+    in_match: bool = True
 
 
 class SiteFieldIn(BaseModel):
@@ -51,9 +52,13 @@ def catalog_industries() -> dict:
     from app.infrastructure.db.models import ObjectTypeRow
 
     with session_factory()() as db:
-        names = {row.code: row.name for row in db.scalars(select(ObjectTypeRow))}
+        names = {row.code: row.name for row in db.scalars(select(ObjectTypeRow).where(ObjectTypeRow.in_match.is_(True)))}
         items = [
-            {"code": row["code"], "name": row["name"], "objects": [{"code": code, "name": names.get(code, code)} for code in row["objects"]]}
+            {
+                "code": row["code"],
+                "name": row["name"],
+                "objects": [{"code": code, "name": names[code]} for code in row["objects"] if code in names],
+            }
             for row in industries(db)
         ]
         return {"items": items}
@@ -69,7 +74,7 @@ def admin_objects() -> list:
 def admin_object_create(body: NewObjectIn) -> dict:
     with session_factory()() as db:
         try:
-            code = create_object(db, name=body.name, industries=body.industries, copy_from=body.copy_fields_from)
+            code = create_object(db, name=body.name, industries=body.industries, copy_from=body.copy_fields_from, in_match=body.in_match)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from None
         return object_setup(db, code)

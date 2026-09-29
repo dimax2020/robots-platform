@@ -152,6 +152,7 @@ def objects_overview(db: Session) -> list[dict]:
             "processes": processes,
             "unbound": len(unbound_inputs(db, obj.id)),
             "projects": projects,
+            "in_match": obj.in_match,
         })
     return result
 
@@ -194,12 +195,12 @@ def unbound_inputs(db: Session, object_id: int) -> list[tuple[str, str]]:
     return missing
 
 
-def create_object(db: Session, *, name: str, industries: list[str], copy_from: str | None) -> str:
+def create_object(db: Session, *, name: str, industries: list[str], copy_from: str | None, in_match: bool = True) -> str:
     name = name.strip()
     if not name:
         raise ValueError("Нужно название объекта")
     code = make_code(name, set(db.scalars(select(ObjectTypeRow.code))))
-    obj = ObjectTypeRow(code=code, name=name)
+    obj = ObjectTypeRow(code=code, name=name, in_match=in_match)
     db.add(obj)
     db.flush()
     for industry_code in dict.fromkeys(industries):

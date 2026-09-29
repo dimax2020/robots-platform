@@ -33,7 +33,9 @@ const video = ref<HTMLVideoElement | null>(null)
 const px = ref(0)
 const py = ref(0)
 let raf = 0
+const { rich } = useVisualTheme()
 const onMove = (e: PointerEvent) => {
+  if (!rich.value) return
   const el = stage.value
   if (!el) return
   const r = el.getBoundingClientRect()
@@ -47,11 +49,17 @@ const stageStyle = computed(() => ({ '--mx': px.value.toFixed(3), '--my': py.val
 const speedUp = (e: Event) => {
   (e.currentTarget as HTMLVideoElement).playbackRate = 1.5
 }
-onMounted(() => {
+const playHero = (on: boolean) => {
   const v = video.value
   if (!v) return
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { v.pause(); return }
+  if (!on || window.matchMedia('(prefers-reduced-motion: reduce)').matches) { v.pause(); return }
   v.playbackRate = 1.5
+  void v.play()
+}
+onMounted(() => playHero(readRich()))
+watch(rich, (on) => {
+  if (!on) { px.value = 0; py.value = 0 }
+  playHero(on)
 })
 onBeforeUnmount(() => cancelAnimationFrame(raf))
 
@@ -60,6 +68,13 @@ const objects = [
   { type: 'airport' as const, title: 'Аэропорт', text: 'Параметры площадки и список применимых решений.', full: false, processes: ['Багаж', 'Периметр', 'Дезинфекция'] },
   { type: 'hospital' as const, title: 'Медучреждение', text: 'Параметры корпуса и список применимых решений.', full: false, processes: ['Дезинфекция', 'Доставка'] },
 ]
+const matchable = ref<string[] | null>(null)
+onMounted(() => {
+  platformGet<{ items: { objects: { code: string }[] }[] }>('/catalog/industries')
+    .then((page) => { matchable.value = page.items.flatMap((row) => row.objects.map((obj) => obj.code)) })
+    .catch(() => { matchable.value = null })
+})
+const visibleObjects = computed(() => (matchable.value ? objects.filter((item) => matchable.value!.includes(item.type)) : objects))
 </script>
 
 <template>
@@ -69,7 +84,7 @@ const objects = [
       <div ref="stage" class="stage" :style="stageStyle" @pointermove="onMove" @pointerleave="onLeave">
         <!-- Слой 0: фон, зацикленное видео склада -->
         <div class="layer l-bg" aria-hidden="true">
-          <video ref="video" class="bg-video" autoplay muted loop playsinline preload="auto" poster="/img/hero-stage.jpg" @canplay="speedUp">
+          <video ref="video" class="bg-video" muted loop playsinline preload="none" poster="/img/hero-stage.jpg" @canplay="speedUp">
             <source src="/img/hero-loop.webm" type="video/webm">
             <source src="/img/hero-loop.mp4" type="video/mp4">
           </video>
@@ -146,7 +161,7 @@ const objects = [
     <section class="container section">
       <SectionHead title="С какого объекта начать" lead="Склад проходит весь сценарий. Аэропорт и медучреждение в MVP останавливаются на подборе, об этом сказано на кабинете проекта." size="hero-2" />
       <div class="objects">
-        <NuxtLink v-for="(o, i) in objects" :key="o.type" :to="`/projects/new?type=${o.type}`" class="obj" :class="o.type" v-reveal="i">
+        <NuxtLink v-for="(o, i) in visibleObjects" :key="o.type" :to="`/projects/new?type=${o.type}`" class="obj" :class="o.type" v-reveal="i">
           <img :src="objectTypeImage[o.type]" :alt="o.title" loading="lazy">
           <div class="obj-scrim" />
           <div class="obj-panel glass glass-strong">

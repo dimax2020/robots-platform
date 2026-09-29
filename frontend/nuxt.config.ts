@@ -37,6 +37,13 @@ export default defineNuxtConfig({
           href: 'https://fonts.googleapis.com/css2?family=Unbounded:wght@600;700&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap',
         },
       ],
+      script: [
+        {
+          key: 'visual-theme',
+          tagPriority: 'critical',
+          innerHTML: `(function(){var key='visual-rich';try{var stored=localStorage.getItem(key);if(stored!=='1'&&stored!=='0'){var gpu=false;try{var canvas=document.createElement('canvas');var gl=canvas.getContext('webgl',{failIfMajorPerformanceCaveat:true});if(gl){gpu=true;var ext=gl.getExtension('WEBGL_debug_renderer_info');if(ext){var renderer=String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)||'');if(/swiftshader|llvmpipe|softpipe|software|basic render/i.test(renderer))gpu=false}var lose=gl.getExtension('WEBGL_lose_context');if(lose)lose.loseContext()}}catch(e){}stored=gpu?'1':'0';localStorage.setItem(key,stored)}if(stored!=='1')document.documentElement.classList.add('visual-lite')}catch(e){}})()`,
+        },
+      ],
     },
     pageTransition: { name: 'page', mode: 'out-in' },
   },

@@ -177,6 +177,7 @@ class ObjectFieldIn(BaseModel):
 class ObjectSetupIn(BaseModel):
     name: str | None = None
     industries: list[str] | None = None
+    in_match: bool | None = None
     fields: list[ObjectFieldIn] | None = None
     processes: list[str] = Field(default_factory=list)
     bindings: list[ObjectBindingIn] = Field(default_factory=list)
@@ -579,6 +580,8 @@ def create(body: ProjectIn, user: SessionUser = Depends(require_user)) -> dict:
             return create_project(db, name=body.name, object_code=body.object_code, site=body.site, owner_id=user.id)
         except KeyError:
             raise HTTPException(404, "Объект не найден") from None
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
 
 
 @app.get("/api/v1/projects/{project_key}", tags=["Проекты"], summary="Площадка проекта, процессы и можно ли его менять")

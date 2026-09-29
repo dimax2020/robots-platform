@@ -9,7 +9,7 @@ useHead({ title: 'Админка · Дерево каталога' })
 
 interface TypeNode { code: string; name: string; products: number }
 interface ProcessNode { code: string; name: string; products: number; types: TypeNode[] }
-interface ObjectNode { code: string; name: string; processes: ProcessNode[] }
+interface ObjectNode { code: string; name: string; in_match?: boolean; processes: ProcessNode[] }
 interface IndustryNode { code: string; name: string; objects: ObjectNode[] }
 interface Tree {
   industries: IndustryNode[]
@@ -63,6 +63,7 @@ const productsLink = (process: string, type: string) => `/admin/products?process
               <button type="button" class="tg" @click="toggle(`o:${industry.code}:${obj.code}`)"><component :is="open.has(`o:${industry.code}:${obj.code}`) ? PhCaretDown : PhCaretRight" :size="14" weight="bold" /></button>
               <span class="body-sm strong">{{ obj.name }}</span>
               <span class="caption">{{ obj.processes.length }} {{ pluralRu(obj.processes.length, 'процесс', 'процесса', 'процессов') }} · {{ objectProducts(obj) }} привязок роботов</span>
+              <span v-if="obj.in_match === false" class="a-pill">не в подборе</span>
               <NuxtLink :to="`/admin/objects?code=${obj.code}`" class="ed" title="Настроить объект"><PhPencilSimple :size="14" /></NuxtLink>
             </div>
             <template v-if="open.has(`o:${industry.code}:${obj.code}`)">

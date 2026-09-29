@@ -5,7 +5,7 @@ import { platformGet } from '~/composables/usePlatform'
 
 interface PlatformTree {
   industries: { code: string; name: string }[]
-  objects: { code: string; name: string; industries: string[]; processes: string[] }[]
+  objects: { code: string; name: string; industries: string[]; processes: string[]; in_match?: boolean }[]
   processes: { code: string; name: string; product_count: number }[]
 }
 
@@ -19,7 +19,7 @@ onMounted(() => {
       label: industry.name,
       token: '',
       children: tree.objects
-        .filter((object) => object.industries.includes(industry.code))
+        .filter((object) => object.in_match !== false && object.industries.includes(industry.code))
         .map((object) => ({
           label: object.name,
           token: `object:${object.code}`,

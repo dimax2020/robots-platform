@@ -10,7 +10,7 @@ useHead({ title: 'Админка · Демо-объекты' })
 interface Draft { name: string; object_code: string; slug: string }
 
 const list = ref<DemoProject[]>([])
-const objects = ref<{ code: string; name: string }[]>([])
+const objects = ref<{ code: string; name: string; in_match?: boolean }[]>([])
 const draft = ref<Draft | null>(null)
 const notice = ref<{ ok: boolean; text: string } | null>(null)
 const saving = ref(false)
@@ -21,10 +21,10 @@ const published = useDemoProjects()
 const load = async () => {
   const [page, tree] = await Promise.all([
     platformGet<{ items: DemoProject[] }>('/admin/projects/demo'),
-    platformGet<{ objects: { code: string; name: string }[] }>('/catalog/tree'),
+    platformGet<{ objects: { code: string; name: string; in_match?: boolean }[] }>('/catalog/tree'),
   ])
   list.value = page.items
-  objects.value = tree.objects
+  objects.value = tree.objects.filter((item) => item.in_match !== false)
   for (const item of list.value) slugEdit[item.id] = item.slug ?? ''
 }
 onMounted(() => { void load().catch((err) => { notice.value = { ok: false, text: fetchErrorMessage(err, 'Не удалось загрузить демо-объекты') } }) })

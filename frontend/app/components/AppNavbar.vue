@@ -1,8 +1,20 @@
 <script setup lang="ts">
-import { PhMagnifyingGlass, PhUserCircle, PhSignOut, PhCaretDown } from '@phosphor-icons/vue'
+import { PhUserCircle, PhSignOut, PhCaretDown } from '@phosphor-icons/vue'
 import { roleLabel } from '~/composables/useRole'
 import type { MenuId } from '~/components/AppMegaMenu.vue'
 
+const { rich, toggleRich } = useVisualTheme()
+const fxBtn = ref<HTMLButtonElement | null>(null)
+const hintOn = ref(false)
+const hintStyle = ref<{ top: string; right: string }>({ top: '0px', right: '0px' })
+const showHint = () => {
+  const el = fxBtn.value
+  if (!el) return
+  const box = el.getBoundingClientRect()
+  hintStyle.value = { top: `${box.bottom + 10}px`, right: `${window.innerWidth - box.right}px` }
+  hintOn.value = true
+}
+const hideHint = () => { hintOn.value = false }
 const { role } = useRole()
 const { logout } = useAuth()
 const router = useRouter()
@@ -69,11 +81,15 @@ onMounted(() => {
         </ul>
 
         <div class="right">
-          <button type="button" class="search" aria-label="Поиск по каталогу">
-            <PhMagnifyingGlass :size="16" weight="bold" />
-            <span>Поиск</span>
-            <span class="kbd">/</span>
-          </button>
+          <span class="fx-wrap" @mouseenter="showHint" @mouseleave="hideHint" @focusin="showHint" @focusout="hideHint">
+            <button ref="fxBtn" type="button" class="fx" :class="{ on: rich }" :aria-pressed="rich" :aria-label="rich ? 'Выключить эффекты' : 'Включить эффекты'" aria-describedby="fx-hint" @click="toggleRich">
+              <span class="fx-label">Эффекты</span>
+              <span class="fx-track" aria-hidden="true"><span class="fx-knob" /></span>
+            </button>
+            <Teleport to="body">
+              <span id="fx-hint" class="fx-hint" :class="{ on: hintOn }" role="tooltip" :style="hintStyle">Оставляйте включёнными, если работает аппаратное ускорение графики. Если страница всё равно тормозит, просто выключите их.</span>
+            </Teleport>
+          </span>
           <div class="role" :title="`Текущая роль: ${roleLabel[role]}`">
             <PhUserCircle :size="18" weight="duotone" />
             <span>{{ roleLabel[role] }}</span>
@@ -110,17 +126,23 @@ onMounted(() => {
 }
 .links { display: flex; align-items: center; gap: 4px; position: relative; z-index: 1; }
 .links li { position: relative; display: inline-flex; align-items: center; }
-.lnk { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 14px 0 16px; border-radius: 12px; font-weight: 600; font-size: 16px; color: var(--ink-body); transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+.lnk { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 30px 0 16px; border-radius: 12px; font-weight: 600; font-size: 16px; color: var(--ink-body); transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
 .lnk:hover, .lnk.open { background: rgba(15, 20, 19, 0.05); color: var(--ink-strong); }
 .lnk.on { background: var(--surface-graphite); color: var(--ink-on-graphite); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1); }
-.caret { position: absolute; right: 2px; top: 50%; width: 22px; height: 22px; margin-top: -11px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--ink-faint); opacity: 0; transition: opacity var(--dur-fast) var(--ease), transform var(--dur-mid) var(--ease); }
+.caret { position: absolute; right: 6px; top: 50%; width: 18px; height: 18px; margin-top: -9px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--ink-faint); opacity: 0; transition: opacity var(--dur-fast) var(--ease), transform var(--dur-mid) var(--ease); }
 .links li:hover .caret, .caret:focus-visible, .caret[aria-expanded="true"] { opacity: 1; }
 .caret[aria-expanded="true"] { transform: rotate(180deg); }
 .lnk.on + .caret { color: var(--ink-muted-graphite); }
 .count { font-family: var(--font-mono); font-size: 11px; padding: 2px 6px; border-radius: 6px; background: var(--brand-400); color: var(--brand-900); }
 .right { display: flex; align-items: center; gap: 8px; position: relative; z-index: 1; }
-.search { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 12px; border-radius: 12px; color: var(--ink-muted); font-size: 15px; font-weight: 600; background: rgba(255, 255, 255, 0.5); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
-.search:hover { background: #fff; color: var(--ink-strong); }
+.fx-hint { position: fixed; z-index: calc(var(--z-sticky) + 5); width: min(280px, 70vw); padding: 10px 12px; border-radius: 12px; background: var(--surface-graphite); color: var(--ink-on-graphite); font-size: 13px; font-weight: 500; line-height: 1.45; text-align: left; box-shadow: var(--shadow-lg); opacity: 0; pointer-events: none; transform: translateY(-4px); transition: opacity var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
+.fx-hint.on { opacity: 1; transform: none; }
+.fx { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 10px 0 12px; border-radius: 12px; font-size: 14px; font-weight: 700; color: var(--ink-muted); background: rgba(255, 255, 255, 0.5); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); }
+.fx.on { color: var(--ink-strong); }
+.fx-track { position: relative; width: 32px; height: 18px; border-radius: 999px; background: rgba(15, 20, 19, 0.16); }
+.fx.on .fx-track { background: var(--brand-500); }
+.fx-knob { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(15, 20, 19, 0.25); transition: transform var(--dur-fast) var(--ease); }
+.fx.on .fx-knob { transform: translateX(14px); }
 .role { display: inline-flex; align-items: center; gap: 6px; height: 42px; padding: 0 12px; border-radius: 12px; font-size: 15px; font-weight: 600; color: var(--ink-body); }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 42px; height: 42px; border-radius: 12px; color: var(--ink-muted); transition: background var(--dur-fast) var(--ease); }
 .icon-btn:hover { background: rgba(15, 20, 19, 0.05); color: var(--ink-strong); }
@@ -137,5 +159,7 @@ onMounted(() => {
 
 @media (max-width: 1100px) {
   .mega, .dim, .caret { display: none; }
+  .fx-label { display: none; }
+  .fx { padding: 0 10px; }
 }
 </style>

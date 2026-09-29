@@ -349,6 +349,30 @@ table { border-collapse: collapse; width: 100%; }
   .glass-graphite { background: rgba(34, 43, 40, 0.98); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 
+/* Облегчённая тема: без размытия фона и бесконечных декоративных анимаций. */
+html.visual-lite .page-atmosphere .blob,
+html.visual-lite .glass-sheen > .sheen,
+html.visual-lite .robot-shadow,
+html.visual-lite .robot-led { display: none; }
+html.visual-lite .glass,
+html.visual-lite .glass-strong { background: rgba(255, 255, 255, 0.96); }
+html.visual-lite .glass-graphite { background: rgba(34, 43, 40, 0.98); }
+html.visual-lite .glass-graphite-solid { background: rgba(22, 28, 26, 0.94); }
+html.visual-lite .bg-frost { background: rgba(255, 255, 255, 0.28); }
+html.visual-lite .robot { filter: none; }
+html.visual-lite .l-bg,
+html.visual-lite .l-text,
+html.visual-lite .l-robot,
+html.visual-lite .l-fore { transform: none !important; }
+html.visual-lite [data-reveal] { opacity: 1; transform: none; }
+html.visual-lite *,
+html.visual-lite *::before,
+html.visual-lite *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  animation: none !important;
+}
+
 /* ---------- Surfaces ---------- */
 .card {
   background: var(--surface-card);

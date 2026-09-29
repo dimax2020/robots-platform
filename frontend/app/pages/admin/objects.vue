@@ -12,8 +12,8 @@ interface SiteField { key: string; label: string; unit: string; kind: string; mi
 interface ObjectField extends SiteField { base_label: string; group: string; required: boolean; default: number | boolean | string | null; source: string }
 interface Input { key: string; label: string; kind: 'filter' | 'count'; filter: string }
 interface Proc { code: string; name: string; product_count: number; enabled: boolean; inputs: Input[]; bindings: Record<string, string> }
-interface Setup { code: string; name: string; industries: string[]; fields: ObjectField[]; projects: number; processes: Proc[] }
-interface Overview { code: string; name: string; fields: number; processes: number; unbound: number; projects: number }
+interface Setup { code: string; name: string; industries: string[]; in_match: boolean; fields: ObjectField[]; projects: number; processes: Proc[] }
+interface Overview { code: string; name: string; fields: number; processes: number; unbound: number; projects: number; in_match: boolean }
 
 const route = useRoute()
 const list = ref<Overview[]>([])
@@ -28,7 +28,7 @@ const dirty = ref(false)
 const expanded = reactive(new Set<string>())
 const fieldQuery = ref('')
 const processQuery = ref('')
-const creating = ref<{ name: string; industries: string[]; copy: string } | null>(null)
+const creating = ref<{ name: string; industries: string[]; copy: string; in_match: boolean } | null>(null)
 const newField = ref<SiteField | null>(null)
 
 const enabled = computed(() => draft.value?.processes.filter((item) => item.enabled) ?? [])
@@ -78,6 +78,7 @@ const open = async (code: string) => {
   selected.value = code
   notice.value = null
   const setup = await platformGet<Setup>(`/admin/objects/${code}`)
+  if (setup.in_match == null) setup.in_match = true
   for (const proc of setup.processes) for (const input of proc.inputs) if (proc.bindings[input.key] == null) proc.bindings[input.key] = ''
   draft.value = setup
   expanded.clear()
@@ -187,6 +188,7 @@ const save = async () => {
     const setup = await platformSend<Setup>(`/admin/objects/${draft.value.code}/setup`, 'PUT', {
       name: draft.value.name,
       industries: draft.value.industries,
+      in_match: draft.value.in_match,
       fields: draft.value.fields.map((field) => ({
         key: field.key,
         label: field.label === field.base_label ? '' : field.label,
@@ -215,7 +217,7 @@ const createObject = async () => {
   if (!creating.value?.name.trim()) return
   try {
     const setup = await platformSend<Setup>('/admin/objects/new', 'POST', {
-      name: creating.value.name, industries: creating.value.industries, copy_fields_from: creating.value.copy || null,
+      name: creating.value.name, industries: creating.value.industries, copy_fields_from: creating.value.copy || null, in_match: creating.value.in_match,
     })
     creating.value = null
     list.value = await platformGet<Overview[]>('/admin/objects')
@@ -230,7 +232,7 @@ const createObject = async () => {
 <template>
   <div class="admin-page">
     <AdminHead label="Модель подбора" title="Объекты" lead="Объект задаёт форму параметров проекта и набор процессов. Процесс может быть у нескольких объектов, а какое поле площадки подставлять в его условия, решает каждый объект сам.">
-      <UiButton @click="creating = { name: '', industries: [], copy: '' }"><template #icon><PhPlus :size="16" weight="bold" /></template>Новый объект</UiButton>
+      <UiButton @click="creating = { name: '', industries: [], copy: '', in_match: true }"><template #icon><PhPlus :size="16" weight="bold" /></template>Новый объект</UiButton>
     </AdminHead>
     <UiCallout v-if="notice" :tone="notice.ok ? 'ok' : 'danger'">{{ notice.text }}</UiCallout>
 
@@ -253,7 +255,10 @@ const createObject = async () => {
           </button>
         </div>
       </div>
-      <p class="caption">Значения по умолчанию и источники не копируются: у нового объекта свои данные.</p>
+      <button type="button" class="check" :class="{ on: creating.in_match }" @click="creating.in_match = !creating.in_match">
+        <PhCheckSquare v-if="creating.in_match" :size="18" weight="fill" /><PhSquare v-else :size="18" />В подборе
+      </button>
+      <p class="caption">Значения по умолчанию и источники не копируются: у нового объекта свои данные. Галочка «В подборе» открывает объект в мастере нового проекта.</p>
       <div class="a-row">
         <UiButton :disabled="!creating.name.trim()" @click="createObject">Создать</UiButton>
         <UiButton variant="secondary" @click="creating = null">Отмена</UiButton>
@@ -265,6 +270,7 @@ const createObject = async () => {
         <button v-for="item in list" :key="item.code" type="button" class="a-item" :class="{ on: item.code === selected }" @click="open(item.code)">
           <span class="body-sm strong">{{ item.name }}</span>
           <span class="caption">{{ item.fields }} полей · {{ item.processes }} {{ pluralRu(item.processes, 'процесс', 'процесса', 'процессов') }}</span>
+          <span v-if="item.in_match === false" class="a-pill">не в подборе</span>
           <span v-if="item.unbound" class="a-pill warn">{{ item.unbound }} не привязано</span>
         </button>
       </aside>
@@ -284,6 +290,13 @@ const createObject = async () => {
               <PhCheckSquare v-if="draft.industries.includes(industry.code)" :size="18" weight="fill" /><PhSquare v-else :size="18" />{{ industry.name }}
             </button>
           </div>
+        </div>
+        <div class="a-fld">
+          <span class="caption">Подбор решений</span>
+          <button type="button" class="check" :class="{ on: draft.in_match }" @click="draft.in_match = !draft.in_match">
+            <PhCheckSquare v-if="draft.in_match" :size="18" weight="fill" /><PhSquare v-else :size="18" />В подборе
+          </button>
+          <span class="caption">Только объекты с галочкой можно выбрать при создании проекта. Снятая галочка не трогает уже созданные проекты.</span>
         </div>
         <p class="caption">Проектов на этом объекте: {{ draft.projects }}. Уже созданные проекты список процессов не меняют.</p>
 

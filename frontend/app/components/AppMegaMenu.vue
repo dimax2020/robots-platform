@@ -14,7 +14,7 @@ const { ids, picks, toggle, clear } = useCompare()
 
 interface TreePayload {
   industries: { code: string; name: string }[]
-  objects: { code: string; name: string; industries: string[]; processes: string[] }[]
+  objects: { code: string; name: string; industries: string[]; processes: string[]; in_match?: boolean }[]
   processes: { code: string; name: string; product_count: number }[]
 }
 const objectsList = ref<{ industry: string; label: string; count: number }[]>([])
@@ -24,12 +24,14 @@ const featured = ref<ReturnType<typeof cardToProduct>[]>([])
 const catalogTotal = ref(0)
 const ownProjects = ref<{ id: string; name: string; object_code: string; is_demo?: boolean }[]>([])
 const demoStore = useDemoProjects()
+const matchable = ref<string[] | null>(null)
 
 onMounted(() => {
   platformGet<TreePayload>('/catalog/tree').then((tree) => {
     const counts = new Map(tree.processes.map((item) => [item.code, item.product_count]))
     const industryName = new Map(tree.industries.map((item) => [item.code, item.name]))
     objectsList.value = tree.objects
+      .filter((object) => object.in_match !== false)
       .map((object) => ({
         industry: industryName.get(object.industries[0] || '') || '',
         label: object.name,
@@ -46,6 +48,9 @@ onMounted(() => {
     catalogTotal.value = page.total
     featured.value = [...page.items].sort((a, b) => (b.trl ?? 0) - (a.trl ?? 0)).slice(0, 2).map(cardToProduct)
   }).catch(() => {})
+  platformGet<{ items: { objects: { code: string }[] }[] }>('/catalog/industries')
+    .then((page) => { matchable.value = page.items.flatMap((row) => row.objects.map((obj) => obj.code)) })
+    .catch(() => { matchable.value = null })
 })
 watch(role, () => {
   if (role.value === 'guest') { ownProjects.value = []; return }
@@ -61,6 +66,7 @@ const objectMeta: Record<ObjectType, { text: string; full: boolean }> = {
   hospital: { text: 'Параметры корпуса и подбор', full: false },
 }
 const objectTypes = Object.keys(objectTypeLabel) as ObjectType[]
+const projectObjects = computed(() => (matchable.value ? objectTypes.filter((code) => matchable.value!.includes(code)) : objectTypes))
 const demos = demoStore.items
 const demoReport = computed(() => (demoStore.first.value ? `${demoPath(demoStore.first.value)}/report` : '/projects'))
 const mine = ownProjects
@@ -126,7 +132,7 @@ const adminItems = [adminOverview, ...adminNav.flatMap((group) => group.items)]
     <template v-else-if="menu === 'projects'">
       <div class="col">
         <div class="col-head"><span class="label">Новый проект</span><NuxtLink to="/projects/new" class="col-link">Мастер <PhArrowRight :size="12" weight="bold" /></NuxtLink></div>
-        <NuxtLink v-for="k in objectTypes" :key="k" :to="`/projects/new?type=${k}`" class="tile">
+        <NuxtLink v-for="k in projectObjects" :key="k" :to="`/projects/new?type=${k}`" class="tile">
           <img :src="objectTypeImage[k]" :alt="objectTypeLabel[k]">
           <span class="tile-body">
             <span class="row-t">{{ objectTypeLabel[k] }}</span>
