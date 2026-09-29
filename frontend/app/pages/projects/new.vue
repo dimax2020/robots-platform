@@ -1,19 +1,37 @@
 <script setup lang="ts">
-import { PhCheck, PhArrowRight, PhSparkle } from '@phosphor-icons/vue'
+import { PhCheck, PhArrowRight, PhEye, PhSignIn } from '@phosphor-icons/vue'
 import { objectTypeImage } from '~/data/projects'
 import { fetchErrorMessage } from '~/utils/errors'
 import { platformGet, platformSend } from '~/composables/usePlatform'
 import { asObjectType } from '~/composables/useLiveProject'
-import { useDemoProjects } from '~/composables/useDemoProjects'
+import { demoPath, useDemoProjects } from '~/composables/useDemoProjects'
 
 interface IndustryRow { code: string; name: string; objects: { code: string; name: string }[] }
 
-useHead({ title: 'Новый проект' })
 const route = useRoute()
 const router = useRouter()
 const { role } = useRole()
+const { ready: authReady } = useAuth()
 const canSave = computed(() => role.value === 'user' || role.value === 'admin')
+useHead({ title: () => (canSave.value ? 'Новый проект' : 'Демо-проекты') })
+
+/* Гость не создаёт проекты: вместо мастера он выбирает опубликованное демо нужного объекта. */
 const demos = useDemoProjects()
+const demoType = computed(() => (typeof route.query.type === 'string' ? route.query.type : ''))
+const demoKinds = computed(() => {
+  const kinds = new Map<string, { code: string; name: string; count: number }>()
+  for (const row of demos.items.value) {
+    const kind = kinds.get(row.object_code) ?? { code: row.object_code, name: row.object_name, count: 0 }
+    kind.count += 1
+    kinds.set(row.object_code, kind)
+  }
+  return [...kinds.values()]
+})
+const mounted = ref(false)
+onMounted(() => { mounted.value = true })
+const demosLoading = computed(() => !demos.loaded.value && (!mounted.value || demos.pending.value))
+const demoList = computed(() => (demoType.value ? demos.items.value.filter((row) => row.object_code === demoType.value) : demos.items.value))
+const pickDemoType = (code: string) => { void router.replace({ query: code ? { type: code } : {} }) }
 
 /* Отрасли и их объекты приходят из справочника платформы: новая отрасль появляется здесь без правки экранов. */
 const industries = ref<IndustryRow[]>([])
@@ -33,7 +51,7 @@ const objectText = (code: string) => fullPath(code)
 const industry = computed(() => industries.value.find((row) => row.code === industryCode.value) ?? null)
 const objects = computed(() => industry.value?.objects ?? [])
 const picked = computed(() => objects.value.find((row) => row.code === type.value) ?? null)
-const demoFor = computed(() => (type.value ? demos.byObject(type.value) : null))
+const demoTypeName = computed(() => industries.value.flatMap((row) => row.objects).find((obj) => obj.code === demoType.value)?.name ?? demoType.value)
 
 const pickIndustry = (row: IndustryRow) => {
   industryCode.value = row.code
@@ -83,7 +101,52 @@ const submit = async () => {
 </script>
 
 <template>
-  <section class="container newp">
+  <section v-if="!authReady" class="container newp">
+    <UiSkeleton h="120px" w="480px" />
+    <UiSkeleton h="320px" />
+  </section>
+
+  <section v-else-if="!canSave" class="container newp">
+    <div class="intro" v-reveal>
+      <div class="label">Демо-проекты</div>
+      <h1 class="hero-2">Выберите демо-проект</h1>
+      <p class="body-lg muted">Гостю доступны только опубликованные демо-объекты. Параметры, подбор, экономику и отчёт в них можно посмотреть, но не изменить.</p>
+    </div>
+
+    <UiCallout tone="info" title="Свой проект создаёт пользователь">
+      Чтобы создать проект и сохранить расчёт, войдите как пользователь.
+      <div class="call-actions">
+        <UiButton to="/login" size="sm"><template #icon><PhSignIn :size="14" weight="bold" /></template>Войти как пользователь</UiButton>
+      </div>
+    </UiCallout>
+
+    <div v-if="demoKinds.length > 1" class="opts" v-reveal="1">
+      <UiChip :active="!demoType" :count="demos.items.value.length" @click="pickDemoType('')">Все</UiChip>
+      <UiChip v-for="kind in demoKinds" :key="kind.code" :active="demoType === kind.code" :count="kind.count" @click="pickDemoType(kind.code)">{{ kind.name }}</UiChip>
+    </div>
+
+    <div v-if="demosLoading" class="demo-grid"><UiSkeleton h="260px" /><UiSkeleton h="260px" /><UiSkeleton h="260px" /></div>
+    <UiCallout v-else-if="!demos.items.value.length" tone="info" title="Опубликованных демо пока нет">Администратор ещё не опубликовал ни одного демо-объекта.</UiCallout>
+    <template v-else>
+      <UiCallout v-if="!demoList.length" tone="info" title="Для этого объекта демо пока нет">
+        Администратор ещё не опубликовал демо для объекта «{{ demoTypeName }}». Посмотрите демо других объектов.
+        <div class="call-actions"><UiButton size="sm" variant="secondary" @click="pickDemoType('')">Показать все демо</UiButton></div>
+      </UiCallout>
+      <div v-else class="demo-grid">
+        <NuxtLink v-for="(d, i) in demoList" :key="d.id" :to="demoPath(d)" class="demo glass" v-reveal="i">
+          <img :src="objectImage(d.object_code)" :alt="d.object_name">
+          <span class="demo-body">
+            <span class="between"><span class="label">{{ d.object_name }}{{ d.industry ? ` · ${d.industry}` : '' }}</span><UiBadge :tone="fullPath(d.object_code) ? 'ok' : 'info'" size="sm">{{ fullPath(d.object_code) ? 'Полный путь' : 'До подбора' }}</UiBadge></span>
+            <span class="h4">{{ d.name }}</span>
+            <span class="caption">{{ d.area_m2 ? `${Number(d.area_m2).toLocaleString('ru-RU')} м² · ` : '' }}{{ d.processes }} процессов</span>
+            <span class="demo-go"><PhEye :size="14" weight="bold" /> Смотреть демо</span>
+          </span>
+        </NuxtLink>
+      </div>
+    </template>
+  </section>
+
+  <section v-else class="container newp">
     <div class="intro" v-reveal>
       <div class="label">Новый проект</div>
       <h1 class="hero-2">Рамка расчёта</h1>
@@ -143,15 +206,7 @@ const submit = async () => {
             <div class="s-row"><span class="caption">Объект</span><span class="strong">{{ picked?.name ?? '—' }}</span></div>
             <div class="s-row"><span class="caption">Путь</span><span class="strong">{{ picked ? (fullPath(picked.code) ? '7 шагов до отчёта' : '3 шага: параметры, подбор и сравнение') : '—' }}</span></div>
             <div class="hairline" />
-            <div class="demo-note">
-              <PhSparkle :size="18" weight="duotone" />
-              <span>
-                <span class="strong block">Демо-данные — на шаге параметров</span>
-                <span class="caption block">{{ demoFor ? `Кнопка «Подставить демо-данные» возьмёт параметры из «${demoFor.name}».` : 'Кнопка «Подставить демо-данные» заполнит форму значениями по умолчанию.' }}</span>
-              </span>
-            </div>
-            <UiButton v-if="canSave" type="submit" size="lg" block :disabled="creating || !picked">{{ creating ? 'Создаём…' : 'Создать и перейти к параметрам' }}<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
-            <UiButton v-else to="/login" size="lg" block>Войти, чтобы создать проект<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
+            <UiButton type="submit" size="lg" block :disabled="creating || !picked">{{ creating ? 'Создаём…' : 'Создать и перейти к параметрам' }}<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
             <div class="caption">Проект сохраняется на текущей версии каталога и модели платформы.</div>
           </div>
         </div>
@@ -186,7 +241,12 @@ const submit = async () => {
 .side { position: sticky; top: 96px; }
 .s-in { position: relative; z-index: 1; padding: var(--space-6); display: grid; gap: var(--space-4); }
 .s-row { display: grid; gap: 2px; }
-.demo-note { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; padding: 12px 14px; border-radius: 14px; background: var(--surface-brand-tint); color: var(--brand-700); }
-.block { display: block; }
-@media (max-width: 1100px) { .wiz { grid-template-columns: 1fr; } .side { position: static; } .types { grid-template-columns: 1fr; } }
+.call-actions { margin-top: 10px; }
+.demo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+.demo { display: grid; grid-template-rows: auto 1fr; gap: 12px; padding: 8px; border-radius: var(--radius-xl); transition: transform var(--dur-mid) var(--ease), box-shadow var(--dur-mid) var(--ease); }
+.demo:hover { transform: translateY(-3px); }
+.demo img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 14px; position: relative; z-index: 1; }
+.demo-body { display: grid; gap: 6px; padding: 0 8px 8px; position: relative; z-index: 1; }
+.demo-go { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; font-weight: 700; font-size: 14px; color: var(--link); }
+@media (max-width: 1100px) { .wiz { grid-template-columns: 1fr; } .side { position: static; } .types, .demo-grid { grid-template-columns: 1fr; } }
 </style>

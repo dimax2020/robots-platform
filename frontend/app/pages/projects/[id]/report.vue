@@ -4,7 +4,7 @@ import { objectTypeImage, objectTypeLabel } from '~/data/projects'
 import { downloadDataUrl, downloadText, toCsv, toExcelXml } from '~/utils/exportTables'
 import { fetchErrorMessage } from '~/utils/errors'
 import { useProjectReport } from '~/composables/useProjectReport'
-import { figValue, SOURCE_TONE } from '~/composables/usePlatformEconomy'
+import { figValue, millions, SOURCE_TONE } from '~/composables/usePlatformEconomy'
 import { isAccent } from '~/utils/accent'
 import { Simulation } from '~/sim/engine'
 import { emptyLayout, placeProcess, placeShell, processReady } from '~/sim/templates'
@@ -169,7 +169,7 @@ const onPlanReady = () => {
     const box = editor.value
     const layout = vizLayout.value
     if (!box || !layout) return
-    box.fitContent()
+    box.fit()
     const active = vizFrame.value.filter((proc) => proc.kind !== 'none' && processReady(layout, proc))
     try {
       if (active.length) {
@@ -189,7 +189,7 @@ const onPlanReady = () => {
       shotNote.value = 'Схему площадки собрать удалось, роботы на кадр не встали: для части процессов нет проходимого маршрута.'
     }
     window.setTimeout(() => {
-      box.fitContent()
+      box.fit()
       shot.value = box.exportPng() || shot.value
     }, 80)
     runShiftCheck(layout)
@@ -255,30 +255,42 @@ const statRows = (row: ProcessStats) => Object.entries(row)
   .filter(([key]) => !STAT_SKIP.has(key))
   .map(([key, value]) => ({ key, label: STAT_LABEL[key] ?? key, value: formatStat(key, value, row.unit) }))
 const sourceText = (source: string) => ({ norm: 'стандарт', project: 'значение проекта', site: 'площадка', card: 'карточка', fleet: 'парк', calc: 'расчёт' } as Record<string, string>)[source] ?? source
-const SENS_LABEL: Record<string, string> = {
-  unit: 'Единица',
-  value: 'Значение',
-  low_value: 'Значение −20%',
-  high_value: 'Значение +20%',
-  payback: 'Окупаемость',
-  payback_low: 'Окупаемость −20%',
-  payback_high: 'Окупаемость +20%',
-  effect: 'Эффект в год',
-  effect_low: 'Эффект −20%',
-  effect_high: 'Эффект +20%',
-  swing: 'Размах эффекта',
-}
-const sensLabel = (key: string) => SENS_LABEL[key] ?? key
-const sensValue = (key: string, value: unknown, unit: string) => {
-  if (value == null) return '—'
-  if (typeof value !== 'number') return String(value)
-  if (key.includes('payback')) return figValue(value, 'лет')
-  if (key.includes('effect') || key === 'swing') return figValue(value, '₽/год')
-  return figValue(value, unit)
-}
-const sensCells = (item: { unit: string }) => Object.entries(item as Record<string, unknown>)
-  .filter(([key]) => key !== 'key' && key !== 'label')
-  .map(([key, value]) => ({ key, label: sensLabel(key), value: sensValue(key, value, item.unit) }))
+/* Чувствительность как «торнадо»: полоса — куда уходит годовой эффект покупки при сдвиге допущения на ±20%,
+   центр — текущий эффект. Шкала общая для всех строк, самые влиятельные допущения сверху. */
+const paybackText = (value: number | null) => value == null ? 'не окупается' : figValue(value, 'лет')
+const plainNum = (value: number) => value.toLocaleString('ru-RU', { maximumFractionDigits: Math.abs(value) < 10 ? 2 : 1 })
+const signedMillions = (value: number) => `${value > 0 ? '+' : value < 0 ? '−' : ''}${millions(Math.abs(value))}`
+const sensRows = computed(() => {
+  const rows = doc.econ.value?.sensitivity ?? []
+  const spread = Math.max(1, ...rows.flatMap((row) => [Math.abs(row.effect_low - row.effect), Math.abs(row.effect_high - row.effect)]))
+  const segment = (value: number, base: number) => {
+    const edge = 50 + ((value - base) / spread) * 50
+    return { left: `${Math.min(edge, 50)}%`, width: `${Math.max(Math.abs(edge - 50), 0.6)}%`, good: value >= base }
+  }
+  return [...rows]
+    .sort((a, b) => Math.abs(b.effect_high - b.effect_low) - Math.abs(a.effect_high - a.effect_low))
+    .map((row) => {
+      const low = paybackText(row.payback_low)
+      const high = paybackText(row.payback_high)
+      return {
+        key: row.key,
+        label: row.label,
+        now: figValue(row.value, row.unit),
+        range: `${plainNum(row.low_value)} … ${plainNum(row.high_value)}`,
+        down: segment(row.effect_low, row.effect),
+        up: segment(row.effect_high, row.effect),
+        ends: [
+          { key: 'down', text: `−20%: ${signedMillions(row.effect_low - row.effect)}`, value: row.effect_low },
+          { key: 'up', text: `+20%: ${signedMillions(row.effect_high - row.effect)}`, value: row.effect_high },
+        ].sort((a, b) => a.value - b.value),
+        payback: low === high ? low : `${low} … ${high}`,
+      }
+    })
+})
+const sensBase = computed(() => {
+  const row = doc.econ.value?.sensitivity[0]
+  return row ? { effect: millions(row.effect), payback: paybackText(row.payback) } : null
+})
 
 const chartLabel = (value: number) => (value / 1_000_000).toLocaleString('ru-RU', { maximumFractionDigits: 0 })
 const robotGloss = computed(() => {
@@ -606,17 +618,36 @@ const robotGloss = computed(() => {
             <span class="sec-n">07</span>
             <div>
               <h3 class="sec-title">Чувствительность</h3>
-              <p class="sec-lead">Как меняются эффект и окупаемость покупки, если допущение сдвинуть. Строки приходят из расчёта целиком.</p>
+              <p class="sec-lead">Каждое допущение по очереди сдвигаем на 20% вниз и вверх, остальные оставляем как есть. Полоса показывает, как меняется годовой эффект покупки: вправо — растёт, влево — падает. Чем длиннее полоса, тем сильнее допущение влияет на результат. Самые влиятельные сверху.</p>
             </div>
           </header>
-          <div class="sens">
-            <article v-for="item in doc.econ.value.sensitivity" :key="item.key" class="sens-row">
-              <h4 :class="{ 'cost-accent': isAccent(item.key, item.label) }">{{ item.label }}</h4>
-              <dl>
-                <div v-for="cell in sensCells(item)" :key="cell.key"><dt>{{ cell.label }}</dt><dd>{{ cell.value }}</dd></div>
-              </dl>
-            </article>
-          </div>
+          <p v-if="sensBase" class="base">Сейчас эффект покупки <b>{{ sensBase.effect }}</b> в год, окупаемость: <b>{{ sensBase.payback }}</b>. Это центральная линия на полосах.</p>
+          <table class="table sens-table">
+            <thead>
+              <tr>
+                <th>Допущение</th>
+                <th class="num">−20% … +20%</th>
+                <th>Изменение эффекта в год</th>
+                <th class="num">Окупаемость</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="row in sensRows" :key="row.key">
+                <td><b :class="{ 'cost-accent': isAccent(row.key, row.label) }">{{ row.label }}</b><div class="caption">сейчас {{ row.now }}</div></td>
+                <td class="num">{{ row.range }}</td>
+                <td>
+                  <span class="tornado" aria-hidden="true">
+                    <i :class="row.down.good ? 'good' : 'bad'" :style="{ left: row.down.left, width: row.down.width }" />
+                    <i :class="row.up.good ? 'good' : 'bad'" :style="{ left: row.up.left, width: row.up.width }" />
+                    <em />
+                  </span>
+                  <span class="tornado-v"><span v-for="end in row.ends" :key="end.key">{{ end.text }}</span></span>
+                </td>
+                <td class="num">{{ row.payback }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="legend"><span><i class="sw good" /> эффект растёт</span><span><i class="sw bad" /> эффект падает</span><span><i class="sw mid" /> текущий эффект</span></div>
         </section>
 
         <section v-if="doc.params.value.length" class="r-sec">
@@ -761,7 +792,7 @@ const robotGloss = computed(() => {
 .formula-part { display: grid; gap: 8px; }
 .formula-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-items: stretch; }
 .formula-tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; height: 100%; padding: 8px 10px; border: 1px solid var(--border-hairline); border-radius: 12px; background: var(--surface-raised); }
-.formula-tile :deep(.formula) { flex: 1; background: none; box-shadow: none; padding: 0; gap: 4px; }
+.formula-tile :deep(.formula) { flex: 1; align-content: start; background: none; box-shadow: none; padding: 0; gap: 4px; }
 .formula-tile :deep(.f-var) { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; padding: 2px 0; }
 .formula-tile :deep(.f-what) { display: contents; }
 .formula-tile :deep(.f-what .caption) { flex: 1 0 100%; }
@@ -786,16 +817,25 @@ const robotGloss = computed(() => {
 .assume-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .assume-h b { margin-left: auto; font-family: var(--font-mono); font-weight: 600; font-size: 13px; }
 .assume-sym { color: var(--ink-muted); }
-.assume-row dl, .sens-row dl, .shift-card dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px 12px; margin: 0; }
+.assume-row dl, .shift-card dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px 12px; margin: 0; }
 .assume-row p { margin: 0; font-size: 12.5px; }
-.assume-row dt, .sens-row dt, .shift-card dt { color: var(--ink-muted); font-size: 12px; }
-.assume-row dd, .sens-row dd, .shift-card dd { margin: 0; font-family: var(--font-mono); font-size: 13px; color: var(--ink-strong); }
+.assume-row dt, .shift-card dt { color: var(--ink-muted); font-size: 12px; }
+.assume-row dd, .shift-card dd { margin: 0; font-family: var(--font-mono); font-size: 13px; color: var(--ink-strong); }
 
-.sens { display: grid; gap: 0; }
+.sens-table { width: 100%; }
+.sens-table td { vertical-align: middle; }
+.sens-table th:first-child { width: 28%; }
+.sens-table th:nth-child(3) { width: 40%; }
+.tornado { position: relative; display: block; height: 12px; border-radius: 3px; background: rgba(15, 20, 19, 0.05); }
+.tornado i { position: absolute; top: 2px; bottom: 2px; border-radius: 2px; }
+.tornado i.good, .sw.good { background: var(--brand-600); }
+.tornado i.bad, .sw.bad { background: var(--state-danger); }
+.tornado em { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--ink-strong); }
+.sw.mid { width: 2px; height: 12px; border-radius: 0; background: var(--ink-strong); vertical-align: -2px; }
+.tornado-v { display: flex; justify-content: space-between; gap: 8px; margin-top: 3px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-muted); white-space: nowrap; }
 .shift { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.sens-row, .shift-card { display: grid; gap: 4px; padding: 8px 0; border: 0; border-bottom: 1px solid var(--border-hairline); border-radius: 0; background: none; }
-.shift-card { padding: 8px 10px; border: 1px solid var(--border-hairline); border-radius: 10px; background: var(--surface-raised); }
-.sens-row h4, .shift-card h4 { margin: 0; font-size: 15px; color: var(--ink-strong); }
+.shift-card { display: grid; gap: 4px; padding: 8px 10px; border: 1px solid var(--border-hairline); border-radius: 10px; background: var(--surface-raised); }
+.shift-card h4 { margin: 0; font-size: 15px; color: var(--ink-strong); }
 .shift-card header { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 .shift-flag { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: #8a5a12; }
 .shift-flag.ok { color: var(--brand-700); }
@@ -937,35 +977,73 @@ const robotGloss = computed(() => {
   .cover-title { padding: 0 16mm 6mm; }
   .cover-foot { padding: 0 16mm 14mm; }
   .cover-h { font-size: 34px !important; line-height: 1.12; white-space: normal !important; overflow: visible !important; }
-  .r-in { padding: 12mm 14mm; gap: 4mm; font-size: 10.5px; line-height: 1.35; overflow: visible; }
-  .disclaimer { padding: 6px 8px; font-size: 10px; }
+  /* Сетки и flex Chrome режет по страницам ненадёжно: плитки наезжают на следующий блок.
+     В печати поток блочный, а плитки — строчные блоки: строка из двух плиток переносится целиком. */
+  /* Лист без полей ради обложки в край; поля остальных страниц — отступы тела, повторённые на каждом фрагменте. */
+  .r-in {
+    display: block; padding: 12mm 14mm; font-size: 10.5px; line-height: 1.35; overflow: visible;
+    -webkit-box-decoration-break: clone; box-decoration-break: clone;
+  }
+  .r-in > * + * { margin-top: 5mm; }
+  .r-sec, .formula-block, .assume { display: block; }
+  .r-sec > * + * { margin-top: 2.5mm; }
+  .sec-head, .formula-block > h4, .assume > .label, .robot-gloss { break-after: avoid; page-break-after: avoid; }
+  .sec-head { break-inside: avoid; page-break-inside: avoid; }
+  .formula-block > h4 { margin: 4mm 0 2mm; font-size: 12px; }
+  .disclaimer { padding: 6px 8px; font-size: 10px; break-inside: avoid; }
   .sec-title { font-size: 13px; }
   .sec-lead { font-size: 10px; }
+  .advice { display: block; break-inside: avoid; page-break-inside: avoid; }
+  .advice > * + * { margin-top: 2mm; }
   .advice h3 { font-size: 14px; }
   .scenes { display: none; }
-  .scenes-print { display: table; width: 100%; table-layout: fixed; }
-  .scenes-print th, .scenes-print td, .advice-table th, .advice-table td { font-size: 9px; padding: 3px 4px; vertical-align: top; overflow-wrap: anywhere; }
-  .scenes-print tr.best td, .advice-table tr.best td { background: #e8f7ef; }
-  .formula-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3mm; }
-  .formula-tile { break-inside: avoid; page-break-inside: avoid; padding: 2mm; }
-  .robots, .shift { grid-template-columns: 1fr 1fr; gap: 3px; }
-  .assume-row dl, .sens-row dl, .shift-card dl { grid-template-columns: 1fr 1fr; }
-  .robot, .shift-card, .sens-row, .assume-row { break-inside: avoid; page-break-inside: avoid; }
-  .formula-block, .advice { break-inside: auto; page-break-inside: auto; }
-  .robot { grid-template-columns: 40px minmax(0, 1fr); padding: 4px; }
+  .scenes-print { display: table; }
+
+  .r-in table { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; }
+  .r-in thead { display: table-header-group; }
+  .r-in tr { break-inside: avoid; page-break-inside: avoid; }
+  .r-in th, .r-in td { font-size: 9px; line-height: 1.3; padding: 3px 4px; vertical-align: top; overflow-wrap: anywhere; }
+  .r-in td.num, .r-in th.num { white-space: nowrap; overflow-wrap: normal; }
+  .r-in td .caption { font-size: 8.5px; line-height: 1.3; }
+  .scenes-print th:first-child, .proc-table th:first-child { width: 30%; }
+  .scenes-print tr.best td, .advice-table tr.best td, .proc-table tr.best td { background: #e8f7ef; }
+
+  /* Плитки формул разной высоты: две колонки потока укладывают их плотно, без пустот под короткой плиткой. */
+  .formula-grid { display: block; columns: 2; column-gap: 3mm; }
+  .formula-grid:has(> .formula-tile:only-child) { columns: auto; }
+  .formula-tile { display: block; height: auto; margin: 0 0 3mm; padding: 2mm; break-inside: avoid; page-break-inside: avoid; }
+  .robots, .shift { display: block; margin-left: -1.5mm; margin-right: -1.5mm; }
+  .robot, .shift-card {
+    vertical-align: top; box-sizing: border-box;
+    width: calc(50% - 3mm); height: auto; margin: 0 1.5mm 3mm;
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  .robot { display: inline-grid; grid-template-columns: 40px minmax(0, 1fr); padding: 2mm; }
   .robot img { width: 40px; height: 34px; }
-  .viz { break-inside: avoid; page-break-inside: avoid; overflow: visible; }
+  .shift-card { display: inline-grid; }
+
+  .assume-row dl { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .sens-table th:first-child { width: 30%; }
+  .sens-table th:nth-child(3) { width: 38%; }
+  .base { font-size: 11px; }
+  .tornado { height: 9px; }
+  .tornado-v { font-size: 8px; }
+  .shift-card dl { grid-template-columns: 1fr 1fr; }
+  .assume-row, .proc-fix, .chart, .kv > div, .limits li { break-inside: avoid; page-break-inside: avoid; }
+  .chart { display: block; }
+  .chart > * + * { margin-top: 2mm; }
+  .viz { break-inside: avoid; page-break-inside: avoid; overflow: visible; min-height: 0; }
   .viz img { max-width: 100%; height: auto; }
   .kv { grid-template-columns: 1fr 1fr 1fr; }
   .limits { gap: 2px; }
   .limits li { font-size: 10px; }
   .n { width: 14px; height: 14px; font-size: 8px; }
   .note, .r-foot, .legend { font-size: 9px; }
+  .r-foot { break-inside: avoid; }
   .plan-off { display: none !important; }
   :deep(.callout) { display: none !important; }
   :deep(.katex-display),
   :deep(.tex.block) { overflow: visible; max-width: 100%; }
   :deep(.katex-html) { white-space: normal; }
-  :deep(table) { width: 100%; max-width: 100%; }
 }
 </style>

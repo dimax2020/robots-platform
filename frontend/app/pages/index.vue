@@ -17,6 +17,7 @@ onMounted(() => {
     })
     .catch(() => { featured.value = [] })
 })
+const { role } = useRole()
 const demoStore = useDemoProjects()
 const demos = demoStore.items
 const demoReport = computed(() => (demoStore.first.value ? `${demoPath(demoStore.first.value)}/report` : '/projects'))
@@ -206,8 +207,8 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
 
     <!-- Демо-наборы -->
     <section v-if="demos.length" class="container section">
-      <SectionHead title="Демо-объекты для гостя" lead="Опубликованные администратором объекты с готовыми параметрами. Открываются без входа, только для просмотра.">
-        <UiButton to="/login" variant="secondary">Войти под ролью</UiButton>
+      <SectionHead title="Демо-объекты" lead="Опубликованные администратором объекты с готовыми параметрами. Открываются без входа, только для просмотра.">
+        <UiButton v-if="role === 'guest'" to="/login" variant="secondary">Войти, чтобы создать проект</UiButton>
       </SectionHead>
       <div class="demos">
         <NuxtLink v-for="(d, i) in demos" :key="d.id" :to="demoPath(d)" class="demo glass" v-reveal="i">
@@ -244,7 +245,7 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
           <p class="body muted">Платформа даёт прединвестиционную гипотезу для перехода к полноценному ТЭО. Расчёт открывается снова на той же версии каталога и модели.</p>
         </div>
         <div class="row">
-          <UiButton to="/projects/new" size="lg">Начать проект</UiButton>
+          <UiButton to="/projects/new" size="lg">{{ role === 'guest' ? 'Выбрать демо-проект' : 'Начать проект' }}</UiButton>
           <UiButton :to="demoReport" variant="ghost" size="lg">Посмотреть демо-отчёт</UiButton>
         </div>
       </div>

@@ -36,7 +36,7 @@ const fleetPayback = computed(() => props.fleet?.payback.value ?? null)
       <div class="p-head">
         <div>
           <div class="h3">Экономика по процессам</div>
-          <div class="caption">Покупка на горизонте {{ horizon }} лет. Каждый процесс посчитан отдельно, как если бы роботизировали только его.</div>
+          <div class="caption">Покупка на горизонте {{ horizon }} лет. Каждый процесс посчитан отдельно, как если бы роботизировали только его. Нажмите на карточку, чтобы открыть его сценарии ниже.</div>
         </div>
         <div class="tally">
           <span class="tally-n mono-md"><b>{{ good }}</b> из {{ counted.length }}</span>

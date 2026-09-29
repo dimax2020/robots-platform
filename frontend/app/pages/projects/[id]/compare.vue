@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhCaretLeft, PhCaretRight, PhCaretDown, PhArrowLeft, PhArrowRight } from '@phosphor-icons/vue'
+import { PhCaretLeft, PhCaretRight, PhCaretDown, PhArrowLeft, PhArrowRight, PhCheck, PhCheckCircle } from '@phosphor-icons/vue'
 import { fetchErrorMessage } from '~/utils/errors'
 import { platformSend } from '~/composables/usePlatform'
 import { useLiveProject } from '~/composables/useLiveProject'
@@ -19,7 +19,7 @@ const groups = ref<MatchGroup[]>([])
 const loadingMatch = ref(true)
 const matchError = ref('')
 const viewIndex = ref(0)
-const { includedHits, chosenId, remainingHit, skipReason, choose, isConfirmed } = usePlatformCompare(id)
+const { includedHits, chosenId, remainingHit, skipReason, choose } = usePlatformCompare(id)
 
 const canEdit = computed(() => Boolean(project.value))
 const readyGroups = computed(() => groups.value.filter((group) => includedHits(group).length > 0))
@@ -58,7 +58,6 @@ const lineup = computed(() => readyGroups.value.map((group) => ({
   robot: remainingHit(group),
   open: group.hits.length > 0,
 })))
-const confirmedCount = computed(() => lineup.value.filter((row) => row.robot && isConfirmed(row.code)).length)
 const readyCount = computed(() => lineup.value.filter((row) => row.robot).length)
 const canEconomy = computed(() => lineup.value.some((row) => row.robot) && lineup.value.every((row) => row.robot || !row.open))
 
@@ -217,7 +216,7 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
           <button type="button" class="line-head" :aria-expanded="lineupOpen" @click="lineupOpen = !lineupOpen">
             <span>
               <span class="h3">По одному роботу на процесс</span>
-              <span class="caption">Этот состав уходит в экономику. Закреплено явно {{ confirmedCount }}, всего с выбором {{ readyCount }}.</span>
+              <span class="caption">Этот состав уходит в экономику. Робот выбран для {{ readyCount }} из {{ lineup.length }} процессов.</span>
             </span>
             <PhCaretDown :size="16" weight="bold" class="caret" :class="{ up: lineupOpen }" />
           </button>
@@ -233,7 +232,7 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
       <section class="arena" tabindex="0" @keydown="onKeys">
         <article class="base glass">
           <div class="in">
-            <div class="caption">Выбранный вариант</div>
+            <div class="picked-tag"><PhCheckCircle :size="16" weight="fill" /> Выбран для процесса</div>
             <img class="portrait" :src="photoFor(chosen?.image_url, chosen?.name || '', activeGroup.process_code)" :alt="chosen?.name || ''">
             <div class="h3">{{ chosen?.name }}</div>
             <UiBadge v-if="selectedIsOptimal" tone="ok" size="sm">Оптимальный по версии платформы</UiBadge>
@@ -273,6 +272,7 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
                 @click="viewIndex = index"
               >
                 <img :src="photoFor(hit.image_url, hit.name, activeGroup.process_code)" :alt="hit.name">
+                <span v-if="hit.product_id === chosen?.product_id" class="frame-check" aria-label="Выбран для процесса"><PhCheck :size="10" weight="bold" /></span>
               </button>
             </div>
 
@@ -288,9 +288,14 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
               </div>
             </div>
 
-            <UiButton size="sm" :disabled="viewed?.product_id === chosen?.product_id && isConfirmed(activeGroup.process_code)" @click="takeViewed">
-              {{ viewed?.product_id === chosen?.product_id ? (isConfirmed(activeGroup.process_code) ? 'Закреплено' : 'Закрепить для процесса') : 'Взять этого робота' }}
-            </UiButton>
+            <div v-if="viewed?.product_id === chosen?.product_id" class="picked-note" role="status">
+              <PhCheckCircle :size="18" weight="fill" />
+              <span>
+                <span class="body-sm strong">Выбран для процесса «{{ activeGroup.process_name }}»</span>
+                <span class="caption">Этот робот уходит в экономику. Стрелками можно посмотреть других.</span>
+              </span>
+            </div>
+            <UiButton v-else size="sm" @click="takeViewed">Выбрать для процесса «{{ activeGroup.process_name }}»</UiButton>
           </div>
         </article>
       </section>
@@ -333,7 +338,12 @@ watch([activeCode, () => pool.value.map((hit) => hit.product_id).join(',')], () 
 .who { display: grid; gap: 2px; min-width: 0; }
 .who .h4 { margin: 0; }
 .film { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; }
-.frame { flex: 0 0 auto; width: 84px; height: 64px; padding: 6px; border-radius: 14px; background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.08); }
+.picked-tag { display: inline-flex; align-items: center; gap: 6px; justify-self: start; padding: 4px 10px 4px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; background: var(--state-ok-tint); color: var(--state-ok); }
+.picked-note { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; padding: 12px 14px; border-radius: 14px; background: var(--state-ok-tint); color: var(--state-ok); }
+.picked-note > span { display: grid; gap: 2px; }
+.picked-note .strong { color: var(--brand-ink); }
+.frame-check { position: absolute; top: 4px; right: 4px; width: 16px; height: 16px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--state-ok); color: #fff; }
+.frame { position: relative; flex: 0 0 auto; width: 84px; height: 64px; padding: 6px; border-radius: 14px; background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.08); }
 .frame img { width: 100%; height: 100%; object-fit: contain; }
 .frame.on { background: #fff; box-shadow: inset 0 0 0 2px var(--brand-400); }
 .frame.picked:not(.on) { box-shadow: inset 0 0 0 1px var(--brand-700); }

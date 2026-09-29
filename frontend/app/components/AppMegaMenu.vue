@@ -131,7 +131,10 @@ const adminItems = [adminOverview, ...adminNav.flatMap((group) => group.items)]
     <!-- ================= Проекты ================= -->
     <template v-else-if="menu === 'projects'">
       <div class="col">
-        <div class="col-head"><span class="label">Новый проект</span><NuxtLink to="/projects/new" class="col-link">Мастер <PhArrowRight :size="12" weight="bold" /></NuxtLink></div>
+        <div class="col-head">
+          <span class="label">{{ role === 'guest' ? 'Демо по объекту' : 'Новый проект' }}</span>
+          <NuxtLink to="/projects/new" class="col-link">{{ role === 'guest' ? 'Все демо' : 'Мастер' }} <PhArrowRight :size="12" weight="bold" /></NuxtLink>
+        </div>
         <NuxtLink v-for="k in projectObjects" :key="k" :to="`/projects/new?type=${k}`" class="tile">
           <img :src="objectTypeImage[k]" :alt="objectTypeLabel[k]">
           <span class="tile-body">

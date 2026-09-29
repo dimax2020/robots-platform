@@ -17,6 +17,7 @@ import {
   type EconFig,
   type EconParam,
   type EconScenario,
+  type EconSensitivity,
 } from '~/composables/usePlatformEconomy'
 import { buildProcess, normalizeLayout } from '~/sim/templates'
 import type { Layout, LayoutItem, SimProcess } from '~/sim/types'
@@ -179,10 +180,18 @@ const looseFig = (key: string, label: string, unit: string, raw: unknown): EconF
   }
 }
 
-const sensitivityRows = (rows: readonly object[]) => {
-  const records = rows.map((item) => item as Record<string, unknown>)
-  const keys = [...new Set(records.flatMap((item) => Object.keys(item)))]
-  return [keys, ...records.map((item) => keys.map((key) => item[key] == null ? '—' : String(item[key])))]
+const sensitivityRows = (rows: readonly EconSensitivity[]) => {
+  const payback = (value: number | null) => value == null ? 'не окупается' : figValue(value, 'лет')
+  return [
+    ['Допущение', 'Единица', 'Сейчас', 'При −20%', 'При +20%', 'Эффект в год сейчас', 'Эффект при −20%', 'Эффект при +20%', 'Окупаемость сейчас', 'Окупаемость при −20%', 'Окупаемость при +20%'],
+    ...[...rows]
+      .sort((a, b) => Math.abs(b.effect_high - b.effect_low) - Math.abs(a.effect_high - a.effect_low))
+      .map((item) => [
+        item.label, item.unit, figValue(item.value, ''), figValue(item.low_value, ''), figValue(item.high_value, ''),
+        millions(item.effect), millions(item.effect_low), millions(item.effect_high),
+        payback(item.payback), payback(item.payback_low), payback(item.payback_high),
+      ]),
+  ]
 }
 
 export function useProjectReport(id: Ref<string>) {

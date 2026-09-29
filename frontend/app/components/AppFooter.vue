@@ -2,6 +2,7 @@
 import { demoPath, useDemoProjects } from '~/composables/useDemoProjects'
 /* Подвал ведёт на опубликованные демо: список приходит с платформы, а не зашит в код. */
 const demos = useDemoProjects()
+const { role } = useRole()
 </script>
 
 <template>
@@ -17,7 +18,7 @@ const demos = useDemoProjects()
           <NuxtLink to="/catalog">Каталог</NuxtLink>
           <NuxtLink to="/catalog/compare">Сравнение</NuxtLink>
           <NuxtLink to="/projects">Проекты</NuxtLink>
-          <NuxtLink to="/projects/new">Новый проект</NuxtLink>
+          <NuxtLink to="/projects/new">{{ role === 'guest' ? 'Демо-проекты' : 'Новый проект' }}</NuxtLink>
         </div>
         <div>
           <div class="label">Демо-объекты</div>

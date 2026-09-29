@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhPlus, PhCopy, PhTrash, PhArrowRight, PhEye, PhGearSix } from '@phosphor-icons/vue'
+import { PhPlus, PhCopy, PhTrash, PhArrowRight, PhEye, PhGearSix, PhSignIn } from '@phosphor-icons/vue'
 import { objectTypeLabel, objectTypeImage, type ObjectType } from '~/data/projects'
 import { fetchErrorMessage } from '~/utils/errors'
 import { platformGet, platformSend } from '~/composables/usePlatform'
@@ -75,13 +75,14 @@ const removeProject = async (id: string) => {
     <div class="between head" v-reveal>
       <div>
         <div class="label">Проекты</div>
-        <h1 class="hero-2">Сохранённые расчёты</h1>
-        <p class="body muted">Каждый прогон хранит версию каталога и модели: расчёт открывается снова с теми же исходными данными.</p>
+        <h1 class="hero-2">{{ role === 'guest' ? 'Демо-проекты' : 'Сохранённые расчёты' }}</h1>
+        <p class="body muted">{{ role === 'guest' ? 'Опубликованные администратором демо-объекты. Открываются без входа, только для просмотра.' : 'Каждый прогон хранит версию каталога и модели: расчёт открывается снова с теми же исходными данными.' }}</p>
       </div>
-      <UiButton to="/projects/new" size="lg"><template #icon><PhPlus :size="18" weight="bold" /></template>Новый проект</UiButton>
+      <UiButton v-if="role !== 'guest'" to="/projects/new" size="lg"><template #icon><PhPlus :size="18" weight="bold" /></template>Новый проект</UiButton>
+      <UiButton v-else to="/login" size="lg"><template #icon><PhSignIn :size="18" weight="bold" /></template>Войти как пользователь</UiButton>
     </div>
 
-    <UiCallout v-if="role === 'guest'" tone="info" title="Гость видит только демо">Своих проектов у гостя нет. Войдите как пользователь, чтобы сохранять расчёты и копировать демо-объекты к себе. Демо открываются без входа.</UiCallout>
+    <UiCallout v-if="role === 'guest'" tone="info" title="Гостю доступны только демо-проекты">Чтобы создать свой проект, сохранять расчёты и копировать демо к себе, войдите как пользователь.</UiCallout>
 
     <div v-if="role !== 'guest'" class="block" v-reveal>
       <div class="h3 block-title">Мои проекты <span class="mono-sm muted">{{ own.length }}</span></div>

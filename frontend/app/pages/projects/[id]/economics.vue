@@ -115,7 +115,7 @@ const restore = async (code: string) => {
     restoring.value = ''
   }
 }
-const inactiveOpen = ref(true)
+const inactiveOpen = ref(false)
 const open = ref<string | null>(null)
 const toggle = (key: string) => { open.value = open.value === key ? null : key }
 const openParam = ref<string | null>(null)
@@ -259,44 +259,10 @@ const fleetOpen = ref(false)
         </div>
       </section>
 
-      <EconSubsidies
-        v-if="report.subsidies?.length"
-        :items="report.subsidies"
-        :horizon="report.horizon_years"
-        :busy="subsidyBusy"
-        :to="`/projects/${project.id}/what-if`"
-        @toggle="toggleSubsidy"
-      />
-      <UiCallout v-if="subsidyError" tone="danger">{{ subsidyError }}</UiCallout>
-
-      <section v-if="!processCode" class="fleet glass">
-        <div class="c-in">
-          <button type="button" class="c-head fleet-toggle" :aria-expanded="fleetOpen" @click="fleetOpen = !fleetOpen">
-            <div>
-              <div class="h3">Один робот на процесс</div>
-              <div class="caption">{{ report.fleet.length }} процессов, {{ report.robots.toLocaleString('ru-RU') }} роботов в расчёте{{ withoutPrice ? `, ${withoutPrice} без цены не входят` : '' }}.</div>
-            </div>
-            <PhCaretDown :size="16" weight="bold" class="caret" :class="{ up: fleetOpen }" />
-          </button>
-          <ul v-show="fleetOpen" class="fleet-list">
-            <li v-for="row in report.fleet" :key="row.process_code">
-              <button type="button" class="fleet-row" :disabled="!row.fig" @click="row.fig && toggle(`fleet:${row.process_code}`)">
-                <img :src="photoFor(row.image_url, row.name, row.process_code)" :alt="row.name">
-                <span class="fleet-name">
-                  <span class="caption">{{ row.process_name }}</span>
-                  <span class="body-sm strong">{{ row.name }}</span>
-                  <span v-if="row.note" class="caption">{{ row.note }}</span>
-                </span>
-                <span class="mono-sm">{{ row.included ? `${row.count_used?.toLocaleString('ru-RU')} шт.` : '—' }}</span>
-                <span class="mono-sm">{{ rubles(row.cost_rub) }}</span>
-                <PhCaretDown v-if="row.fig" :size="14" weight="bold" class="caret" :class="{ up: open === `fleet:${row.process_code}` }" />
-              </button>
-              <EconFormula v-if="row.fig && open === `fleet:${row.process_code}`" :fig="row.fig" />
-            </li>
-          </ul>
-        </div>
-      </section>
-
+      <div v-if="scenarios.length" class="block-head">
+        <div class="h3">{{ activeProcess ? `Сценарии для процесса «${activeProcess.process_name}»` : 'Сценарии для всего парка' }}</div>
+        <div class="caption hint-line"><UiExpandHint label="" /> Показатели с этой меткой раскрываются: формула, подстановка и источник каждого числа.</div>
+      </div>
       <div v-if="scenarios.length" class="scen">
         <button
           v-for="item in scenarios"
@@ -304,6 +270,7 @@ const fleetOpen = ref(false)
           type="button"
           class="sc"
           :class="picked === item.key ? 'glass-graphite glass-graphite-solid on' : 'glass'"
+          :aria-pressed="picked === item.key"
           @click="picked = item.key"
         >
           <span class="sc-in">
@@ -325,17 +292,17 @@ const fleetOpen = ref(false)
         <div class="top">
           <div class="result glass-graphite glass-graphite-solid">
             <div class="label">{{ scenario.title }} · окупаемость</div>
-            <button type="button" class="payback" @click="toggle('payback')">
+            <button type="button" class="payback" :aria-expanded="open === 'payback'" @click="toggle('payback')">
               <span class="payback-n">{{ scenario.key === 'asis' ? '—' : scenario.payback.value != null ? scenario.payback.value.toLocaleString('ru-RU', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : 'нет' }}</span>
               <span class="caption">{{ scenario.payback.value != null ? 'лет' : scenario.key === 'asis' ? 'точка сравнения' : 'эффект не покрывает вложения' }}</span>
-              <PhCaretDown :size="14" weight="bold" class="caret" :class="{ up: open === 'payback' }" />
+              <UiExpandHint :open="open === 'payback'" label="как посчитано" dark />
             </button>
             <p v-if="scenario.verdict" class="body-sm verdict">{{ scenario.verdict }}</p>
             <p class="caption prelim">{{ report.disclaimer }}</p>
             <EconFormula v-if="open === 'payback'" :fig="scenario.payback" dark />
             <div class="kpis">
-              <button v-for="fig in kpis" :key="fig.key" type="button" class="kpi" :class="{ on: open === `kpi:${fig.key}` }" @click="toggle(`kpi:${fig.key}`)">
-                <span class="caption">{{ fig.label }}</span>
+              <button v-for="fig in kpis" :key="fig.key" type="button" class="kpi" :class="{ on: open === `kpi:${fig.key}` }" :aria-expanded="open === `kpi:${fig.key}`" @click="toggle(`kpi:${fig.key}`)">
+                <span class="kpi-top"><span class="caption">{{ fig.label }}</span><UiExpandHint :open="open === `kpi:${fig.key}`" label="" dark /></span>
                 <span class="mono-lg">{{ fig.value == null ? '—' : fig.unit === '%' ? figValue(fig.value, '%') : millions(fig.value) }}</span>
               </button>
             </div>
@@ -345,10 +312,16 @@ const fleetOpen = ref(false)
           </div>
           <div v-if="payrollFig" class="side glass">
             <div class="u-in">
-              <div class="label">{{ activeProcess ? 'Доля процесса' : 'База сравнения' }}</div>
-              <div class="h3">{{ payrollFig.label }}</div>
-              <div class="mono-lg">{{ rubles(payrollFig.value) }}</div>
-              <EconFormula :fig="payrollFig" />
+              <button type="button" class="c-btn side-head" :aria-expanded="open === 'payroll'" @click="toggle('payroll')">
+                <span class="side-copy">
+                  <span class="label">{{ activeProcess ? 'Доля процесса' : 'База сравнения' }}</span>
+                  <span class="h3">{{ payrollFig.label }}</span>
+                  <span class="mono-lg">{{ rubles(payrollFig.value) }}</span>
+                </span>
+                <UiExpandHint :open="open === 'payroll'" />
+              </button>
+              <p v-if="open !== 'payroll'" class="caption side-note">От этой суммы считается эффект: сколько ФОТ заменяют роботы. Раскройте, чтобы увидеть численность, ставки и источник.</p>
+              <EconFormula v-else :fig="payrollFig" />
             </div>
           </div>
         </div>
@@ -356,14 +329,14 @@ const fleetOpen = ref(false)
         <div class="cols">
           <section v-for="col in columns" :key="col.key" class="col glass">
             <div class="c-in">
-              <button type="button" class="c-head c-btn" @click="toggle(`total:${col.key}`)">
+              <button type="button" class="c-head c-btn" :aria-expanded="open === `total:${col.key}`" @click="toggle(`total:${col.key}`)">
                 <span><span class="h3">{{ col.title }}</span><span class="caption block">{{ col.caption }}</span></span>
-                <span class="mono-lg">{{ rubles(col.total.value) }}</span>
+                <span class="c-total"><span class="mono-lg">{{ rubles(col.total.value) }}</span><UiExpandHint :open="open === `total:${col.key}`" label="" /></span>
               </button>
               <EconFormula v-if="open === `total:${col.key}`" :fig="col.total" />
               <ul class="lines">
                 <li v-for="line in col.lines" :key="line.key">
-                  <button type="button" class="line" @click="toggle(`${col.key}:${line.key}`)">
+                  <button type="button" class="line" :class="{ 'is-open': open === `${col.key}:${line.key}` }" :aria-expanded="open === `${col.key}:${line.key}`" @click="toggle(`${col.key}:${line.key}`)">
                     <span class="body-sm" :class="{ 'cost-accent': isAccent(line.key, line.label) }">{{ line.label }}</span>
                     <span class="mono-md" :class="{ dim: !line.included, 'cost-accent': isAccent(line.key, line.label) }">{{ line.included ? rubles(line.value) : 'не входит' }}</span>
                     <PhCaretDown :size="12" weight="bold" class="caret" :class="{ up: open === `${col.key}:${line.key}` }" />
@@ -394,6 +367,45 @@ const fleetOpen = ref(false)
             </div>
           </div>
           <div class="legend caption"><span><i class="sw asis" /> без роботизации</span><span><i class="sw purchase" /> покупка</span><span><i class="sw raas" /> аренда</span></div>
+        </div>
+      </section>
+
+      <EconSubsidies
+        v-if="report.subsidies?.length"
+        :items="report.subsidies"
+        :horizon="report.horizon_years"
+        :busy="subsidyBusy"
+        :to="`/projects/${project.id}/what-if`"
+        @toggle="toggleSubsidy"
+      />
+      <UiCallout v-if="subsidyError" tone="danger">{{ subsidyError }}</UiCallout>
+
+      <section v-if="!processCode" class="fleet glass">
+        <div class="c-in">
+          <button type="button" class="c-head fleet-toggle" :aria-expanded="fleetOpen" @click="fleetOpen = !fleetOpen">
+            <div>
+              <div class="h3">Один робот на процесс</div>
+              <div class="caption">{{ report.fleet.length }} процессов, {{ report.robots.toLocaleString('ru-RU') }} роботов в расчёте{{ withoutPrice ? `, ${withoutPrice} без цены не входят` : '' }}. Раскройте, чтобы увидеть, как посчитано количество.</div>
+            </div>
+            <PhCaretDown :size="16" weight="bold" class="caret" :class="{ up: fleetOpen }" />
+          </button>
+          <ul v-show="fleetOpen" class="fleet-list">
+            <li v-for="row in report.fleet" :key="row.process_code">
+              <button type="button" class="fleet-row" :disabled="!row.fig" :aria-expanded="open === `fleet:${row.process_code}`" @click="row.fig && toggle(`fleet:${row.process_code}`)">
+                <img :src="photoFor(row.image_url, row.name, row.process_code)" :alt="row.name">
+                <span class="fleet-name">
+                  <span class="caption">{{ row.process_name }}</span>
+                  <span class="body-sm strong">{{ row.name }}</span>
+                  <span v-if="row.note" class="caption">{{ row.note }}</span>
+                </span>
+                <span class="mono-sm">{{ row.included ? `${row.count_used?.toLocaleString('ru-RU')} шт.` : '—' }}</span>
+                <span class="mono-sm">{{ rubles(row.cost_rub) }}</span>
+                <UiExpandHint v-if="row.fig" :open="open === `fleet:${row.process_code}`" label="" />
+                <span v-else />
+              </button>
+              <EconFormula v-if="row.fig && open === `fleet:${row.process_code}`" :fig="row.fig" />
+            </li>
+          </ul>
         </div>
       </section>
 
@@ -446,7 +458,7 @@ const fleetOpen = ref(false)
 
 .fleet-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .fleet-list li { display: grid; gap: 8px; }
-.fleet-row { width: 100%; display: grid; grid-template-columns: 64px minmax(0, 1fr) auto auto 14px; gap: 12px; align-items: center; text-align: left; padding: 4px; border-radius: 12px; }
+.fleet-row { width: 100%; display: grid; grid-template-columns: 64px minmax(0, 1fr) auto auto 40px; gap: 12px; align-items: center; text-align: left; padding: 4px; border-radius: 12px; }
 .fleet-row:not(:disabled):hover { background: rgba(255, 255, 255, 0.55); }
 .fleet-row img { width: 64px; height: 50px; object-fit: contain; border-radius: 10px; background: #e9eeec; }
 .fleet-name { display: grid; gap: 2px; min-width: 0; }
@@ -505,24 +517,36 @@ const fleetOpen = ref(false)
 
 .top { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--space-4); align-items: start; }
 .result { padding: var(--space-6); display: grid; gap: var(--space-4); }
-.payback { display: flex; align-items: baseline; gap: 10px; text-align: left; }
+.block-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-4); flex-wrap: wrap; margin-bottom: calc(var(--space-2) * -1); }
+.hint-line { display: inline-flex; align-items: center; gap: 8px; }
+.payback { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; text-align: left; justify-self: start; }
+.payback :deep(.xh) { align-self: center; }
 .payback-n { font-family: var(--font-mono); font-size: 64px; line-height: 0.9; letter-spacing: -0.04em; color: #fff; }
 .payback .caption { color: var(--ink-muted-graphite); }
 .verdict { color: var(--brand-300); margin: 0; }
 .prelim { color: #f0ad45; margin: 0; }
 .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid rgba(255, 255, 255, 0.1); }
-.kpi { display: grid; gap: 4px; text-align: left; padding: 8px 10px; border-radius: 12px; }
-.kpi:hover, .kpi.on { background: rgba(255, 255, 255, 0.06); }
+.kpi { display: grid; gap: 6px; text-align: left; padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.03); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+.kpi:hover, .kpi.on { background: rgba(255, 255, 255, 0.07); box-shadow: inset 0 0 0 1px rgba(98, 232, 174, 0.35); }
+.kpi-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .kpi .caption { color: var(--ink-muted-graphite); }
 .kpi .mono-lg { color: var(--brand-300); font-size: 22px; line-height: 1.15; overflow-wrap: anywhere; }
 .side .u-in { position: relative; z-index: 1; padding: var(--space-5); display: grid; gap: 10px; }
 .side .mono-lg { color: var(--ink-strong); font-size: 22px; }
+.side-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.side-copy { display: grid; gap: 6px; }
+.side-note { margin: 0; }
+.c-total { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.c-btn:hover .h3 { color: var(--link); }
 
 .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); align-items: start; }
 .lines { display: grid; margin: 0; padding: 0; list-style: none; }
 .lines li { display: grid; gap: 8px; padding: 8px 0; border-top: 1px solid rgba(15, 20, 19, 0.06); }
 .lines li:first-child { border-top: 0; }
-.line { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto 12px; gap: 10px; align-items: center; text-align: left; }
+.line { width: calc(100% + 16px); margin: -4px -8px; padding: 4px 8px; border-radius: 8px; display: grid; grid-template-columns: minmax(0, 1fr) auto 12px; gap: 10px; align-items: center; text-align: left; transition: background var(--dur-fast) var(--ease); }
+.line:hover, .line.is-open { background: var(--surface-brand-tint); }
+.line:hover .caret, .line.is-open .caret { color: var(--link); }
+.coef-btn:hover .caret { color: var(--link); }
 .line .mono-md { color: var(--ink-strong); white-space: nowrap; }
 .dim { color: var(--ink-muted) !important; }
 
