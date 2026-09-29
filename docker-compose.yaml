@@ -11,40 +11,18 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       - web
-      - api
+      - platform-api
 
   web:
     build: ./frontend
     environment:
-      NUXT_PUBLIC_API_BASE: /api/v1
       NUXT_PUBLIC_PLATFORM_API_BASE: /platform/api/v1
-      # SSR внутри сети compose идёт к контейнеру api напрямую, минуя traefik
-      NUXT_API_BASE_SERVER: http://api:8000/api/v1
     labels:
       - traefik.enable=true
       - traefik.http.routers.web.rule=PathPrefix(`/`)
       - traefik.http.routers.web.priority=1
       - traefik.http.routers.web.entrypoints=web
       - traefik.http.services.web.loadbalancer.server.port=3000
-
-  api:
-    build: ./backend
-    environment:
-      DATABASE_URL: postgresql+psycopg://robots:robots@db:5432/robots
-      REDIS_URL: redis://cache:6379/0
-    volumes:
-      - ./data:/app/data:ro
-    depends_on:
-      db:
-        condition: service_healthy
-      cache:
-        condition: service_healthy
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.api.rule=PathPrefix(`/api`)
-      - traefik.http.routers.api.priority=10
-      - traefik.http.routers.api.entrypoints=web
-      - traefik.http.services.api.loadbalancer.server.port=8000
 
   db:
     image: postgres:16-alpine
@@ -61,23 +39,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-
-  parser:
-    build:
-      context: ./backend
-      dockerfile: parser/Dockerfile
-    environment:
-      PYTHONUNBUFFERED: "1"
-      OUTPUT_FILE: /app/data/robots.json
-      PARSER_TIMEZONE: Europe/Moscow
-      PARSER_HOUR: "3"
-      DATABASE_URL: postgresql+psycopg://robots:robots@db:5432/robots
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - ./data:/app/data
-    restart: unless-stopped
 
   platform-api:
     build: ./platform
@@ -113,14 +74,6 @@ services:
       db:
         condition: service_healthy
     restart: unless-stopped
-
-  cache:
-    image: redis:7-alpine
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
 
 volumes:
   pgdata:

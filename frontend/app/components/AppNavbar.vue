@@ -83,7 +83,7 @@ onMounted(() => {
         <div class="right">
           <span class="fx-wrap" @mouseenter="showHint" @mouseleave="hideHint" @focusin="showHint" @focusout="hideHint">
             <button ref="fxBtn" type="button" class="fx" :class="{ on: rich }" :aria-pressed="rich" :aria-label="rich ? 'Выключить эффекты' : 'Включить эффекты'" aria-describedby="fx-hint" @click="toggleRich">
-              <span class="fx-label">Эффекты</span>
+              <span class="fx-label">Визуальные эффекты</span>
               <span class="fx-track" aria-hidden="true"><span class="fx-knob" /></span>
             </button>
             <Teleport to="body">

@@ -2,7 +2,7 @@
 .env
 
 # python
-backend/.venv
+platform/.venv
 __pycache__/
 *.pyc
 .pytest_cache

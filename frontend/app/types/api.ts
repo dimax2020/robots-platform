@@ -1,5 +1,4 @@
-// Контракт бэкенда как есть: snake_case, числовые id источников.
-// Преобразование в модель представления живёт в composables/useCatalog.ts.
+// Типы площадки и задач для формы параметров. Остальные поля — прежний контракт каталога.
 
 export type ApiAvailability = 'operation' | 'piloting' | 'rnd'
 export type ApiSourceKind = 'vendor' | 'dealer' | 'media' | 'catalog' | 'analogue' | 'assumption'
