@@ -17,6 +17,8 @@ _LOCK = 481516234
 
 def main() -> None:
     settings = get_settings()
+    if not settings.session_secret.strip():
+        raise SystemExit("SESSION_SECRET пустой: задайте его в переменных окружения, иначе cookie входа подписываются пустым ключом.")
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
     _ensure_database(settings.postgres_admin_url, settings.platform_db_name)
     url = _plain(settings.database_url)
