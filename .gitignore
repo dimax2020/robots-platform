@@ -21,3 +21,4 @@ frontend/*.log
 reports/
 .vscode/
 .local-backups/
+docs/dist/
