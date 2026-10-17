@@ -30,8 +30,6 @@ defineEmits<{ remove: [] }>()
   color: var(--ink-body);
   background: rgba(255, 255, 255, 0.6);
   box-shadow: inset 0 0 0 1px var(--border-hairline), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
   transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
   white-space: nowrap;
 }

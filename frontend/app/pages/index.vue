@@ -39,41 +39,19 @@ const rules = [
   { icon: PhChartLineUp, title: 'Экономика в трёх сценариях', text: 'Без роботизации, покупка и аренда. У каждого числа формула и источник, а what-if показывает, как срок окупаемости меняется при отклонении параметра на 20%.' },
 ]
 
-/* Hero: параллакс слоёв от курсора. Слои сдвигаются с разной амплитудой, отсюда глубина. */
-const stage = ref<HTMLElement | null>(null)
+/* Hero: фоновое видео. 960px декодируются дёшево, а матовость уже в файле. */
 const video = ref<HTMLVideoElement | null>(null)
-const px = ref(0)
-const py = ref(0)
-let raf = 0
-const { rich } = useVisualTheme()
-const onMove = (e: PointerEvent) => {
-  if (!rich.value) return
-  const el = stage.value
-  if (!el) return
-  const r = el.getBoundingClientRect()
-  const nx = ((e.clientX - r.left) / r.width) * 2 - 1
-  const ny = ((e.clientY - r.top) / r.height) * 2 - 1
-  cancelAnimationFrame(raf)
-  raf = requestAnimationFrame(() => { px.value = Math.max(-1, Math.min(1, nx)); py.value = Math.max(-1, Math.min(1, ny)) })
-}
-const onLeave = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { px.value = 0; py.value = 0 }) }
-const stageStyle = computed(() => ({ '--mx': px.value.toFixed(3), '--my': py.value.toFixed(3) }))
 const speedUp = (e: Event) => {
   (e.currentTarget as HTMLVideoElement).playbackRate = 1.5
 }
-const playHero = (on: boolean) => {
+const playHero = () => {
   const v = video.value
   if (!v) return
-  if (!on || window.matchMedia('(prefers-reduced-motion: reduce)').matches) { v.pause(); return }
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { v.pause(); return }
   v.playbackRate = 1.5
   void v.play()
 }
-onMounted(() => playHero(readRich()))
-watch(rich, (on) => {
-  if (!on) { px.value = 0; py.value = 0 }
-  playHero(on)
-})
-onBeforeUnmount(() => cancelAnimationFrame(raf))
+onMounted(playHero)
 
 const objects = [
   { type: 'warehouse' as const, title: 'Склад' },
@@ -105,12 +83,18 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
   <div>
     <!-- Первый экран: сцена с глубиной. Слои снизу вверх: видео → заголовок → робот → стекло -->
     <section class="hero container">
-      <div ref="stage" class="stage" :style="stageStyle" @pointermove="onMove" @pointerleave="onLeave">
+      <div class="stage">
         <!-- Слой 0: фон, зацикленное видео склада -->
         <div class="layer l-bg" aria-hidden="true">
-          <video ref="video" class="bg-video" muted loop playsinline preload="none" poster="/img/hero-stage.jpg" @canplay="speedUp">
-            <source src="/img/hero-loop.webm" type="video/webm">
-            <source src="/img/hero-loop.mp4" type="video/mp4">
+          <!-- Матовое стекло уже в файле: то же, что давал backdrop-filter: blur(5.4px) saturate(125%)
+               с белой вуалью 9%, поэтому браузер не размывает каждый кадр. Размытие задано в пикселях
+               экрана, а видео растягивается по ширине сцены, поэтому вариантов два: на широких экранах
+               видео крупнее и размыть его надо слабее. Пересборка: frontend/scripts/bake-hero.sh. -->
+          <video ref="video" class="bg-video" muted loop playsinline preload="none" poster="/img/hero-stage-frost.jpg" @canplay="speedUp">
+            <source src="/img/hero-loop-frost-wide.webm" type="video/webm" media="(min-width: 1760px)">
+            <source src="/img/hero-loop-frost-wide.mp4" type="video/mp4" media="(min-width: 1760px)">
+            <source src="/img/hero-loop-frost.webm" type="video/webm">
+            <source src="/img/hero-loop-frost.mp4" type="video/mp4">
           </video>
           <span class="bg-frost" />
         </div>
@@ -134,8 +118,7 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
 
         <!-- Слой 3: стекло перед роботом -->
         <div class="layer l-fore">
-          <div class="float f1 glass glass-sheen" v-reveal="2">
-            <span class="sheen" aria-hidden="true" />
+          <div class="float f1 glass" v-reveal="2">
             <div class="f-head">
               <span class="label">Перевозка паллет · склад 12 000 м²</span>
               <UiBadge tone="ok" pulse>Подходит</UiBadge>
@@ -199,10 +182,10 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
 
     <!-- Как работает подбор: графит -->
     <section class="container">
-      <div class="graphite graphite-section graphite-grid scanline how" style="--scan-h: 560px">
+      <div class="graphite graphite-section graphite-grid scanline how">
         <div class="orbits" aria-hidden="true">
-          <span class="orbit o1 orbit-spin" style="--orbit-dur: 48s"><span class="dot" /></span>
-          <span class="orbit o2 orbit-spin" style="--orbit-dur: 32s; animation-direction: reverse" />
+          <span class="orbit o1"><span class="dot" /></span>
+          <span class="orbit o2" />
           <span class="orbit o3" />
         </div>
         <div class="how-head">
@@ -274,7 +257,6 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
 /* ---------- Hero: сцена с глубиной ---------- */
 .hero { padding-top: var(--space-4); padding-bottom: var(--space-6); }
 .stage {
-  --mx: 0; --my: 0;
   position: relative;
   min-height: clamp(560px, 82vh, 860px);
   border-radius: var(--radius-2xl);
@@ -287,18 +269,11 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
 .layer > * { pointer-events: auto; }
 
 /* Слой 0: видео и подложки */
-.l-bg { transform: translate3d(calc(var(--mx) * -6px), calc(var(--my) * -4px), 0) scale(1.03); transition: transform 600ms var(--ease); }
 .bg-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 60%; }
-.bg-frost {
-  position: absolute; inset: 0;
-  background: rgba(255, 255, 255, 0.09);
-  -webkit-backdrop-filter: blur(5.4px) saturate(125%);
-  backdrop-filter: blur(5.4px) saturate(125%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
-}
+.bg-frost { position: absolute; inset: 0; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45); }
 
 /* Слой 1: заголовок */
-.l-text { padding: clamp(48px, 7vw, 110px) clamp(28px, 4vw, 60px) 0; transform: translate3d(calc(var(--mx) * 8px), calc(var(--my) * 6px), 0); transition: transform 500ms var(--ease); }
+.l-text { padding: clamp(48px, 7vw, 110px) clamp(28px, 4vw, 60px) 0; }
 .kicker { margin-bottom: clamp(14px, 1.6vw, 24px); }
 .headline { display: grid; font-size: clamp(44px, 5.2vw, 96px); line-height: 0.98; letter-spacing: -0.03em; max-width: none; }
 .headline .line { display: block; white-space: nowrap; }
@@ -306,25 +281,17 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
 .headline .line:nth-child(3) { padding-left: 1.6em; }
 
 /* Слой 2: робот, перед текстом */
-.l-robot { transform: translate3d(calc(var(--mx) * 22px), calc(var(--my) * 12px), 0); transition: transform 420ms var(--ease); }
-.robot { position: absolute; right: clamp(0px, 2vw, 40px); bottom: -4%; height: clamp(380px, 60%, 550px); width: auto; animation: robot-idle 7s var(--ease) infinite alternate; filter: drop-shadow(0 30px 50px rgba(15, 20, 19, 0.28)); }
-.robot-shadow { position: absolute; right: clamp(40px, 6vw, 120px); bottom: -1%; width: clamp(360px, 38%, 660px); height: 12%; border-radius: 50%; background: radial-gradient(closest-side, rgba(15, 20, 19, 0.35), rgba(15, 20, 19, 0)); filter: blur(12px); animation: shadow-idle 7s var(--ease) infinite alternate; }
-.robot-led { position: absolute; right: clamp(60px, 7vw, 140px); bottom: 6%; width: clamp(300px, 34%, 600px); height: 40px; border-radius: 50%; background: radial-gradient(closest-side, rgba(43, 209, 141, 0.55), rgba(43, 209, 141, 0)); filter: blur(14px); animation: led-pulse 3.2s ease-in-out infinite; mix-blend-mode: multiply; }
-@keyframes robot-idle { to { transform: translate3d(0, -10px, 0); } }
-@keyframes shadow-idle { to { transform: scale(0.94); opacity: 0.8; } }
-@keyframes led-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+.robot { position: absolute; right: clamp(0px, 2vw, 40px); bottom: -4%; height: clamp(380px, 60%, 550px); width: auto; }
+.robot-shadow { position: absolute; right: clamp(40px, 6vw, 120px); bottom: -1%; width: clamp(360px, 38%, 660px); height: 12%; border-radius: 50%; background: radial-gradient(closest-side, rgba(15, 20, 19, 0.35), rgba(15, 20, 19, 0)); }
+.robot-led { position: absolute; right: clamp(60px, 7vw, 140px); bottom: 6%; width: clamp(300px, 34%, 600px); height: 40px; border-radius: 50%; background: radial-gradient(closest-side, rgba(43, 209, 141, 0.55), rgba(43, 209, 141, 0)); }
 
 /* Слой 3: стекло, перед роботом */
-.l-fore { transform: translate3d(calc(var(--mx) * 34px), calc(var(--my) * 20px), 0); transition: transform 380ms var(--ease); }
 .float { position: absolute; padding: 16px; border-radius: 20px; }
-.f1 { left: 50%; bottom: clamp(24px, 3vw, 44px); width: 380px; display: grid; gap: 12px; animation: hover-a 9s var(--ease) infinite alternate; }
-.f2 { left: clamp(28px, 4vw, 60px); bottom: clamp(24px, 3vw, 44px); width: 280px; display: grid; gap: 8px; animation: hover-b 11s var(--ease) infinite alternate; }
-.f3 { right: clamp(28px, 4vw, 60px); top: 47%; display: grid; gap: 2px; padding: 12px 14px; border-radius: 14px; animation: hover-c 13s var(--ease) infinite alternate; }
+.f1 { left: 50%; bottom: clamp(24px, 3vw, 44px); width: 380px; display: grid; gap: 12px; }
+.f2 { left: clamp(28px, 4vw, 60px); bottom: clamp(24px, 3vw, 44px); width: 280px; display: grid; gap: 8px; }
+.f3 { right: clamp(28px, 4vw, 60px); top: 47%; display: grid; gap: 2px; padding: 12px 14px; border-radius: 14px; }
 .f3 .mono-sm { color: var(--brand-300); }
 .f3 .caption { color: var(--ink-muted-graphite); }
-@keyframes hover-a { to { transform: translate3d(0, -8px, 0); } }
-@keyframes hover-b { to { transform: translate3d(0, 10px, 0); } }
-@keyframes hover-c { to { transform: translate3d(0, -6px, 0); } }
 
 .f-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; position: relative; z-index: 1; }
 .f-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; position: relative; z-index: 1; }
@@ -392,18 +359,18 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
   /* Узкие экраны: слои складываются в поток, робот под текстом */
   .stage { min-height: 0; display: flex; flex-direction: column; }
   .layer { position: relative; inset: auto; z-index: 1; }
-  .l-bg { position: absolute; inset: 0; z-index: 0; transform: none; }
-  .l-text { order: 1; padding: 28px 24px 0; transform: none; }
+  .l-bg { position: absolute; inset: 0; z-index: 0; }
+  .l-text { order: 1; padding: 28px 24px 0; }
   .l-robot { order: 2; }
   .l-fore { order: 3; }
   .headline { font-size: clamp(36px, 9vw, 56px); }
   .headline .line { white-space: normal; }
   .headline .line:nth-child(2), .headline .line:nth-child(3) { padding-left: 0; }
-  .l-robot { height: 300px; transform: none; }
+  .l-robot { height: 300px; }
   .robot { right: 4%; bottom: 0; height: 92%; width: auto; }
   .robot-shadow, .robot-led { display: none; }
-  .l-fore { padding: 0 24px 24px; display: grid; gap: 12px; transform: none; }
-  .float { position: static; width: auto; animation: none; }
+  .l-fore { padding: 0 24px 24px; display: grid; gap: 12px; }
+  .float { position: static; width: auto; }
   .f3 { display: none; }
   .metrics-grid { grid-template-columns: 1fr 1fr; }
   .objects { grid-auto-rows: 220px; }
@@ -412,10 +379,4 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
   .disclaimer { grid-template-columns: 1fr; }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .l-bg, .l-text, .l-robot, .l-fore { transform: none !important; }
-}
-@media (prefers-reduced-transparency: reduce) {
-  .bg-frost { backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(255, 255, 255, 0.28); }
-}
 </style>

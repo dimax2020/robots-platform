@@ -47,21 +47,19 @@ withDefaults(defineProps<{
 .btn-primary { background: var(--action-fill); color: var(--on-brand); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 1px 2px rgba(4, 48, 31, 0.2); }
 .btn-primary:hover:not(:disabled) { background: var(--action-fill-hover); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 6px 18px rgba(10, 107, 69, 0.28); }
 
-.btn-secondary { background: rgba(255, 255, 255, 0.72); color: var(--ink-strong); box-shadow: inset 0 0 0 1px var(--border-hairline), var(--shadow-sm); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.btn-secondary { background: rgba(255, 255, 255, 0.72); color: var(--ink-strong); box-shadow: inset 0 0 0 1px var(--border-hairline), var(--shadow-sm); }
 .btn-secondary:hover:not(:disabled) { background: #fff; box-shadow: inset 0 0 0 1px var(--border-strong), var(--shadow-md); }
 
 .btn-ghost { background: transparent; color: var(--ink-strong); }
 .btn-ghost:hover:not(:disabled) { background: rgba(15, 20, 19, 0.06); }
 
-.btn-onGraphite { background: rgba(255, 255, 255, 0.08); color: var(--ink-on-graphite); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.2); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
+.btn-onGraphite { background: rgba(255, 255, 255, 0.08); color: var(--ink-on-graphite); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.2); }
 .btn-onGraphite:hover:not(:disabled) { background: rgba(255, 255, 255, 0.14); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.3), var(--glow-brand); }
 
 .btn-glass {
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.35)), rgba(255, 255, 255, 0.4);
   color: var(--ink-strong);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 0 0 1px rgba(15, 20, 19, 0.08), var(--shadow-md);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
-  backdrop-filter: blur(18px) saturate(160%);
 }
 .btn-glass:hover:not(:disabled) { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 1), 0 0 0 1px rgba(15, 20, 19, 0.12), var(--shadow-lg); }
 
