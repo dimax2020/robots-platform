@@ -1221,7 +1221,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 .fullscreen { position: fixed; inset: 0; z-index: 1000; display: grid; grid-template-rows: auto minmax(0, 1fr); background: #e7ecea; }
 .fs-bar { display: flex; align-items: center; gap: 14px; padding: 10px 16px; background: #fff; border-bottom: 1px solid rgba(15, 20, 19, 0.08); }
 .fs-title { display: grid; line-height: 1.15; min-width: 0; }
-.fs-title .h4 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+.fs-title .h4 { max-width: 42ch; line-height: 1.3; }
 .fs-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
 .fs-canvas { height: auto; min-height: 0; border-radius: 0; box-shadow: none; }
 
@@ -1234,7 +1234,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 .panel.folded { width: auto; }
 .p-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 12px; text-align: left; width: 100%; }
 .p-head .label { flex: none; }
-.p-head .h4 { flex: 1; min-width: 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.p-head .h4 { flex: 1; min-width: 0; font-size: 14px; line-height: 1.3; }
 .p-head .caret { flex: none; color: var(--ink-faint); transition: transform var(--dur-fast) var(--ease); }
 .folded .p-head .caret { transform: rotate(-90deg); }
 .p-body { display: grid; gap: 8px; padding: 0 12px 12px; overflow: auto; }
@@ -1286,7 +1286,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 .ring-num .display-4 { font-size: 22px; }
 .m-rows { display: grid; gap: 4px; }
 .m-rows > div { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.m-rows .caption { display: inline-flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-rows .caption { display: inline-flex; align-items: center; gap: 5px; min-width: 0; line-height: 1.35; }
 .m-rows .mono-md { color: var(--ink-strong); white-space: nowrap; font-size: 13px; }
 .live-ctl { display: grid; gap: 6px; padding: 8px; border-radius: 10px; background: rgba(15, 20, 19, 0.04); }
 .charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }

@@ -296,7 +296,7 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
 .f-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; position: relative; z-index: 1; }
 .f-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; position: relative; z-index: 1; }
 .f-n { display: grid; text-align: right; }
-.f-formula { padding: 8px 10px; border-radius: 10px; background: var(--surface-graphite); color: var(--brand-300); position: relative; z-index: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.f-formula { padding: 8px 10px; border-radius: 10px; background: var(--surface-graphite); color: var(--brand-300); position: relative; z-index: 1; line-height: 1.45; }
 .f-int { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 8px; }
 .f-int .mono-md { color: var(--ink-strong); }
 .bar { height: 6px; border-radius: 3px; background: rgba(15, 20, 19, 0.08); position: relative; overflow: hidden; }

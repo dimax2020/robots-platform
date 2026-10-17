@@ -24,7 +24,9 @@ from app.infrastructure.db.models import (
 )
 
 DEMO_PASSWORD = "demo-2026"
-DEMO_USERS = (("guest", "guest"), ("user", "user"), ("admin", "admin"))
+DEMO_USERS = (("guest", "guest"), ("user", "user"), ("admin", "admin"), ("ronavi", "vendor"))
+# Демо-вендор берётся из живого каталога: у ООО "Ронави Роботикс" уже есть карточки.
+VENDOR_DEMO = ("ronavi", 'ООО "Ронави Роботикс"', "Ронави Роботикс")
 
 SEED_DIR = Path(__file__).resolve().parents[2] / "seed"
 EXTRA_GROUP = "Дополнительно"
@@ -43,7 +45,7 @@ def type_mapping() -> Mapping:
 
 
 def seed_users(db: Session) -> None:
-    """Три демо-учётки. Повторный запуск уже записанный пароль не меняет."""
+    """Демо-учётки, включая вендора. Повторный запуск уже записанный пароль не меняет."""
     from uuid import uuid4
 
     from argon2 import PasswordHasher
@@ -57,6 +59,31 @@ def seed_users(db: Session) -> None:
         if login in known:
             continue
         db.add(AppUserRow(id=uuid4(), login=login, password_hash=hasher.hash(DEMO_PASSWORD), role=role))
+    db.flush()
+    seed_vendor_account(db)
+
+
+def seed_vendor_account(db: Session) -> None:
+    """Учётка вендора и пустой профиль. Уже подтверждённые поля повторный запуск не затирает."""
+    from app.infrastructure.db.models import VendorProfileRow
+
+    bind = db.get_bind()
+    if bind is None or not sa_inspect(bind).has_table("vendor_profile"):
+        return
+    login, manufacturer, company = VENDOR_DEMO
+    user = db.scalar(select(AppUserRow).where(AppUserRow.login == login))
+    if user is None or user.role != "vendor":
+        return
+    if db.get(VendorProfileRow, user.id) is not None:
+        return
+    db.add(VendorProfileRow(
+        user_id=user.id,
+        manufacturer=manufacturer,
+        company_name=company,
+        about="Складские роботы Ronavi. Карточки уже стоят в каталоге, правки из кабинета публикуются после проверки.",
+        website="https://ronavi.ru",
+        city="Москва",
+    ))
     db.flush()
 
 

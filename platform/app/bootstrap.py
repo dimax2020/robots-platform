@@ -62,9 +62,10 @@ def _migrate(settings) -> None:
     cfg.set_main_option("sqlalchemy.url", settings.database_url)
     command.upgrade(cfg, "head")
     # Метаданные справочника обновляются и для непустой БД.
-    from app.application.reference_data import _seed_attribute_meta
+    from app.application.reference_data import _seed_attribute_meta, seed_users
     with session_factory()() as db:
         _seed_attribute_meta(db)
+        seed_users(db)
         db.commit()
 
 

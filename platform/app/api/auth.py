@@ -91,6 +91,14 @@ def require_user(user: SessionUser | None = Depends(optional_user)) -> SessionUs
     return user
 
 
+def require_vendor(user: SessionUser | None = Depends(optional_user)) -> SessionUser:
+    if user is None:
+        raise HTTPException(401, "Нужна авторизация")
+    if user.role != "vendor":
+        raise HTTPException(403, "Нужна роль вендора")
+    return user
+
+
 def require_admin(user: SessionUser | None = Depends(optional_user)) -> SessionUser:
     if user is None:
         raise HTTPException(401, "Нужна авторизация")

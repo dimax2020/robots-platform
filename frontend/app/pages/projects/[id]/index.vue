@@ -228,7 +228,7 @@ const stepDesc: Record<string, string> = {
 .fleet li { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: center; }
 .fleet img { width: 36px; height: 36px; border-radius: 8px; object-fit: cover; background: rgba(255, 255, 255, 0.08); }
 .who { display: grid; gap: 1px; min-width: 0; }
-.who .body-sm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who .body-sm { line-height: 1.35; }
 .fleet .mono-md { color: var(--brand-300); }
 @media (max-width: 1100px) { .hero { grid-template-columns: 1fr; } .hero-img { width: 100%; height: 200px; } .span-7, .span-5 { grid-column: span 12; } .side { position: static; } }
 </style>

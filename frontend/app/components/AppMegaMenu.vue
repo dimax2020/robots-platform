@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { PhArrowRight, PhArrowUpRight, PhX, PhScales, PhPlus, PhPlay, PhLockSimple, PhTreeStructure } from '@phosphor-icons/vue'
+import { PhArrowRight, PhArrowUpRight, PhX, PhScales, PhPlus, PhPlay, PhLockSimple, PhTreeStructure, PhIdentificationCard, PhRobot, PhListChecks } from '@phosphor-icons/vue'
 import { availabilityLabel, availabilityTone, formatRub } from '~/data/catalog'
 import { cardToProduct, platformGet, type PlatformPage } from '~/composables/usePlatform'
 import { objectTypeLabel, objectTypeImage, steps, type ObjectType } from '~/data/projects'
 import { adminNav, adminOverview } from '~/data/adminNav'
 import { demoObjectType, demoPath, useDemoProjects } from '~/composables/useDemoProjects'
 
-export type MenuId = 'catalog' | 'projects' | 'compare' | 'admin'
+export type MenuId = 'catalog' | 'projects' | 'compare' | 'coop' | 'admin' | 'vendor'
 defineProps<{ menu: MenuId }>()
 
 const { role } = useRole()
@@ -202,6 +202,29 @@ const adminItems = [adminOverview, ...adminNav.flatMap((group) => group.items)]
       </div>
     </template>
 
+    <!-- ================= Вендор ================= -->
+    <template v-else-if="menu === 'vendor'">
+      <NuxtLink to="/vendor?tab=profile" class="adm">
+        <PhIdentificationCard :size="22" weight="duotone" class="adm-ic" />
+        <span class="row-t">Профиль компании</span>
+        <span class="row-s">Название, логотип, контакты и документы. Публикуется после проверки.</span>
+      </NuxtLink>
+      <NuxtLink to="/vendor?tab=robots" class="adm">
+        <PhRobot :size="22" weight="duotone" class="adm-ic" />
+        <span class="row-t">Роботы</span>
+        <span class="row-s">Цена, что умеет робот, файл или ссылка на список.</span>
+      </NuxtLink>
+      <NuxtLink to="/vendor?tab=requests" class="adm">
+        <PhListChecks :size="22" weight="duotone" class="adm-ic" />
+        <span class="row-t">Заявки</span>
+        <span class="row-s">Что на проверке, что принято и что просят исправить.</span>
+      </NuxtLink>
+      <div class="foot">
+        <span class="caption">Ни одно изменение не попадает в каталог, пока администратор его не подтвердит.</span>
+        <NuxtLink to="/vendor" class="fl">Открыть кабинет <PhArrowRight :size="12" weight="bold" /></NuxtLink>
+      </div>
+    </template>
+
     <!-- ================= Админка ================= -->
     <template v-else>
       <NuxtLink v-for="a in adminItems" :key="a.to" :to="a.to" class="adm">
@@ -222,8 +245,9 @@ const adminItems = [adminOverview, ...adminNav.flatMap((group) => group.items)]
 .mm-catalog { grid-template-columns: 1.1fr 1fr 1fr 1.4fr; }
 .mm-projects { grid-template-columns: 1.2fr 1.2fr 1fr; }
 .mm-compare { grid-template-columns: 1.6fr 1fr; }
-.mm-admin { grid-template-columns: repeat(4, 1fr); gap: var(--space-3); }
-.mm-admin .foot { grid-column: 1 / -1; }
+.mm-admin, .mm-vendor { grid-template-columns: repeat(4, 1fr); gap: var(--space-3); }
+.mm-vendor { grid-template-columns: repeat(3, 1fr); }
+.mm-admin .foot, .mm-vendor .foot { grid-column: 1 / -1; }
 
 .col { display: grid; gap: 4px; align-content: start; min-width: 0; }
 .col-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 0 10px 8px; }
@@ -295,6 +319,13 @@ const adminItems = [adminOverview, ...adminNav.flatMap((group) => group.items)]
 .fl { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 700; color: var(--ink-strong); }
 .fl:hover { color: var(--link); }
 .fl .mono-sm { padding: 1px 6px; border-radius: 5px; background: var(--brand-400); color: var(--brand-900); }
+@media (max-width: 1100px) {
+  .mm, .mm-catalog, .mm-projects, .mm-compare, .mm-admin, .mm-vendor { grid-template-columns: 1fr; }
+  .cmp-list { grid-template-columns: 1fr; }
+  .foot { flex-direction: column; align-items: flex-start; }
+  .mm { padding: 12px; }
+  .row-t, .row-s, .cta-s { overflow-wrap: break-word; }
+}
 .flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--ink-muted); }
 .flow span { padding: 4px 8px; border-radius: 6px; background: rgba(15, 20, 19, 0.05); color: var(--ink-body); }
 .flow i { width: 14px; height: 1px; background: var(--brand-500); opacity: 0.7; }

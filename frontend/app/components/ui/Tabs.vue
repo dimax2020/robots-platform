@@ -37,7 +37,7 @@ const idx = computed(() => Math.max(0, props.tabs.findIndex((t) => t.id === prop
   box-shadow: inset 0 1px 0 #fff, 0 1px 2px rgba(15, 20, 19, 0.08), 0 6px 18px rgba(15, 20, 19, 0.08);
   transition: transform var(--dur-mid) var(--ease);
 }
-.tab { position: relative; z-index: 1; min-height: 40px; padding: 0 14px; border-radius: 9px; font-size: 14px; font-weight: 600; color: var(--ink-muted); display: inline-flex; align-items: center; justify-content: center; gap: 8px; transition: color var(--dur-fast) var(--ease); white-space: nowrap; }
+.tab { position: relative; z-index: 1; min-height: 40px; padding: 8px 12px; border-radius: 9px; font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--ink-muted); display: inline-flex; align-items: center; justify-content: center; gap: 8px; text-align: center; transition: color var(--dur-fast) var(--ease); }
 .tab.on { color: var(--ink-strong); }
 .count { font-family: var(--font-mono); font-size: 11px; padding: 2px 6px; border-radius: 6px; background: rgba(15, 20, 19, 0.06); color: var(--ink-muted); }
 .tab.on .count { background: var(--surface-brand-tint); color: var(--brand-ink); }

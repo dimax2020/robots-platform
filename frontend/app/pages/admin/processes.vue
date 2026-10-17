@@ -796,7 +796,7 @@ const formatSite = (value: unknown) => (value === null || value === undefined ||
 .kind { width: 200px; }
 .jn { width: 70px; }
 .num { width: 100px; }
-.formula { word-break: break-all; padding: 10px; border-radius: 10px; background: rgba(15, 20, 19, 0.04); }
+.formula { overflow-wrap: anywhere; padding: 10px; border-radius: 10px; background: rgba(15, 20, 19, 0.04); line-height: 1.45; }
 .litem { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 12px; border-radius: 14px; background: rgba(255, 255, 255, 0.6); box-shadow: inset 0 0 0 1px var(--border-hairline); }
 .litem.dragging { opacity: 0.5; }
 .handle { cursor: grab; color: var(--ink-faint); padding: 6px 2px; }

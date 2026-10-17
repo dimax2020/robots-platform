@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhUser, PhUserGear, PhEye, PhArrowRight } from '@phosphor-icons/vue'
+import { PhUser, PhUserGear, PhEye, PhArrowRight, PhFactory } from '@phosphor-icons/vue'
 import { fetchErrorMessage } from '~/utils/errors'
 import { roleLabel, type Role } from '~/composables/useRole'
 
@@ -11,6 +11,7 @@ const accounts: { role: Role; login: string; icon: any; text: string; goes: stri
   { role: 'guest', login: 'guest', icon: PhEye, text: 'Демо-наборы, каталог, проход по складу без сохранения.', goes: 'Остаётся на демо-складе' },
   { role: 'user', login: 'user', icon: PhUser, text: 'Свои проекты: склад, аэропорт и медучреждение.', goes: 'Попадает в список проектов' },
   { role: 'admin', login: 'admin', icon: PhUserGear, text: 'Всё пользовательское плюс каталог, справочники, нормативы, источники.', goes: 'Проекты и админка' },
+  { role: 'vendor', login: 'ronavi', icon: PhFactory, text: 'Вы производитель роботов. Здесь карточка компании и ваши модели. Заказчик увидит их после проверки.', goes: 'Открывает кабинет производителя' },
 ]
 
 const login = ref('user')
@@ -22,12 +23,12 @@ const submit = async () => {
   try {
     const user = await signIn(login.value.trim(), password.value)
     const role = user?.role ?? 'guest'
-    await router.push(role === 'guest' ? '/projects' : role === 'admin' ? '/admin' : '/projects')
+    await router.push(role === 'admin' ? '/admin' : role === 'vendor' ? '/vendor' : '/projects')
   } catch (err) {
     error.value = fetchErrorMessage(err, 'Не удалось войти')
   }
 }
-const pick = (a: typeof accounts[number]) => { login.value = a.login; error.value = '' }
+const pick = (a: typeof accounts[number]) => { login.value = a.login; password.value = 'demo-2026'; error.value = '' }
 </script>
 
 <template>
@@ -36,7 +37,7 @@ const pick = (a: typeof accounts[number]) => { login.value = a.login; error.valu
       <div class="intro" v-reveal>
         <div class="label">Вход по роли</div>
         <h1 class="hero-2">Сменить роль. Регистрации нет</h1>
-        <p class="body-lg muted">Три демонстрационные учётки с одним паролем. Почты и восстановления пароля в MVP нет: вход нужен только для разделения проектов и админки.</p>
+        <p class="body-lg muted">Четыре готовые учётки с одним паролем. Гость смотрит примеры, пользователь ведёт проекты, администратор проверяет каталог, вендор передаёт своих роботов.</p>
         <div class="accounts">
           <button v-for="a in accounts" :key="a.role" type="button" class="acc glass" :class="{ on: login === a.login }" @click="pick(a)">
             <component :is="a.icon" :size="22" weight="duotone" class="acc-ic" />
@@ -54,21 +55,21 @@ const pick = (a: typeof accounts[number]) => { login.value = a.login; error.valu
           <Logo :size="44" :wordmark="false" />
           <div>
             <div class="h2">Войти</div>
-            <div class="caption">Сессия хранится в cookie браузера. Сид-аккаунты одинаковы для всех стендов.</div>
+            <div class="caption">Выберите роль слева. Логин и пароль подставятся сами.</div>
           </div>
-          <label class="field">
+          <label class="field field-line">
             <span class="field-label">Логин</span>
             <input v-model="login" class="input input-mono" :class="{ 'is-error': error }" autocomplete="username" spellcheck="false">
             <span v-if="error" class="field-error">{{ error }}</span>
-            <span v-else class="field-hint">guest, user или admin</span>
+            <span v-else class="field-hint">guest, user, admin или ronavi</span>
           </label>
-          <label class="field">
+          <label class="field field-line">
             <span class="field-label">Пароль</span>
             <input v-model="password" type="password" class="input input-mono" autocomplete="current-password">
-            <span class="field-hint">Одинаковый для трёх учёток: demo-2026</span>
+            <span class="field-hint">Одинаковый для всех учёток: demo-2026</span>
           </label>
           <UiButton type="submit" size="lg" block>Войти как {{ roleLabel[accounts.find(a => a.login === login)?.role ?? 'user'] }}</UiButton>
-          <UiCallout tone="info">Почты и восстановления пароля нет. Это осознанное ограничение MVP, а не недоработка.</UiCallout>
+          <UiCallout tone="info">Отдельной регистрации нет. Для просмотра хватает одной из четырёх готовых учёток.</UiCallout>
         </div>
       </form>
     </div>
@@ -89,4 +90,9 @@ const pick = (a: typeof accounts[number]) => { login.value = a.login; error.valu
 .goes { display: inline-flex; align-items: center; gap: 6px; color: var(--brand-700); }
 .form { position: sticky; top: 100px; }
 .form-inner { position: relative; z-index: 1; display: grid; gap: var(--space-5); padding: var(--space-8); }
+@media (max-width: 900px) {
+  .wrap { grid-template-columns: 1fr; gap: var(--space-8); }
+  .form { position: static; }
+  .form-inner { padding: var(--space-5); }
+}
 </style>

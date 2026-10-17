@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from app.api import admin_catalog, admin_objects, admin_products
+from app.api import admin_catalog, admin_objects, admin_products, vendor
 from app.api.auth import SessionUser, load_user, optional_user, require_admin, require_user
 from app.config import get_settings
 from app.domain.layout_items import COUNT_RULES, ROLES, SHAPES
@@ -84,11 +84,14 @@ app = FastAPI(
         {"name": "Админка · процессы", "description": "Фильтры, формулы количества и привязка роботов."},
         {"name": "Админка · продукты", "description": "Ручные правки карточек. Следующий импорт их не затирает."},
         {"name": "Админка · демо", "description": "Учебные объекты: публикация и адрес."},
+        {"name": "Вендор", "description": "Кабинет производителя. Изменения ждут решения администратора."},
+        {"name": "Админка · вендоры", "description": "Подтверждение, отклонение и возврат заявок вендора."},
     ],
 )
 app.include_router(admin_catalog.router)
 app.include_router(admin_objects.router)
 app.include_router(admin_products.router)
+app.include_router(vendor.router)
 
 from app.api.auth import router as auth_router
 

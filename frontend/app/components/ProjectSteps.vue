@@ -59,10 +59,15 @@ li > a:hover { background: rgba(255, 255, 255, 0.7); color: var(--ink-strong); }
 .next:not(.cur) > a .dot { background: #fff; box-shadow: inset 0 0 0 1.5px var(--brand-500); color: var(--brand-700); }
 .subrow { --stage: calc((100% - 8px - (var(--sub-n) - 1) * 4px) / var(--sub-n)); display: grid; gap: 4px; box-sizing: border-box; width: var(--stage); margin-left: calc(4px + var(--sub-i) * (var(--stage) + 4px)); padding: 4px; border-radius: 12px; background: transparent; box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.12); }
 .sub { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 32px; padding: 6px 8px; border-radius: 8px; font-size: 13px; font-weight: 600; line-height: 1.3; color: var(--ink-muted); }
-.slabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slabel { min-width: 0; line-height: 1.35; }
 .sub:hover { background: rgba(255, 255, 255, 0.7); color: var(--ink-strong); }
 .sub.on { background: rgba(255, 255, 255, 0.85); color: var(--ink-strong); box-shadow: inset 0 0 0 1px var(--brand-400); }
 .sdot { width: 8px; height: 8px; border-radius: 99px; background: rgba(15, 20, 19, 0.16); flex: none; }
 .sub.on .sdot { background: var(--brand-500); }
 .more { padding: 2px 8px 4px; }
+@media (max-width: 800px) {
+  /* Под шагом колонка слишком узкая, подпись обрезалась. На телефоне список шагов на всю ширину. */
+  .subrow { width: 100%; margin-left: 0; }
+  li > a { height: auto; min-height: 40px; padding-top: 6px; padding-bottom: 6px; white-space: normal; line-height: 1.3; }
+}
 </style>

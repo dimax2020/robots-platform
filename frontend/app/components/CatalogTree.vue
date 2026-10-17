@@ -36,15 +36,15 @@ const toggle = (n: TreeNode) => {
 .tree { display: grid; gap: 2px; }
 .tree.d1 { padding-left: 14px; margin-top: 2px; border-left: 1px solid var(--border-hairline); margin-left: 9px; }
 .tree.d2, .tree.d3 { padding-left: 14px; margin-top: 2px; border-left: 1px solid var(--border-hairline); margin-left: 9px; }
-.node { width: 100%; display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 8px; min-height: 34px; padding: 0 8px; border-radius: 9px; font-size: 14px; font-weight: 600; color: var(--ink-body); text-align: left; transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+.node { width: 100%; display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: start; gap: 8px; min-height: 34px; padding: 6px 8px; border-radius: 9px; font-size: 14px; font-weight: 600; line-height: 1.35; color: var(--ink-body); text-align: left; transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
 .d0 > li > .node { font-weight: 700; color: var(--ink-strong); }
 .d3 .node, .leaf { font-weight: 500; }
 .node:hover { background: rgba(15, 20, 19, 0.05); }
 .node.on { background: var(--surface-brand-tint); color: var(--brand-ink); }
-.caret { color: var(--ink-faint); transition: transform var(--dur-fast) var(--ease); }
+.caret { color: var(--ink-faint); margin-top: 3px; transition: transform var(--dur-fast) var(--ease); }
 .node.open .caret { transform: rotate(90deg); }
 .leaf-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--border-strong); margin: 0 auto; }
 .c { color: var(--ink-muted); }
 .node.on .c { color: var(--brand-700); }
-.t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t { min-width: 0; line-height: 1.35; }
 </style>
