@@ -460,10 +460,12 @@ export function useProjectReport(id: Ref<string>) {
       },
       {
         name: 'Параметры объекта',
+        headed: true,
         rows: [['Параметр', 'Значение'], ...params.value.map((item) => [item.label, item.value])],
       },
       {
         name: 'Сценарии',
+        headed: true,
         rows: [
           ['Сценарий', 'CAPEX', 'Затраты в год', 'Эффект в год', 'Окупаемость', 'TCO', 'Полоса'],
           ...scenarios.value.map((item) => [item.title, item.capex, item.opex, item.effect, item.metrics[3]?.value ?? '—', item.metrics[4]?.value ?? '—', item.verdict]),
@@ -471,6 +473,7 @@ export function useProjectReport(id: Ref<string>) {
       },
       {
         name: 'Вывод',
+        headed: true,
         rows: [
           ['Выгоднее', advice.value?.title ?? '—'],
           ['Пояснение', advice.value?.detail ?? '—'],
@@ -480,6 +483,7 @@ export function useProjectReport(id: Ref<string>) {
       },
       {
         name: 'Формулы',
+        headed: true,
         rows: [
           ['Блок', 'Статья', 'Значение', 'Входит', 'Формула', 'Подстановка', 'Примечание'],
           ...formulas.value.flatMap((block) => block.parts.flatMap((part) => {
@@ -490,6 +494,7 @@ export function useProjectReport(id: Ref<string>) {
       },
       {
         name: 'Подстановка',
+        headed: true,
         rows: [
           ['Блок', 'Статья', 'Символ', 'Величина', 'Значение', 'Единица', 'Источник', 'Пояснение'],
           ...formulas.value.flatMap((block) => block.parts.flatMap((part) => {
@@ -500,6 +505,7 @@ export function useProjectReport(id: Ref<string>) {
       },
       {
         name: 'Допущения',
+        headed: true,
         rows: [
           ['Группа', 'Параметр', 'Символ', 'Значение', 'Единица', 'Стандарт', 'Источник', 'Обоснование', 'Происхождение'],
           ...paramGroups.value.flatMap((group) => group.items.map((item) => [group.label, item.label, item.symbol, String(item.value), item.unit, String(item.standard), item.source, item.rationale, item.origin])),
@@ -507,6 +513,7 @@ export function useProjectReport(id: Ref<string>) {
       },
       {
         name: 'Процессы',
+        headed: true,
         rows: [
           ['Процесс', 'Робот', 'В расчёте', 'Доля ФОТ', 'CAPEX покупки', 'Эффект', 'Окупаемость', 'TCO покупки', 'TCO аренды', 'Вывод'],
           ...processes.value.map((item) => [item.name, item.robot, item.included ? 'да' : 'нет', item.share, item.capex, item.effect, item.payback, item.tcoPurchase, item.tcoRaas, item.reason]),
@@ -514,10 +521,12 @@ export function useProjectReport(id: Ref<string>) {
       },
       {
         name: 'Чувствительность',
+        headed: true,
         rows: sensitivityRows(economy.report.value?.sensitivity ?? []),
       },
       {
         name: 'Роботы',
+        headed: true,
         rows: [
           ['Процесс', 'Робот', 'Количество', 'Цена', 'Стоимость парка', 'ТТХ'],
           ...robots.value.map((item) => [item.process, item.name, item.count, item.price, item.cost, item.specs.map((spec) => `${spec.label}: ${spec.value}`).join('; ') || '—']),

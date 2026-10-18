@@ -1,16 +1,11 @@
 <script setup lang="ts">
-import { PhPrinter, PhFileXls, PhFileCsv, PhImage, PhWarning, PhArrowRight } from '@phosphor-icons/vue'
+import { PhPrinter, PhFileXls, PhFileCsv, PhWarning, PhArrowRight } from '@phosphor-icons/vue'
 import { objectTypeImage, objectTypeLabel } from '~/data/projects'
-import { downloadDataUrl, downloadText, toCsv, toExcelXml } from '~/utils/exportTables'
+import { downloadText, toCsv, toExcelXml, pickReportSheets } from '~/utils/exportTables'
 import { fetchErrorMessage } from '~/utils/errors'
 import { useProjectReport } from '~/composables/useProjectReport'
 import { figValue, millions, SOURCE_TONE } from '~/composables/usePlatformEconomy'
 import { isAccent } from '~/utils/accent'
-import { Simulation } from '~/sim/engine'
-import { emptyLayout, placeProcess, placeShell, processReady } from '~/sim/templates'
-import type PlanEditor from '~/components/PlanEditor.vue'
-import type { WorkerResponse } from '~/sim/worker'
-import type { Layout, ProcessStats, SimProcess, Visibility } from '~/sim/types'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
@@ -18,18 +13,14 @@ const doc = useProjectReport(id)
 const project = computed(() => doc.project.value)
 useHead({ title: () => `Отчёт · ${project.value?.name ?? 'проект'}` })
 
-const PALETTE = ['#1f7a5a', '#175fb0', '#b2582b', '#6b5bd6', '#c0417a', '#2f8f9d', '#8a6d1d', '#4f6b2a']
-const editor = ref<InstanceType<typeof PlanEditor> | null>(null)
-const shot = ref('')
-const shotNote = ref('')
-const vizCheck = ref<WorkerResponse | null>(null)
-const vizChecking = ref(false)
-const vizLayout = ref<Layout | null>(null)
-const vizFloorId = ref('')
-const vizKey = ref(0)
-const emptyVisibility: Record<string, Visibility> = {}
-
 const coverSrc = computed(() => project.value ? objectTypeImage[project.value.objectType] : objectTypeImage.warehouse)
+/* Одна фраза про объект. Цифры площадки идут следом, под картинкой первого листа. */
+const objectAbout = computed(() => {
+  const row = project.value
+  if (!row) return ''
+  const industry = row.industry ? `, отрасль ${row.industry}` : ''
+  return `${objectTypeLabel[row.objectType]} «${row.name}»${industry}. Параметры, по которым собран подбор.`
+})
 const coverTitle = ref<HTMLElement | null>(null)
 
 const printing = ref(false)
@@ -88,172 +79,18 @@ const blockTitle = computed(() => {
 
 const exportTables = (kind: 'xlsx' | 'csv') => {
   if (blocked.value || !project.value) return
-  const sheets = [...doc.sheets.value]
-  if (vizCheck.value) {
-    const stats = vizCheck.value.stats.processes
-    const keys = [...new Set(stats.flatMap((row) => Object.keys(row)))]
-    sheets.push({
-      name: 'Смена',
-      rows: [
-        ['Показатель', ...stats.map((row) => row.name)],
-        ...keys.filter((key) => key !== 'code').map((key) => [STAT_LABEL[key] ?? key, ...stats.map((row) => formatStat(key, (row as unknown as Record<string, unknown>)[key], row.unit))]),
-        ['Минимум по модели, шт.', ...stats.map((row) => vizCheck.value?.minimal[row.code] == null ? '—' : String(vizCheck.value?.minimal[row.code]))],
-      ],
-    })
-  }
+  /* В файл попадают обложка и только отмеченные разделы. Снятая галочка лист не создаёт. */
+  const sheets = pickReportSheets(doc.sheets.value, {
+    match: showMatch.value,
+    economy: showEconomy.value,
+    whatif: showWhatIf.value,
+  })
   if (!sheets.length) return
   const stem = doc.stem.value
   if (kind === 'csv') downloadText(`${stem}.csv`, 'text/csv;charset=utf-8', toCsv(sheets, doc.disclaimer.value))
   else downloadText(`${stem}.xls`, 'application/vnd.ms-excel', toExcelXml(sheets, doc.disclaimer.value))
 }
 
-const downloadPlan = () => {
-  if (shot.value) {
-    downloadDataUrl(`схема-${project.value?.name ?? 'план'}.png`, shot.value)
-    return
-  }
-  void navigateTo(`/projects/${id.value}/plan`)
-}
-
-const drawn = (layout: Layout) => layout.floors.some((floor) => floor.stations.length || floor.zones.length || floor.blocks.length)
-
-/** На кадре отчёта парк ужимается: иначе десятки процессов и сотни станций сливаются в одну простыню. */
-const frameProcess = (proc: SimProcess): SimProcess => ({
-  ...proc,
-  requiredPerHour: Math.min(proc.requiredPerHour, 8),
-  robot: { ...proc.robot, count: Math.min(Math.max(proc.robot.count, 1), 3) },
-})
-
-const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
-
-const vizFrame = ref<SimProcess[]>([])
-
-const assembleLayout = () => {
-  const processes = doc.sceneProcesses.value.map(frameProcess)
-  const saved = doc.savedLayout.value
-  const site = { ...doc.site.value, clean_area_m2: 220 }
-  const layout = saved && drawn(saved) ? plain(saved) : emptyLayout(doc.site.value)
-  const auto = !(saved && drawn(saved))
-  if (!drawn(layout)) placeShell(layout)
-  const floorId = layout.floors[0]?.id ?? ''
-  for (const proc of processes) {
-    if (proc.kind === 'none' || !floorId) continue
-    if (!processReady(layout, proc)) placeProcess(layout, floorId, proc, site)
-  }
-  vizFrame.value = processes
-  vizLayout.value = layout
-  vizFloorId.value = floorId
-  vizKey.value += 1
-  shot.value = ''
-  shotNote.value = auto
-    ? 'Кадр смены собран платформой автоматически: пол, стеллажи и станции расставлены по параметрам объекта, роботы выбранного парка поставлены на маршруты.'
-    : 'Кадр смены снят со сохранённой схемы объекта. Роботы выбранного парка расставлены по станциям автоматически.'
-}
-
-watch(() => [doc.ready.value, doc.sceneProcesses.value.map((item) => item.code).join('|'), doc.savedLayout.value?.floors.length ?? 0], () => {
-  if (!doc.ready.value) return
-  assembleLayout()
-}, { immediate: true })
-
-const vizProcesses = computed(() => Object.fromEntries(vizFrame.value.map((item) => [item.code, item])) as Record<string, SimProcess>)
-const vizColors = computed(() => Object.fromEntries(vizFrame.value.map((item, index) => [item.code, PALETTE[index % PALETTE.length]!])))
-const legend = computed(() => doc.robots.value.map((robot, index) => ({
-  key: robot.key,
-  name: robot.name,
-  process: robot.process,
-  color: PALETTE[index % PALETTE.length]!,
-})))
-
-const onPlanReady = () => {
-  nextTick(() => {
-    const box = editor.value
-    const layout = vizLayout.value
-    if (!box || !layout) return
-    box.fit()
-    const active = vizFrame.value.filter((proc) => proc.kind !== 'none' && processReady(layout, proc))
-    try {
-      if (active.length) {
-        const sim = new Simulation({
-          layout: plain(layout),
-          processes: plain(active),
-          mode: 'normal',
-          peak: 1,
-          failureShare: 0,
-          durationS: 8 * 3600,
-          seed: 20260926,
-        })
-        sim.advance(12 * 60)
-        box.drawRobots(sim.views())
-      }
-    } catch {
-      shotNote.value = 'Схему площадки собрать удалось, роботы на кадр не встали: для части процессов нет проходимого маршрута.'
-    }
-    window.setTimeout(() => {
-      box.fit()
-      shot.value = box.exportPng() || shot.value
-    }, 80)
-    runShiftCheck(layout)
-  })
-}
-
-let worker: Worker | null = null
-const runShiftCheck = (layout: Layout) => {
-  if (import.meta.server) return
-  const processes = doc.sceneProcesses.value.filter((proc) => proc.kind !== 'none' && processReady(layout, proc))
-  if (!processes.length) { vizCheck.value = null; return }
-  const hours = Number(doc.site.value.shift_hours) || 8
-  vizChecking.value = true
-  worker ??= new Worker(new URL('../../../sim/worker.ts', import.meta.url), { type: 'module' })
-  const id = Date.now()
-  worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
-    if (event.data.id !== id) return
-    vizCheck.value = event.data
-    vizChecking.value = false
-  }
-  worker.onerror = () => { vizChecking.value = false }
-  worker.postMessage({
-    id,
-    config: {
-      layout: plain(layout),
-      processes: plain(processes),
-      mode: 'normal',
-      peak: 1,
-      failureShare: 0,
-      durationS: hours * 3600,
-      seed: 20260926,
-    },
-  })
-}
-
-const STAT_LABEL: Record<string, string> = {
-  robots: 'Роботов в модели',
-  active: 'В строю',
-  offline: 'Не в строю',
-  queued: 'В очереди',
-  requiredPerHour: 'Нужно в час',
-  donePerHour: 'Выполнено в час',
-  done: 'Выполнено за смену',
-  backlog: 'Не взято к концу смены',
-  utilization: 'Загрузка',
-  chargingShare: 'На зарядке',
-  avgWaitS: 'Среднее ожидание',
-  maxQueue: 'Максимальная очередь',
-  avgCycleS: 'Средний цикл',
-  confirmed: 'Подтверждает расчёт количества',
-}
-const STAT_SKIP = new Set(['code', 'name', 'unit', 'notes'])
-const formatStat = (key: string, value: unknown, unit: string) => {
-  if (typeof value === 'boolean') return value ? 'да' : 'нет'
-  if (value == null || value === '') return '—'
-  if (typeof value !== 'number') return String(value)
-  if (key === 'utilization' || key === 'chargingShare') return `${Math.round(value * 100)}%`
-  if (key === 'avgWaitS' || key === 'avgCycleS') return `${value.toLocaleString('ru-RU', { maximumFractionDigits: 0 })} с`
-  if (key.endsWith('PerHour')) return `${value.toLocaleString('ru-RU', { maximumFractionDigits: value >= 10 ? 1 : 2 })} ${unit}`.trim()
-  return value.toLocaleString('ru-RU', { maximumFractionDigits: 1 })
-}
-const statRows = (row: ProcessStats) => Object.entries(row)
-  .filter(([key]) => !STAT_SKIP.has(key))
-  .map(([key, value]) => ({ key, label: STAT_LABEL[key] ?? key, value: formatStat(key, value, row.unit) }))
 const sourceText = (source: string) => ({ norm: 'стандарт', project: 'значение проекта', site: 'площадка', card: 'карточка', fleet: 'парк', calc: 'расчёт' } as Record<string, string>)[source] ?? source
 /* Чувствительность как «торнадо»: полоса — куда уходит годовой эффект покупки при сдвиге допущения на ±20%,
    центр — текущий эффект. Шкала общая для всех строк, самые влиятельные допущения сверху. */
@@ -308,6 +145,65 @@ const robotGloss = computed(() => {
   }
   return rows
 })
+
+/* Подбор, экономика и what-if включаются галочками. Снятая галочка убирает раздел и из экрана, и из печати. */
+const KIND_LABEL: Record<string, string> = {
+  asis: 'Без роботизации',
+  purchase: 'Покупка',
+  raas: 'Аренда',
+}
+const showMatch = ref(true)
+/* Формулы и what-if человек включает сам. При открытии отчёта их нет. */
+const showEconomy = ref(false)
+const showWhatIf = ref(false)
+const visibleScenarios = computed(() => doc.scenarios.value)
+const visibleAdvice = computed(() => {
+  const report = doc.econ.value
+  if (!report) return null
+  const rows = report.scenarios.filter((item) => item.tco.value != null)
+  const ranked = rows.slice().sort((left, right) => (left.tco.value ?? 0) - (right.tco.value ?? 0))
+  const winner = ranked[0]
+  if (!winner) return null
+  const next = ranked[1]
+  const gap = next?.tco.value != null && winner.tco.value != null ? next.tco.value - winner.tco.value : null
+  const versus = next && gap != null
+    ? `За ${report.horizon_years} лет это ${millions(winner.tco.value)}, на ${millions(gap)} меньше, чем «${KIND_LABEL[next.key] || next.title}».`
+    : `За ${report.horizon_years} лет это ${millions(winner.tco.value)}.`
+  return {
+    headline: `Выгоднее «${KIND_LABEL[winner.key] || winner.title}»`,
+    detail: versus,
+    rows: ranked.map((item) => ({
+      key: item.key,
+      title: KIND_LABEL[item.key] || item.title,
+      tco: millions(item.tco.value),
+      gap: item.key === winner.key || winner.tco.value == null || item.tco.value == null ? (item.key === winner.key ? 'минимум' : '—') : `+${millions(item.tco.value - winner.tco.value)}`,
+      effect: item.key === 'asis' ? 'база' : millions(item.effect.value),
+      payback: item.key === 'asis' ? '—' : (item.payback.value != null ? figValue(item.payback.value, 'лет') : 'нет'),
+      winner: item.key === winner.key,
+    })),
+  }
+})
+const chartMax = computed(() => Math.max(1, ...doc.chart.value.years.flatMap((row) => row.bars.map((bar) => bar.value))))
+const formulaBlocks = computed(() => doc.formulas.value)
+const showWhatIfBlock = computed(() => showWhatIf.value && (doc.paramGroups.value.length > 0 || (doc.econ.value?.sensitivity.length ?? 0) > 0))
+const sec = computed(() => {
+  const ids: string[] = []
+  if (showMatch.value) ids.push('summary', 'robots', 'processes')
+  if (showEconomy.value && formulaBlocks.value.length) {
+    const at = showMatch.value ? 1 : 0
+    ids.splice(at, 0, 'formulas')
+  }
+  if (showWhatIfBlock.value) ids.push('whatif')
+  if (doc.limits.value.length) ids.push('limits')
+  const out: Record<string, string> = {}
+  ids.forEach((key, index) => { out[key] = String(index + 1).padStart(2, '0') })
+  return out
+})
+const showAll = () => {
+  showMatch.value = true
+  showEconomy.value = true
+  showWhatIf.value = true
+}
 </script>
 
 <template>
@@ -316,7 +212,7 @@ const robotGloss = computed(() => {
     :project="project"
     current="report"
     title="Отчёт"
-    lead="Три сценария экономики, парк с характеристиками и кадр работы роботов на объекте."
+    lead="Отметьте, что включить в отчёт: подбор, формулы и what-if."
     dense
   >
     <template v-if="!doc.closed.value" #actions>
@@ -329,9 +225,6 @@ const robotGloss = computed(() => {
       <UiButton variant="secondary" class="no-print" :disabled="blocked" :title="blocked ? blockTitle : undefined" @click="exportTables('csv')">
         <template #icon><PhFileCsv :size="16" weight="duotone" /></template>CSV
       </UiButton>
-      <UiButton variant="secondary" class="no-print" :disabled="!shot" @click="downloadPlan">
-        <template #icon><PhImage :size="16" weight="duotone" /></template>Схема
-      </UiButton>
     </template>
 
     <UiCallout v-if="doc.role.value === 'guest'" class="no-print" tone="info">Это демо-отчёт. Гость может открыть и распечатать его, сохранения собственного проекта у гостя нет.</UiCallout>
@@ -343,19 +236,49 @@ const robotGloss = computed(() => {
     <section v-if="doc.pending.value && !doc.ready.value && !doc.closed.value" class="waiting glass"><div class="h3">Собираем отчёт</div></section>
     <UiCallout v-else-if="!doc.ready.value && (doc.failure.value || doc.error.value)" class="no-print" tone="danger" title="Отчёт не собрался">{{ doc.failure.value || fetchErrorMessage(doc.error.value, 'Сервер не ответил.') }}</UiCallout>
 
+    <aside v-if="doc.ready.value" class="pick no-print glass">
+      <div class="pick-head">
+        <div class="h3">Конструктор отчёта</div>
+        <button type="button" class="text-btn" @click="showAll">Включить всё</button>
+      </div>
+      <div class="pick-grid">
+        <label class="pick-item" :class="{ on: showMatch }">
+          <input v-model="showMatch" type="checkbox">
+          <span class="box" aria-hidden="true"></span>
+          <span>Подбор</span>
+        </label>
+        <label class="pick-item" :class="{ on: showEconomy }">
+          <input v-model="showEconomy" type="checkbox">
+          <span class="box" aria-hidden="true"></span>
+          <span>Экономика</span>
+        </label>
+        <label class="pick-item" :class="{ on: showWhatIf }">
+          <input v-model="showWhatIf" type="checkbox">
+          <span class="box" aria-hidden="true"></span>
+          <span>What-if</span>
+        </label>
+      </div>
+    </aside>
+
     <article v-if="doc.ready.value" class="report" v-reveal>
       <section class="cover">
         <div class="cover-top">
           <Logo :size="34" mint wordmark on-graphite />
           <span class="cover-mark">Предварительная экспресс-оценка</span>
         </div>
+        <figure class="cover-hero">
+          <img :src="coverSrc" :alt="objectTypeLabel[project.objectType]">
+        </figure>
         <div class="cover-title">
           <p class="cover-kicker">{{ objectTypeLabel[project.objectType] }} · {{ project.industry }}</p>
           <h2 ref="coverTitle" class="cover-h">{{ project.name }}</h2>
         </div>
-        <figure class="cover-hero">
-          <img :src="coverSrc" :alt="objectTypeLabel[project.objectType]">
-        </figure>
+        <div class="cover-object">
+          <p class="cover-about">{{ objectAbout }}</p>
+          <dl v-if="doc.params.value.length" class="cover-params">
+            <div v-for="item in doc.params.value" :key="item.label"><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></div>
+          </dl>
+        </div>
         <footer class="cover-foot">
           <span>{{ doc.today.value }}</span>
           <span>каталог {{ project.catalogVersion }}</span>
@@ -369,16 +292,16 @@ const robotGloss = computed(() => {
           <p><span class="strong">{{ doc.disclaimer.value }}</span> Числа, формулы и допущения взяты из расчёта экономики и what-if. Если в модели появится новое поле или изменится формула, отчёт покажет их так же, как экран расчёта.</p>
         </div>
 
-        <section v-if="doc.advice.value" class="advice" :class="{ asis: doc.advice.value.rows.find((row) => row.winner)?.key === 'asis' }">
+        <section v-if="showMatch && visibleAdvice" class="advice" :class="{ asis: visibleAdvice.rows.find((row) => row.winner)?.key === 'asis' }">
           <p class="advice-kicker">Что выгоднее</p>
-          <h3>{{ doc.advice.value.headline }}</h3>
-          <p>{{ doc.advice.value.detail }}</p>
+          <h3>{{ visibleAdvice.headline }}</h3>
+          <p>{{ visibleAdvice.detail }}</p>
           <table class="table advice-table">
             <thead>
               <tr><th>Сценарий</th><th class="num">TCO</th><th class="num">К лучшему</th><th class="num">Эффект</th><th class="num">Окупаемость</th></tr>
             </thead>
             <tbody>
-              <tr v-for="row in doc.advice.value.rows" :key="row.key" :class="{ best: row.winner }">
+              <tr v-for="row in visibleAdvice.rows" :key="row.key" :class="{ best: row.winner }">
                 <td><b>{{ row.title }}</b></td>
                 <td class="num">{{ row.tco }}</td>
                 <td class="num">{{ row.gap }}</td>
@@ -389,9 +312,9 @@ const robotGloss = computed(() => {
           </table>
         </section>
 
-        <section class="r-sec">
+        <section v-if="showMatch && visibleScenarios.length" class="r-sec">
           <header class="sec-head">
-            <span class="sec-n">01</span>
+            <span class="sec-n">{{ sec.summary }}</span>
             <div>
               <h3 class="sec-title">Сводка сценариев</h3>
               <p class="sec-lead">Один парк в трёх режимах владения. Ниже — те же величины, что на экране экономики.</p>
@@ -399,7 +322,7 @@ const robotGloss = computed(() => {
           </header>
           <p v-if="doc.payroll.value" class="base">{{ doc.payroll.value.label }}: <b>{{ doc.payroll.value.value }}</b> в год. От этой суммы считаются эффект и сравнение затрат.</p>
           <div class="scenes">
-            <article v-for="s in doc.scenarios.value" :key="s.key" class="scene" :class="[s.key, { best: s.highlight }]">
+            <article v-for="s in visibleScenarios" :key="s.key" class="scene" :class="[s.key, { best: visibleAdvice?.rows.find((row) => row.winner)?.key === s.key }]">
               <div class="scene-top">
                 <div>
                   <h4 class="scene-name">{{ s.title }}</h4>
@@ -426,7 +349,7 @@ const robotGloss = computed(() => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="s in doc.scenarios.value" :key="`p-${s.key}`" :class="{ best: s.highlight }">
+              <tr v-for="s in visibleScenarios" :key="`p-${s.key}`" :class="{ best: visibleAdvice?.rows.find((row) => row.winner)?.key === s.key }">
                 <td><b>{{ s.title }}</b><div class="caption">{{ s.subtitle }}</div></td>
                 <td class="num">{{ s.capex }}</td>
                 <td class="num">{{ s.opex }}</td>
@@ -444,27 +367,27 @@ const robotGloss = computed(() => {
               <div v-for="row in doc.chart.value.years" :key="row.year" class="tco-row">
                 <span class="y">{{ row.year }} г.</span>
                 <span class="tco-bars">
-                  <span v-for="bar in row.bars" :key="bar.key" class="tb" :class="bar.key" :style="{ width: `${Math.max(2, (bar.value / doc.chart.value.max) * 100)}%` }"><i>{{ chartLabel(bar.value) }}</i></span>
+                  <span v-for="bar in row.bars" :key="bar.key" class="tb" :class="bar.key" :style="{ width: `${Math.max(2, (bar.value / chartMax) * 100)}%` }"><i>{{ chartLabel(bar.value) }}</i></span>
                 </span>
               </div>
             </div>
             <div class="legend">
               <span><i class="sw asis" /> Без роботизации</span>
               <span><i class="sw purchase" /> Покупка</span>
-              <span><i class="sw raas" /> Аренда (RaaS)</span>
+              <span><i class="sw raas" /> Аренда</span>
             </div>
           </div>
         </section>
 
-        <section class="r-sec">
+        <section v-if="showEconomy && formulaBlocks.length" class="r-sec">
           <header class="sec-head">
-            <span class="sec-n">02</span>
+            <span class="sec-n">{{ sec.formulas }}</span>
             <div>
               <h3 class="sec-title">Формулы и подстановка</h3>
               <p class="sec-lead">Каждая величина экономики: формула, числа и источник. Список строится по ответу расчёта, а не по фиксированному набору статей.</p>
             </div>
           </header>
-          <article v-for="block in doc.formulas.value" :key="block.key" class="formula-block">
+          <article v-for="block in formulaBlocks" :key="block.key" class="formula-block">
             <h4>{{ block.title }}</h4>
             <div class="formula-grid">
               <template v-for="(part, index) in block.parts" :key="`${block.key}-${part.title}-${index}`">
@@ -481,12 +404,12 @@ const robotGloss = computed(() => {
           </article>
         </section>
 
-        <section class="r-sec">
+        <section v-if="showMatch" class="r-sec">
           <header class="sec-head">
-            <span class="sec-n">03</span>
+            <span class="sec-n">{{ sec.robots }}</span>
             <div>
               <h3 class="sec-title">Роботы парка</h3>
-              <p class="sec-lead">Один выбранный робот на процесс: фото, количество, числовые ТТХ и подстановка своей формулы. Общие пояснения к величинам — один раз над списком.</p>
+              <p class="sec-lead">Один выбранный робот на процесс: фото, количество и числовые ТТХ. Формула робота появляется вместе с разделом «Экономика».</p>
             </div>
           </header>
           <ul v-if="robotGloss.length" class="robot-gloss">
@@ -504,81 +427,19 @@ const robotGloss = computed(() => {
                 </dl>
                 <p v-else class="note">В карточке нет числовых ТТХ.</p>
                 <p v-if="robot.note" class="note">{{ robot.note }}</p>
-                <EconFormula v-if="robot.fig" mini brief :fig="robot.fig" />
+                <EconFormula v-if="showEconomy && robot.fig" mini brief :fig="robot.fig" />
               </div>
             </article>
           </div>
           <p v-else class="note">В расчёт не вошёл ни один робот.</p>
         </section>
 
-        <section class="r-sec">
+        <section v-if="showMatch && doc.processes.value.length" class="r-sec">
           <header class="sec-head">
-            <span class="sec-n">04</span>
-            <div>
-              <h3 class="sec-title">Визуализация</h3>
-              <p class="sec-lead">{{ shotNote }} На кадре до трёх машин каждого процесса: так видны маршруты, а не вся численность парка.</p>
-            </div>
-          </header>
-          <figure class="viz">
-            <img v-if="shot" :src="shot" alt="Автоматически собранная схема работы роботов на объекте">
-            <div v-else class="viz-wait">Собираем схему и расставляем роботов…</div>
-          </figure>
-          <ul v-if="legend.length" class="legend robots-legend">
-            <li v-for="item in legend" :key="item.key"><i :style="{ background: item.color }" />{{ item.process }} · {{ item.name }}</li>
-          </ul>
-          <p v-if="vizChecking" class="note">Считаем смену целиком: те же показатели, что в мониторе визуализации.</p>
-          <div v-if="vizCheck" class="shift">
-            <article v-for="row in vizCheck.stats.processes" :key="row.code" class="shift-card">
-              <header>
-                <h4>{{ row.name }}</h4>
-                <span class="shift-flag" :class="{ ok: row.confirmed }">{{ row.confirmed ? 'подтверждает расчёт' : 'не подтверждает расчёт' }}</span>
-              </header>
-              <p v-if="doc.sceneProcesses.value.find((proc) => proc.code === row.code)?.basis" class="note">{{ doc.sceneProcesses.value.find((proc) => proc.code === row.code)?.basis }}</p>
-              <dl>
-                <div v-for="cell in statRows(row)" :key="cell.key"><dt>{{ cell.label }}</dt><dd>{{ cell.value }}</dd></div>
-                <div><dt>Минимум по модели</dt><dd>{{ vizCheck.minimal[row.code] == null ? 'не найден' : `${vizCheck.minimal[row.code]} шт.` }}</dd></div>
-              </dl>
-              <ul v-if="row.notes.length">
-                <li v-for="note in row.notes" :key="note">{{ note }}</li>
-              </ul>
-            </article>
-          </div>
-        </section>
-
-        <section v-if="doc.paramGroups.value.length" class="r-sec">
-          <header class="sec-head">
-            <span class="sec-n">05</span>
-            <div>
-              <h3 class="sec-title">Допущения what-if</h3>
-              <p class="sec-lead">Все коэффициенты расчёта: значение, стандарт, источник и обоснование. Новая группа или поле из админки появятся здесь сами.</p>
-            </div>
-          </header>
-          <div v-for="group in doc.paramGroups.value" :key="group.id" class="assume">
-            <div class="label">{{ group.label }}</div>
-            <article v-for="item in group.items" :key="item.key" class="assume-row">
-              <div class="assume-h">
-                <UiTex :tex="item.symbol" class="assume-sym" />
-                <span class="strong" :class="{ 'cost-accent': isAccent(item.key, item.label) }">{{ item.label }}</span>
-                <b>{{ item.value.toLocaleString('ru-RU') }} {{ item.unit }}</b>
-                <UiBadge :tone="SOURCE_TONE[item.source]" size="sm">{{ sourceText(item.source) }}</UiBadge>
-              </div>
-              <dl>
-                <div><dt>Стандарт</dt><dd>{{ item.standard.toLocaleString('ru-RU') }} {{ item.unit }}</dd></div>
-                <div><dt>Диапазон</dt><dd>{{ item.min.toLocaleString('ru-RU') }} … {{ item.max.toLocaleString('ru-RU') }}</dd></div>
-                <div v-if="item.overridden"><dt>Для проекта</dt><dd>значение заменено</dd></div>
-              </dl>
-              <p>{{ item.rationale }}</p>
-              <p class="note">{{ item.origin }}</p>
-            </article>
-          </div>
-        </section>
-
-        <section v-if="doc.processes.value.length" class="r-sec">
-          <header class="sec-head">
-            <span class="sec-n">06</span>
+            <span class="sec-n">{{ sec.processes }}</span>
             <div>
               <h3 class="sec-title">Экономика по процессам</h3>
-              <p class="sec-lead">Те же коэффициенты, что в допущениях, но эффект и затраты разложены по процессам: у каждого своя доля ФОТ и свой робот. Если покупка не окупается, ниже — что нужно изменить.</p>
+              <p class="sec-lead">Эффект и затраты по каждому процессу: доля ФОТ, покупка и аренда.</p>
             </div>
           </header>
           <table class="table proc-table">
@@ -605,22 +466,43 @@ const robotGloss = computed(() => {
               </tr>
             </tbody>
           </table>
-          <article v-for="row in doc.processes.value.filter((item) => item.suggestions.length)" :key="`${row.key}-fix`" class="proc-fix">
-            <h4>{{ row.name }}: что меняет окупаемость</h4>
-            <ul>
-              <li v-for="hint in row.suggestions" :key="hint.key">{{ hint.label }}: {{ hint.change }}. Эффект {{ hint.effect }}, окупаемость {{ hint.payback }}.</li>
-            </ul>
-          </article>
         </section>
 
-        <section v-if="doc.econ.value?.sensitivity.length" class="r-sec">
+        <section v-if="showWhatIfBlock" class="r-sec">
           <header class="sec-head">
-            <span class="sec-n">07</span>
+            <span class="sec-n">{{ sec.whatif }}</span>
             <div>
-              <h3 class="sec-title">Чувствительность</h3>
-              <p class="sec-lead">Каждое допущение по очереди сдвигаем на 20% вниз и вверх, остальные оставляем как есть. Полоса показывает, как меняется годовой эффект покупки: вправо — растёт, влево — падает. Чем длиннее полоса, тем сильнее допущение влияет на результат. Самые влиятельные сверху.</p>
+              <h3 class="sec-title">What-if</h3>
+              <p class="sec-lead">Допущения расчёта и то, как годовой эффект покупки меняется, если сдвинуть каждое из них на 20%.</p>
             </div>
           </header>
+          <div v-for="group in doc.paramGroups.value" :key="group.id" class="assume">
+            <div class="label">{{ group.label }}</div>
+            <article v-for="item in group.items" :key="item.key" class="assume-row">
+              <div class="assume-h">
+                <UiTex :tex="item.symbol" class="assume-sym" />
+                <span class="strong" :class="{ 'cost-accent': isAccent(item.key, item.label) }">{{ item.label }}</span>
+                <b>{{ item.value.toLocaleString('ru-RU') }} {{ item.unit }}</b>
+                <UiBadge :tone="SOURCE_TONE[item.source]" size="sm">{{ sourceText(item.source) }}</UiBadge>
+              </div>
+              <dl>
+                <div><dt>Стандарт</dt><dd>{{ item.standard.toLocaleString('ru-RU') }} {{ item.unit }}</dd></div>
+                <div><dt>Диапазон</dt><dd>{{ item.min.toLocaleString('ru-RU') }} … {{ item.max.toLocaleString('ru-RU') }}</dd></div>
+                <div v-if="item.overridden"><dt>Для проекта</dt><dd>значение заменено</dd></div>
+              </dl>
+              <p>{{ item.rationale }}</p>
+              <p class="note">{{ item.origin }}</p>
+            </article>
+          </div>
+          <template v-if="doc.processes.value.some((item) => item.suggestions.length)">
+            <article v-for="row in doc.processes.value.filter((item) => item.suggestions.length)" :key="`${row.key}-fix`" class="proc-fix">
+              <h4>{{ row.name }}: что меняет окупаемость</h4>
+              <ul>
+                <li v-for="hint in row.suggestions" :key="hint.key">{{ hint.label }}: {{ hint.change }}. Эффект {{ hint.effect }}, окупаемость {{ hint.payback }}.</li>
+              </ul>
+            </article>
+          </template>
+          <template v-if="doc.econ.value?.sensitivity.length">
           <p v-if="sensBase" class="base">Сейчас эффект покупки <b>{{ sensBase.effect }}</b> в год, окупаемость: <b>{{ sensBase.payback }}</b>. Это центральная линия на полосах.</p>
           <table class="table sens-table">
             <thead>
@@ -648,24 +530,12 @@ const robotGloss = computed(() => {
             </tbody>
           </table>
           <div class="legend"><span><i class="sw good" /> эффект растёт</span><span><i class="sw bad" /> эффект падает</span><span><i class="sw mid" /> текущий эффект</span></div>
-        </section>
-
-        <section v-if="doc.params.value.length" class="r-sec">
-          <header class="sec-head">
-            <span class="sec-n">08</span>
-            <div>
-              <h3 class="sec-title">Параметры объекта</h3>
-              <p class="sec-lead">Исходные данные площадки, на которых посчитана экономика.</p>
-            </div>
-          </header>
-          <dl class="kv">
-            <div v-for="item in doc.params.value" :key="item.label"><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></div>
-          </dl>
+          </template>
         </section>
 
         <section v-if="doc.limits.value.length" class="r-sec">
           <header class="sec-head">
-            <span class="sec-n">09</span>
+            <span class="sec-n">{{ sec.limits }}</span>
             <div><h3 class="sec-title">Оговорки расчёта</h3></div>
           </header>
           <ol class="limits">
@@ -679,33 +549,6 @@ const robotGloss = computed(() => {
         </footer>
       </div>
     </article>
-
-    <div v-if="vizLayout" class="plan-off" aria-hidden="true">
-      <ClientOnly>
-        <PlanEditor
-          :key="vizKey"
-          ref="editor"
-          :layout="vizLayout"
-          :floor-id="vizFloorId"
-          mode="view"
-          tool="hand"
-          process=""
-          station-kind="load"
-          station-item=""
-          link-kind="elevator"
-          pending-link=""
-          :colors="vizColors"
-          :processes="vizProcesses"
-          :visibility="emptyVisibility"
-          highlight=""
-          :calibrate-meters="10"
-          :selection="[]"
-          :focus-robot="null"
-          :snap="true"
-          @ready="onPlanReady"
-        />
-      </ClientOnly>
-    </div>
   </ProjectShell>
   <section v-else class="container gone">
     <UiCallout tone="danger" title="Проект не найден">Нет сохранённого расчёта с таким адресом.</UiCallout>
@@ -714,6 +557,62 @@ const robotGloss = computed(() => {
 
 <style scoped>
 .waiting { padding: var(--space-8); }
+.pick { display: grid; gap: 14px; padding: 18px 20px; margin-bottom: 16px; }
+.pick > * { position: relative; z-index: 1; }
+.pick-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.pick-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Галочка как пункт меню: серая, пока выключена, графитовая с зелёной отметкой, когда включена. */
+.pick-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 0 16px 0 12px;
+  border-radius: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--ink-body);
+  background: rgba(15, 20, 19, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.08);
+  cursor: pointer;
+}
+.pick-item.on {
+  background: var(--surface-graphite);
+  color: var(--ink-on-graphite);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+.pick-item input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+}
+.pick-item .box {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.pick-item.on .box { background: var(--brand-400); box-shadow: none; color: var(--brand-900); }
+.pick-item.on .box::after {
+  content: "";
+  width: 8px;
+  height: 5px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-1px) rotate(-45deg);
+}
+.pick-item:focus-within { box-shadow: inset 0 0 0 1px var(--focus-ring), 0 0 0 3px rgba(13, 132, 85, 0.18); }
+.pick-lines { display: grid; gap: 12px; }
+.pick-lines summary { font-weight: 700; cursor: pointer; }
+.pick-block { padding-top: 4px; }
+.text-btn { color: var(--brand-700); font-weight: 700; white-space: nowrap; }
 .waiting > * { position: relative; z-index: 1; }
 .gone { padding-top: var(--space-12); }
 .go { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; }
@@ -729,19 +628,17 @@ const robotGloss = computed(() => {
 
 .cover {
   display: grid;
-  grid-template-columns: minmax(280px, 0.92fr) minmax(360px, 1.15fr);
-  grid-template-rows: auto auto auto;
-  align-items: start;
-  gap: 14px 28px;
+  grid-template-columns: 1fr;
+  gap: 14px;
   padding: 22px 26px;
   background:
     radial-gradient(90% 70% at 88% 0%, rgba(43, 209, 141, 0.18), transparent 55%),
     linear-gradient(180deg, #1c2421 0%, #121817 100%);
   color: var(--ink-on-graphite);
 }
-.cover-top { grid-column: 1; grid-row: 1; display: flex; justify-content: flex-start; align-items: center; gap: 14px; }
+.cover-top { display: flex; justify-content: flex-start; align-items: center; gap: 14px; }
 .cover-mark { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--brand-300); }
-.cover-title { grid-column: 1; grid-row: 2; display: grid; gap: 6px; min-width: 0; }
+.cover-title { display: grid; gap: 6px; min-width: 0; }
 .cover-kicker { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-muted-graphite); }
 .cover-h {
   margin: 0;
@@ -755,9 +652,15 @@ const robotGloss = computed(() => {
   white-space: nowrap;
   overflow: hidden;
 }
-.cover-hero { grid-column: 2; grid-row: 1 / span 3; align-self: stretch; position: relative; margin: 0; min-height: 180px; border-radius: 16px; overflow: hidden; }
+.cover-hero { position: relative; margin: 0; height: 220px; min-height: 180px; border-radius: 16px; overflow: hidden; }
 .cover-hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.cover-foot { grid-column: 1; grid-row: 3; display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; color: var(--ink-muted-graphite); }
+.cover-object { display: grid; gap: 10px; }
+.cover-about { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ink-on-graphite); }
+.cover-params { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 18px; margin: 0; }
+.cover-params > div { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; min-width: 0; }
+.cover-params dt { color: var(--ink-muted-graphite); font-size: 12px; }
+.cover-params dd { margin: 0; text-align: right; color: var(--ink-on-graphite); font-family: var(--font-mono); font-size: 12px; }
+.cover-foot { display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; color: var(--ink-muted-graphite); }
 
 .r-in { padding: 18px 22px 22px; display: grid; gap: 16px; color: var(--ink-body); font-size: clamp(13px, 0.85vw, 15px); line-height: 1.4; }
 .disclaimer { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: var(--state-warn-tint); color: #5c3700; font-size: 13.5px; line-height: 1.45; }
@@ -817,10 +720,10 @@ const robotGloss = computed(() => {
 .assume-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .assume-h b { margin-left: auto; font-family: var(--font-mono); font-weight: 600; font-size: 13px; }
 .assume-sym { color: var(--ink-muted); }
-.assume-row dl, .shift-card dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px 12px; margin: 0; }
+.assume-row dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px 12px; margin: 0; }
 .assume-row p { margin: 0; font-size: 12.5px; }
-.assume-row dt, .shift-card dt { color: var(--ink-muted); font-size: 12px; }
-.assume-row dd, .shift-card dd { margin: 0; font-family: var(--font-mono); font-size: 13px; color: var(--ink-strong); }
+.assume-row dt { color: var(--ink-muted); font-size: 12px; }
+.assume-row dd { margin: 0; font-family: var(--font-mono); font-size: 13px; color: var(--ink-strong); }
 
 .sens-table { width: 100%; }
 .sens-table td { vertical-align: middle; }
@@ -833,13 +736,6 @@ const robotGloss = computed(() => {
 .tornado em { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--ink-strong); }
 .sw.mid { width: 2px; height: 12px; border-radius: 0; background: var(--ink-strong); vertical-align: -2px; }
 .tornado-v { display: flex; justify-content: space-between; gap: 8px; margin-top: 3px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-muted); white-space: nowrap; }
-.shift { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.shift-card { display: grid; gap: 4px; padding: 8px 10px; border: 1px solid var(--border-hairline); border-radius: 10px; background: var(--surface-raised); }
-.shift-card h4 { margin: 0; font-size: 15px; color: var(--ink-strong); }
-.shift-card header { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
-.shift-flag { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: #8a5a12; }
-.shift-flag.ok { color: var(--brand-700); }
-.shift-card ul { margin: 0; padding-left: 18px; color: var(--ink-muted); font-size: 12.5px; }
 .robot-body :deep(.formula) { margin-top: 4px; }
 
 .scenes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
@@ -895,11 +791,6 @@ const robotGloss = computed(() => {
 .specs dt::after { content: ':'; }
 .specs dd { margin: 0; font-family: var(--font-mono); font-size: clamp(11px, 0.75vw, 12.5px); color: var(--ink-strong); }
 
-.viz { margin: 0; border-radius: 14px; overflow: hidden; background: #e7ecea; border: 1px solid var(--border-hairline); min-height: 220px; }
-.viz img { display: block; width: 100%; height: auto; }
-.viz-wait { min-height: 220px; display: grid; place-items: center; color: var(--ink-muted); font-size: 14px; }
-.robots-legend li { display: inline-flex; align-items: center; }
-
 .kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 20px; margin: 0; }
 .kv > div { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
 .kv dt { color: var(--ink-muted); font-size: 13px; }
@@ -910,7 +801,6 @@ const robotGloss = computed(() => {
 .n { width: 22px; height: 22px; border-radius: 7px; background: var(--surface-graphite); color: var(--brand-300); display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 11px; }
 .r-foot { padding-top: 4px; border-top: 1px solid var(--border-hairline); display: grid; gap: 4px; font-size: 12.5px; line-height: 1.45; color: var(--ink-muted); }
 .r-foot .strong { color: var(--ink-strong); }
-.plan-off { position: fixed; left: -2400px; top: 0; width: 1200px; height: 720px; pointer-events: none; }
 
 @media (min-width: 1500px) {
   .robots { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -920,9 +810,9 @@ const robotGloss = computed(() => {
   .kv { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 800px) {
-  .cover { grid-template-columns: 1fr; grid-template-rows: auto; padding: 20px; gap: 16px; }
-  .cover-top, .cover-title, .cover-hero, .cover-foot { grid-column: auto; grid-row: auto; }
-  .cover-hero { min-height: 180px; }
+  .cover { padding: 20px; gap: 16px; }
+  .cover-hero { height: 180px; min-height: 160px; }
+  .cover-params { grid-template-columns: 1fr; }
   .r-in { padding: 20px; gap: 22px; }
   .formula-grid, .scenes, .robots { grid-template-columns: 1fr; }
 }
@@ -936,52 +826,65 @@ const robotGloss = computed(() => {
     border-radius: 0;
     background: #fff;
   }
+  /* Первый лист на всю страницу A4, без белых полей. Картинка забирает свободное место, текст остаётся внизу. */
   .cover {
     position: relative;
     display: flex;
     flex-direction: column;
-    justify-content: flex-end;
-    width: 100%;
-    height: 297mm;
-    max-height: 297mm;
     box-sizing: border-box;
-    overflow: hidden;
+    width: 210mm;
+    height: 297mm;
+    min-height: 297mm;
+    max-height: 297mm;
     margin: 0;
     padding: 0;
     gap: 0;
+    overflow: hidden;
     border-radius: 0;
     break-after: page;
     page-break-after: always;
+    break-inside: avoid;
+    page-break-inside: avoid;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
   .cover-hero {
-    position: absolute;
-    inset: 0;
-    width: auto;
+    position: relative;
+    inset: auto;
+    flex: 1 1 auto;
+    width: 100%;
     height: auto;
-    min-height: 0;
+    min-height: 60mm;
     margin: 0;
     border-radius: 0;
+    overflow: hidden;
     z-index: 0;
   }
   .cover-hero::after {
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(180deg, rgba(10, 14, 13, 0.78) 0%, rgba(10, 14, 13, 0.18) 42%, rgba(10, 14, 13, 0.82) 100%);
+    background: linear-gradient(180deg, rgba(10, 14, 13, 0.28), rgba(10, 14, 13, 0.55));
   }
-  .cover-hero img { position: absolute; inset: 0; }
-  .cover-top, .cover-title, .cover-foot { position: relative; z-index: 1; grid-column: auto; grid-row: auto; width: auto; max-width: none; }
-  .cover-top { position: absolute; top: 0; left: 0; right: 0; padding: 14mm 16mm 0; }
-  .cover-title { padding: 0 16mm 6mm; }
-  .cover-foot { padding: 0 16mm 14mm; }
-  .cover-h { font-size: 34px !important; line-height: 1.12; white-space: normal !important; overflow: visible !important; }
+  .cover-hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .cover-top, .cover-title, .cover-object, .cover-foot { position: relative; z-index: 1; width: auto; max-width: none; flex: 0 0 auto; }
+  .cover-top { position: absolute; top: 0; left: 0; right: 0; padding: 6mm 10mm 0; }
+  .cover-title, .cover-object, .cover-foot { padding: 3mm 10mm; background: #121817; }
+  .cover-about { font-size: 10px; line-height: 1.3; }
+  .cover-params { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1mm 3mm; }
+  .cover-params dt, .cover-params dd { font-size: 7.5px; line-height: 1.2; overflow-wrap: anywhere; }
+  .cover-h { font-size: 22px !important; line-height: 1.15; white-space: normal !important; overflow: visible !important; overflow-wrap: anywhere; }
+  /* В печать попадает только то, что осталось после галочек: снятые блоки уже не в странице. */
+  .pick, .no-print { display: none !important; }
+  .report, .r-in, .r-sec, .formula-tile, .robot, .cover, img {
+    max-width: 100%;
+  }
+  img { height: auto; object-fit: contain; }
   /* Сетки и flex Chrome режет по страницам ненадёжно: плитки наезжают на следующий блок.
      В печати поток блочный, а плитки — строчные блоки: строка из двух плиток переносится целиком. */
   /* Лист без полей ради обложки в край; поля остальных страниц — отступы тела, повторённые на каждом фрагменте. */
   .r-in {
-    display: block; padding: 12mm 14mm; font-size: 10.5px; line-height: 1.35; overflow: visible;
+    display: block; padding: 8mm 10mm; font-size: 9.5px; line-height: 1.3; overflow: visible;
     -webkit-box-decoration-break: clone; box-decoration-break: clone;
   }
   .r-in > * + * { margin-top: 5mm; }
@@ -1002,8 +905,8 @@ const robotGloss = computed(() => {
   .r-in table { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; }
   .r-in thead { display: table-header-group; }
   .r-in tr { break-inside: avoid; page-break-inside: avoid; }
-  .r-in th, .r-in td { font-size: 9px; line-height: 1.3; padding: 3px 4px; vertical-align: top; overflow-wrap: anywhere; }
-  .r-in td.num, .r-in th.num { white-space: nowrap; overflow-wrap: normal; }
+  .r-in th, .r-in td { font-size: 8.5px; line-height: 1.25; padding: 2px 3px; vertical-align: top; overflow-wrap: anywhere; }
+  .r-in td.num, .r-in th.num { white-space: normal; overflow-wrap: anywhere; }
   .r-in td .caption { font-size: 8.5px; line-height: 1.3; }
   .scenes-print th:first-child, .proc-table th:first-child { width: 30%; }
   .scenes-print tr.best td, .advice-table tr.best td, .proc-table tr.best td { background: #e8f7ef; }
@@ -1011,16 +914,17 @@ const robotGloss = computed(() => {
   /* Плитки формул разной высоты: две колонки потока укладывают их плотно, без пустот под короткой плиткой. */
   .formula-grid { display: block; columns: 2; column-gap: 3mm; }
   .formula-grid:has(> .formula-tile:only-child) { columns: auto; }
-  .formula-tile { display: block; height: auto; margin: 0 0 3mm; padding: 2mm; break-inside: avoid; page-break-inside: avoid; }
-  .robots, .shift { display: block; margin-left: -1.5mm; margin-right: -1.5mm; }
-  .robot, .shift-card {
+  .formula-tile { display: block; height: auto; margin: 0 0 2mm; padding: 1.5mm; break-inside: avoid; page-break-inside: avoid; overflow: visible; }
+  .formula-tile :deep(.katex) { font-size: 8pt; }
+  .robots { display: block; margin-left: 0; margin-right: 0; }
+  .robot {
     vertical-align: top; box-sizing: border-box;
-    width: calc(50% - 3mm); height: auto; margin: 0 1.5mm 3mm;
+    width: calc(50% - 2mm); height: auto; margin: 0 1mm 2mm;
     break-inside: avoid; page-break-inside: avoid;
+    overflow: visible;
   }
-  .robot { display: inline-grid; grid-template-columns: 40px minmax(0, 1fr); padding: 2mm; }
-  .robot img { width: 40px; height: 34px; }
-  .shift-card { display: inline-grid; }
+  .robot { display: inline-grid; grid-template-columns: 28px minmax(0, 1fr); padding: 1.5mm; }
+  .robot img { width: 28px; height: 24px; object-fit: cover; }
 
   .assume-row dl { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .sens-table th:first-child { width: 30%; }
@@ -1028,22 +932,18 @@ const robotGloss = computed(() => {
   .base { font-size: 11px; }
   .tornado { height: 9px; }
   .tornado-v { font-size: 8px; }
-  .shift-card dl { grid-template-columns: 1fr 1fr; }
-  .assume-row, .proc-fix, .chart, .kv > div, .limits li { break-inside: avoid; page-break-inside: avoid; }
+  .assume-row, .proc-fix, .chart, .cover-params > div, .limits li { break-inside: avoid; page-break-inside: avoid; }
   .chart { display: block; }
   .chart > * + * { margin-top: 2mm; }
-  .viz { break-inside: avoid; page-break-inside: avoid; overflow: visible; min-height: 0; }
-  .viz img { max-width: 100%; height: auto; }
-  .kv { grid-template-columns: 1fr 1fr 1fr; }
   .limits { gap: 2px; }
   .limits li { font-size: 10px; }
   .n { width: 14px; height: 14px; font-size: 8px; }
   .note, .r-foot, .legend { font-size: 9px; }
   .r-foot { break-inside: avoid; }
-  .plan-off { display: none !important; }
   :deep(.callout) { display: none !important; }
   :deep(.katex-display),
   :deep(.tex.block) { overflow: visible; max-width: 100%; }
-  :deep(.katex-html) { white-space: normal; }
+  :deep(.katex-html) { white-space: normal; overflow-wrap: anywhere; }
+  .cover-hero img { height: 100% !important; object-fit: cover !important; }
 }
 </style>
