@@ -175,6 +175,7 @@ def process_setup(db: Session, process_code: str) -> dict:
     return {
         "code": process.code,
         "name": process.name,
+        "description": process.description or "",
         "product_count": product_count,
         "filters": filters,
         "count_inputs": process.count_inputs or [],
@@ -193,6 +194,8 @@ def save_process_setup(db: Session, process_code: str, payload: dict) -> dict:
         raise KeyError(process_code)
     if (payload.get("name") or "").strip():
         process.name = payload["name"].strip()
+    if payload.get("description") is not None:
+        process.description = payload["description"].strip()
     process.count_formula = payload.get("count_formula") or ""
     process.count_inputs = payload.get("count_inputs") or []
     process.rank_key = payload.get("rank_key") or ""
@@ -709,11 +712,14 @@ def project_view(db: Session, project_id: UUID) -> dict:
         .where(ProjectProcessRow.project_id == project.id)
         .order_by(ProcessRow.name)
     )
+    robots = dict(db.execute(select(ProductProcessRow.process_id, func.count()).group_by(ProductProcessRow.process_id)).all())
     for process, enabled, reason in db.execute(stmt):
         filters = list(db.scalars(select(ProcessFilterRow).where(ProcessFilterRow.process_id == process.id)))
         processes.append({
             "code": process.code,
             "name": process.name,
+            "description": process.description or "",
+            "product_count": int(robots.get(process.id, 0)),
             "enabled": enabled,
             "disabled_reason": None if enabled else reason,
             "filters": [

@@ -116,6 +116,8 @@ class ProcessRow(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     code: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    # Одна-две фразы для пользователя на шаге выбора процессов: что роботы сделают за людей.
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     count_formula: Mapped[str] = mapped_column(Text, nullable=False, default="")
     count_inputs: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     rank_key: Mapped[str] = mapped_column(Text, nullable=False, default="")

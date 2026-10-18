@@ -30,6 +30,7 @@ interface LinkedObject { code: string; name: string; bindings: Record<string, st
 interface Setup {
   code: string
   name: string
+  description: string
   product_count: number
   filters: StoredFilter[]
   count_inputs: Input[]
@@ -348,6 +349,7 @@ const payload = () => {
   }
   return {
     name: draft.value.name,
+    description: draft.value.description ?? '',
     filters: compiled,
     count_inputs: countInputs,
     count_formula: countLocked.value || compileCount(),
@@ -486,6 +488,11 @@ const formatSite = (value: unknown) => (value === null || value === undefined ||
                 <UiButton :disabled="saving" @click="save">{{ saving ? 'Сохраняем…' : 'Сохранить' }}</UiButton>
               </div>
             </div>
+            <label class="a-fld desc">
+              <span class="caption">Описание для пользователя · видно на шаге «Что роботизируем»</span>
+              <textarea v-model="draft.description" class="input" rows="3" maxlength="400" placeholder="Например: Подберите роботов, которые будут мыть полы в залах и коридорах по расписанию." />
+              <span class="caption">Одна-две фразы: что роботы сделают вместо людей. {{ (draft.description ?? '').length }}/400</span>
+            </label>
             <div class="a-chips">
               <span class="caption">Объекты:</span>
               <NuxtLink v-for="obj in draft.objects" :key="obj.code" :to="`/admin/objects?code=${obj.code}`" class="a-pill ok">{{ obj.name }}</NuxtLink>
@@ -766,6 +773,8 @@ const formatSite = (value: unknown) => (value === null || value === undefined ||
 .editor { display: grid; gap: var(--space-5); min-width: 0; }
 .rail { position: sticky; top: 96px; display: grid; gap: var(--space-4); max-height: calc(100vh - 110px); overflow: auto; }
 .name { max-width: 460px; }
+.desc { max-width: 760px; }
+.desc textarea { height: auto; min-height: 84px; padding-top: 10px; padding-bottom: 10px; font-size: 15px; line-height: 1.45; resize: vertical; }
 .save { display: flex; gap: 12px; align-items: center; }
 .warn-t { color: var(--state-warn); }
 .sep { margin-left: 10px; }

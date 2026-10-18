@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { skippedAlerts } from '~/composables/usePlatformCompare'
 import { PhArrowRight, PhCaretDown } from '@phosphor-icons/vue'
 import { photoFor } from '~/data/placeholders'
 import {
@@ -152,6 +153,7 @@ const fleetOpen = ref(false)
   <ProjectShell
     v-if="project"
     :project="project"
+    :alerts="skippedAlerts(skipped)"
     current="economics"
     title="Экономика: три сценария"
     lead="Без роботизации, покупка и аренда. Выберите процесс, чтобы посмотреть его окупаемость отдельно. Если покупка не окупается, подберите допущения или меру господдержки — или выключите процесс."
@@ -162,12 +164,8 @@ const fleetOpen = ref(false)
     </template>
 
     <UiCallout tone="warn" title="Предварительная оценка">{{ report?.disclaimer ?? PRELIMINARY }}</UiCallout>
-    <SkippedProcesses :rows="skipped" />
 
-    <UiCallout v-if="readonly" tone="info" title="Демо-объект · только просмотр">
-      Параметры площадки и коэффициенты задал администратор, расчёт идёт тем же движком, что и в ваших проектах. Чтобы менять допущения, скопируйте демо в свои проекты.
-    </UiCallout>
-    <UiCallout v-else-if="isDemo" tone="info" title="Демо-объект">
+    <UiCallout v-if="isDemo && !readonly" tone="info" title="Демо-объект">
       Вы правите демо как администратор: параметры и коэффициенты сохраняются в проект и после публикации станут видны всем.
     </UiCallout>
 

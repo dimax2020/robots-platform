@@ -5,10 +5,13 @@ const props = defineProps<{
   project: Project
   current: string
   title: string
+  /** Строка под заголовком мельче него: например, текущий процесс. */
+  subtitle?: string
   lead?: string
   dense?: boolean
   substages?: { id: string; label: string; to: string }[]
   currentSub?: string
+  alerts?: Record<string, { title: string; items: string[]; note: string }>
 }>()
 const placeLabel = computed(() => {
   const object = objectTypeLabel[props.project.objectType] || props.project.objectType
@@ -28,11 +31,14 @@ const placeLabel = computed(() => {
           <UiBadge v-else-if="project.isDemo" :tone="project.published ? 'ok' : 'warn'">{{ project.published ? 'Демо · опубликовано' : 'Демо · не опубликовано' }}</UiBadge>
         </span>
       </div>
-      <ProjectSteps :project="project" :current="current" :substages="substages" :current-sub="currentSub" />
+      <DemoBanner v-if="project.isDemo && project.readonly" :project-key="project.id" />
+      <slot name="banner" />
+      <ProjectSteps :project="project" :current="current" :substages="substages" :current-sub="currentSub" :alerts="alerts" />
     </div>
     <div class="shell-title no-print" v-reveal="1">
       <div>
         <h1 class="hero-2">{{ title }}</h1>
+        <div v-if="subtitle" class="h3 subtitle">{{ subtitle }}</div>
         <p v-if="lead" class="body-lg muted lead">{{ lead }}</p>
       </div>
       <div v-if="$slots.actions" class="actions"><slot name="actions" /></div>
@@ -49,6 +55,7 @@ const placeLabel = computed(() => {
 .back:hover { color: var(--ink-strong); }
 .meta { display: flex; align-items: center; gap: 8px; }
 .shell-title { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-8); }
+.subtitle { margin-top: 6px; color: var(--ink-body); }
 .lead { max-width: 68ch; margin-top: 10px; }
 .actions { display: flex; gap: 8px; flex: none; }
 .dense { gap: var(--space-5); padding-bottom: var(--space-10); }

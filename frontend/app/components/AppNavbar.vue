@@ -15,12 +15,14 @@ const route = useRoute()
 const isActive = (p: string) => route.path === p || (p !== '/' && route.path.startsWith(p))
 
 const items = computed(() => {
-  const list: { id: MenuId; to: string; label: string; count?: number; active: boolean }[] = [
-    { id: 'catalog', to: '/catalog', label: 'Каталог', active: isActive('/catalog') && !isActive('/catalog/compare') },
-    { id: 'projects', to: '/projects', label: 'Проекты', active: isActive('/projects') },
-    { id: 'compare', to: '/catalog/compare', label: 'Сравнение', count: ids.value.length, active: isActive('/catalog/compare') },
+  // mega: у пункта есть выпадающая панель. У «Как это работает» её нет — это просто страница.
+  const list: { id: MenuId | 'how'; to: string; label: string; count?: number; active: boolean; mega: boolean }[] = [
+    { id: 'how', to: '/how', label: 'Как это работает', active: isActive('/how'), mega: false },
+    { id: 'catalog', to: '/catalog', label: 'Каталог', active: isActive('/catalog') && !isActive('/catalog/compare'), mega: true },
+    { id: 'projects', to: '/projects', label: 'Проекты', active: isActive('/projects'), mega: true },
+    { id: 'compare', to: '/catalog/compare', label: 'Сравнение', count: ids.value.length, active: isActive('/catalog/compare'), mega: true },
   ]
-  if (role.value === 'admin') list.push({ id: 'admin', to: '/admin', label: 'Админка', active: isActive('/admin') })
+  if (role.value === 'admin') list.push({ id: 'admin', to: '/admin', label: 'Админка', active: isActive('/admin'), mega: true })
   return list
 })
 
@@ -57,11 +59,12 @@ onMounted(() => {
         <Logo :size="40" />
 
         <ul class="links">
-          <li v-for="i in items" :key="i.id" @mouseenter="show(i.id)">
-            <NuxtLink :to="i.to" :class="{ on: i.active, open: open === i.id }" class="lnk" :aria-expanded="open === i.id" aria-haspopup="true" @focus="show(i.id)" @keydown.down.prevent="open = i.id">
+          <li v-for="i in items" :key="i.id" @mouseenter="i.mega ? show(i.id as MenuId) : hide()">
+            <NuxtLink v-if="!i.mega" :to="i.to" :class="{ on: i.active }" class="lnk plain">{{ i.label }}</NuxtLink>
+            <NuxtLink v-else :to="i.to" :class="{ on: i.active, open: open === i.id }" class="lnk" :aria-expanded="open === i.id" aria-haspopup="true" @focus="show(i.id as MenuId)" @keydown.down.prevent="open = i.id as MenuId">
               {{ i.label }}<span v-if="i.count" class="count">{{ i.count }}</span>
             </NuxtLink>
-            <button type="button" class="caret" :aria-label="`${open === i.id ? 'Скрыть' : 'Показать'} меню «${i.label}»`" :aria-expanded="open === i.id" @click="toggle(i.id)" @focus="keep">
+            <button v-if="i.mega" type="button" class="caret" :aria-label="`${open === i.id ? 'Скрыть' : 'Показать'} меню «${i.label}»`" :aria-expanded="open === i.id" @click="toggle(i.id as MenuId)" @focus="keep">
               <PhCaretDown :size="12" weight="bold" />
             </button>
           </li>
@@ -107,6 +110,7 @@ onMounted(() => {
 .links { display: flex; align-items: center; gap: 4px; position: relative; z-index: 1; }
 .links li { position: relative; display: inline-flex; align-items: center; }
 .lnk { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 30px 0 16px; border-radius: 12px; font-weight: 600; font-size: 16px; color: var(--ink-body); transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+.lnk.plain { padding-right: 16px; }
 .lnk:hover, .lnk.open { background: rgba(15, 20, 19, 0.05); color: var(--ink-strong); }
 .lnk.on { background: var(--surface-graphite); color: var(--ink-on-graphite); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1); }
 .caret { position: absolute; right: 6px; top: 50%; width: 18px; height: 18px; margin-top: -9px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--ink-faint); opacity: 0; transition: opacity var(--dur-fast) var(--ease), transform var(--dur-mid) var(--ease); }

@@ -42,7 +42,7 @@ const paybackText = computed(() => {
 
 const loadSummary = async () => {
   const current = record.value
-  if (!current?.can_edit) {
+  if (!current) {
     groups.value = []
     economy.value = null
     return
@@ -100,7 +100,7 @@ const togglePublish = async () => {
   }
 }
 const stepDesc: Record<string, string> = {
-  params: 'Профиль площадки и список задач',
+  params: 'Что роботизируем и данные объекта для расчёта',
   match: 'Подходит, требует проверки, исключён',
   scenarios: 'Без роботизации, по задачам, оптимальный парк',
   economics: 'CAPEX, OPEX, эффект, интервал окупаемости',

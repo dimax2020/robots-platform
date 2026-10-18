@@ -135,6 +135,12 @@ _ROLES = (
     ("pack_operators", "pack_salary_month_rub", "Операторы упаковки", r"\text{упак}"),
 )
 
+# Поля площадки, которые экономика читает при любом наборе процессов: часы парка, ФОТ, тариф и горизонт.
+SITE_KEYS = frozenset((
+    "shift_hours", "shifts_per_day", "days_year", "payroll_burden", "staff_salary_year_rub",
+    "energy_tariff_rub_kwh", "payback_years", *(key for role in _ROLES for key in role[:2]),
+))
+
 _SENSITIVE = ("price_factor", "salary_factor", "replacement_pct", "service_pct", "license_pct", "robots_per_operator", "energy_tariff")
 
 

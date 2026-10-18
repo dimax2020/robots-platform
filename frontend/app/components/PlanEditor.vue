@@ -101,7 +101,9 @@ onMounted(async () => {
   observer = new ResizeObserver(() => {
     if (!stage || !host.value) return
     stage.size({ width: host.value.clientWidth, height: host.value.clientHeight })
-    renderFloor()
+    // Пока камеру не трогали, схема держится по центру: размер блока часто доезжает уже после открытия страницы.
+    if (autoFit) fitContent()
+    else renderFloor()
   })
   observer.observe(host.value)
   stage.on('wheel', onWheel)
@@ -110,7 +112,7 @@ onMounted(async () => {
   stage.on('mouseup touchend', onUp)
   stage.on('dblclick dbltap', onDouble)
   stage.on('dragmove', (event) => { if (event.target === stage) renderFloor() })
-  stage.on('dragend', () => { zoom.value = stage!.scaleX(); emit('zoom', zoom.value) })
+  stage.on('dragend', (event) => { if (event.target === stage) autoFit = false; zoom.value = stage!.scaleX(); emit('zoom', zoom.value) })
   window.addEventListener('keydown', onKey)
   window.addEventListener('keyup', onKeyUp)
   fitContent()
@@ -127,6 +129,11 @@ onBeforeUnmount(() => {
 })
 
 watch(() => props.floorId, () => { resetDraft(); fitContent() })
+/* Этаж с объектами пришёл после открытия редактора: кадрируем его, если камеру ещё не двигали. */
+watch(() => {
+  const f = floor.value
+  return f ? `${f.id}:${f.stations.length}:${f.zones.length}:${f.blocks.length}:${f.areas.length}` : ''
+}, (key) => { if (key && autoFit) fitContent() })
 watch(() => [props.tool, props.mode], () => { resetDraft(); applyTool() })
 watch(() => props.selection, () => render())
 watch(() => [props.colors, props.visibility, props.highlight, props.pendingLink], () => render(), { deep: true })
@@ -167,9 +174,13 @@ function applyTool() {
   render()
 }
 
-/* Камера. */
+/* Камера. autoFit: схема сама держится по центру, пока пользователь не сдвинул и не приблизил её. */
+let autoFit = true
 function frameBox(x0: number, y0: number, x1: number, y1: number) {
   if (!stage || !host.value) return
+  // Блок ещё не получил размер: кадрировать не по чему, подгоним при первом ResizeObserver.
+  if (host.value.clientWidth < 80 || host.value.clientHeight < 80) return
+  autoFit = true
   const pad = 40
   const w = Math.max(4, x1 - x0)
   const h = Math.max(4, y1 - y0)
@@ -202,6 +213,7 @@ function fitContent() {
 }
 function zoomBy(factor: number, at?: { x: number; y: number }) {
   if (!stage) return
+  autoFit = false
   const old = stage.scaleX()
   const next = Math.max(0.5, Math.min(80, old * factor))
   const point = at ?? { x: stage.width() / 2, y: stage.height() / 2 }
@@ -224,6 +236,7 @@ function onWheel(event: KonvaNS.KonvaEventObject<WheelEvent>) {
     zoomBy(Math.exp(-event.evt.deltaY * 0.01), point)
     return
   }
+  autoFit = false
   stage.position({ x: stage.x() - event.evt.deltaX, y: stage.y() - event.evt.deltaY })
   renderFloor()
   planLayer?.batchDraw()

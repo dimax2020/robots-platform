@@ -7,7 +7,7 @@ import type PlanEditor from '~/components/PlanEditor.vue'
 import type { EditorMode, EditorTool, PlanSelection } from '~/components/PlanEditor.vue'
 import { fetchErrorMessage } from '~/utils/errors'
 import { platformGet, platformSend, usePlatformBase } from '~/composables/usePlatform'
-import { usePlatformCompare, type MatchGroup } from '~/composables/usePlatformCompare'
+import { skippedAlerts, usePlatformCompare, type MatchGroup } from '~/composables/usePlatformCompare'
 import { PRELIMINARY, usePlatformEconomy } from '~/composables/usePlatformEconomy'
 import { Simulation } from '~/sim/engine'
 import { floorBounds } from '~/sim/grid'
@@ -757,6 +757,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
   <ProjectShell
     v-if="project"
     :project="project"
+    :alerts="skippedAlerts(skipped)"
     current="plan"
     title="Визуализация"
     lead="Сценарий работы предприятия по стадиям на одной схеме: пол и чертёж, здание, объекты каждого процесса. Когда стадии закрыты, роботы из сравнения проходят смену по кратчайшим маршрутам."
@@ -767,7 +768,6 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
     </template>
 
     <UiCallout tone="warn" title="Предварительная оценка">{{ PRELIMINARY }} Модель упрощает движение: роботы не объезжают друг друга, станция обслуживает одного робота за раз, лифт — фиксированное время.</UiCallout>
-    <SkippedProcesses :rows="skipped" />
 
     <section v-if="(pending || loading) && !layout" class="waiting glass"><div class="h3">Собираем схему</div></section>
     <UiCallout v-else-if="loadError || error" tone="danger" title="Схема не открылась">{{ loadError || fetchErrorMessage(error, 'Сервер не ответил.') }}</UiCallout>

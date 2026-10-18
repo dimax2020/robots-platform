@@ -7,6 +7,7 @@ import re
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
+from app.domain.economy import SITE_KEYS as ECONOMY_SITE_KEYS
 from app.infrastructure.db.catalog_repo import make_code
 from app.infrastructure.db.models import (
     IndustryRow,
@@ -110,10 +111,26 @@ def object_fields(db: Session, object_id: int) -> list[dict]:
 
 
 def form_fields(db: Session, object_code: str) -> dict:
+    """Поля формы и где каждое считается: в процессах объекта (по привязкам) и в экономике.
+
+    По этим отметкам форма показывает только поля выбранных процессов.
+    """
     obj = db.scalar(select(ObjectTypeRow).where(ObjectTypeRow.code == object_code))
     if obj is None:
         raise KeyError(object_code)
-    return {"code": obj.code, "name": obj.name, "fields": object_fields(db, obj.id)}
+    used: dict[str, set[str]] = {}
+    bindings = (
+        select(ObjectInputBindingRow.site_key, ProcessRow.code)
+        .join(ProcessRow, ProcessRow.id == ObjectInputBindingRow.process_id)
+        .where(ObjectInputBindingRow.object_type_id == obj.id)
+    )
+    for site_key, process_code in db.execute(bindings):
+        used.setdefault(site_key, set()).add(process_code)
+    fields = [
+        {**item, "processes": sorted(used.get(item["key"], ())), "economy": item["key"] in ECONOMY_SITE_KEYS}
+        for item in object_fields(db, obj.id)
+    ]
+    return {"code": obj.code, "name": obj.name, "fields": fields}
 
 
 def replace_object_fields(db: Session, obj: ObjectTypeRow, rows: list[dict]) -> None:

@@ -8,6 +8,10 @@ export interface LiveProcess {
   enabled: boolean
   /** Почему процесс выключили на шаге экономики. Пусто, если выключили вручную на шаге параметров. */
   disabled_reason?: string | null
+  /** Что роботы сделают в этом процессе. Текст ведёт админка. */
+  description?: string
+  /** Сколько роботов каталога привязано к процессу. */
+  product_count?: number
 }
 
 export interface LiveRecord {

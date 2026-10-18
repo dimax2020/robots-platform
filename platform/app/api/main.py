@@ -195,6 +195,7 @@ class LayoutItemIn(BaseModel):
 
 class ProcessSetupIn(BaseModel):
     name: str | None = None
+    description: str | None = None
     filters: list[FormulaFilterIn] = Field(default_factory=list)
     count_inputs: list[InputIn] = Field(default_factory=list)
     count_formula: str = ""

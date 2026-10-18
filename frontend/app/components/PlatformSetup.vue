@@ -1,87 +1,76 @@
 <script setup lang="ts">
-import { platformGet, platformSend } from '~/composables/usePlatform'
+import { PhCheck } from '@phosphor-icons/vue'
+import type { LiveProcess } from '~/composables/useLiveProject'
+import { processIcon } from '~/data/processIcons'
 
-interface ProcessItem {
-  code: string
-  name: string
-  enabled: boolean
-  disabled_reason?: string | null
-}
-interface Project {
-  id: string
-  processes: ProcessItem[]
-}
+/** Выбор процессов. Список и сохранение ведёт шаг параметров: от выбора зависит, какие поля площадки он спросит. */
+const props = defineProps<{ processes: LiveProcess[]; readonly?: boolean }>()
+const emit = defineEmits<{ toggle: [code: string]; all: [on: boolean] }>()
 
-/** Только просмотр: опубликованное демо у гостя и пользователя. Переключатели не нажимаются, сохранение не идёт. */
-const props = defineProps<{ objectCode?: string; readonly?: boolean }>()
-
-const route = useRoute()
-const projectId = computed(() => String(route.params.id || ''))
-const project = ref<Project | null>(null)
-const notice = ref('')
-const noticeTone = ref<'ok' | 'danger'>('ok')
-
-const load = async () => {
-  if (!projectId.value) return
-  project.value = await platformGet<Project>(`/projects/${projectId.value}`)
-}
-
-const save = async () => {
-  if (!project.value || props.readonly) return
-  const enabled: Record<string, boolean> = {}
-  for (const process of project.value.processes) enabled[process.code] = process.enabled
-  project.value = await platformSend<Project>(`/projects/${projectId.value}`, 'PATCH', { enabled })
-}
-
-defineExpose({ save })
-
-onMounted(() => { void load().catch((err) => { notice.value = String(err); noticeTone.value = 'danger' }) })
+const picked = computed(() => props.processes.filter((item) => item.enabled).length)
+const allOn = computed(() => picked.value === props.processes.length)
 </script>
 
 <template>
-  <section class="group glass">
-    <div class="sec-head">
-      <div>
-        <div class="h3">Процессы объекта</div>
-        <div class="caption">{{ readonly ? 'Какие процессы администратор включил в подбор этого демо.' : 'Снимите процесс, если его не нужно включать в подбор. Пока фильтры пустые, проходят все роботы процесса.' }}</div>
-      </div>
+  <div class="setup">
+    <div class="count glass">
+      <span class="count-text">
+        Выбрано для роботизации: <span class="count-n">{{ picked }} из {{ processes.length }}</span>
+      </span>
+      <template v-if="!readonly">
+        <button v-if="!allOn" type="button" class="count-btn" @click="emit('all', true)">Выбрать все</button>
+        <button v-else type="button" class="count-btn" @click="emit('all', false)">Снять все</button>
+      </template>
     </div>
-
-    <UiCallout v-if="notice" :tone="noticeTone">{{ notice }}</UiCallout>
 
     <div class="procs">
       <button
-        v-for="(process, index) in project?.processes ?? []"
+        v-for="process in processes"
         :key="process.code"
         type="button"
         class="proc"
         :class="{ on: process.enabled, still: readonly }"
         :aria-pressed="process.enabled"
         :disabled="readonly"
-        @click="process.enabled = !process.enabled"
+        @click="emit('toggle', process.code)"
       >
-        <span class="mono-sm tn">{{ index + 1 }}</span>
+        <span class="ico"><component :is="processIcon(process.code)" :size="24" weight="duotone" /></span>
         <span class="proc-copy">
-          <span class="body-sm strong">{{ process.name }}</span>
-          <span class="caption" :class="{ loss: !process.enabled && process.disabled_reason }" :title="process.enabled ? '' : process.disabled_reason || ''">{{ process.enabled ? 'в подборе' : process.disabled_reason ? 'выключен: невыгоден по экономике' : 'выключен' }}</span>
+          <span class="proc-name">{{ process.name }}</span>
+          <span v-if="process.description" class="proc-desc">{{ process.description }}</span>
+          <span v-if="!process.enabled && process.disabled_reason" class="loss" :title="process.disabled_reason">Выключен: невыгоден по экономике</span>
         </span>
+        <span class="tick" aria-hidden="true"><PhCheck v-if="process.enabled" :size="14" weight="bold" /></span>
       </button>
     </div>
-  </section>
+  </div>
 </template>
 
 <style scoped>
-.group { padding: var(--space-6); display: grid; gap: var(--space-5); }
-.group > * { position: relative; z-index: 1; }
-.sec-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); }
-.procs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.proc { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; text-align: left; padding: 10px 12px; border-radius: 14px; background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); }
-.proc.on { background: #fff; box-shadow: inset 0 0 0 1px var(--brand-400); }
+.setup { display: grid; gap: var(--space-4); }
+.count { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); padding: 16px 20px; border-radius: 16px; }
+.count > * { position: relative; z-index: 1; }
+.count-text { font-size: 16px; font-weight: 600; color: var(--ink-body); }
+.count-n { font-weight: 800; color: var(--ink-strong); }
+.count-btn { font-size: 14px; font-weight: 700; color: var(--link); padding: 6px 10px; border-radius: 8px; }
+.count-btn:hover { background: rgba(15, 20, 19, 0.05); }
+.procs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.proc {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; text-align: left;
+  padding: 18px 20px; border-radius: 18px; background: rgba(255, 255, 255, 0.6); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.08);
+  transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+.proc:hover:not(.still) { background: #fff; box-shadow: inset 0 0 0 1px var(--border-strong); }
+.proc.on { background: #fff; box-shadow: inset 0 0 0 2px var(--brand-500); }
 .proc.still { cursor: default; }
-.proc-copy { display: grid; gap: 2px; min-width: 0; }
-.proc-copy .body-sm { color: var(--ink-strong); font-weight: 650; }
-.proc-copy .loss { color: var(--state-danger); }
-.tn { width: 28px; height: 28px; border-radius: 8px; background: var(--surface-graphite); color: var(--brand-300); display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.ico { width: 48px; height: 48px; border-radius: 14px; display: inline-flex; align-items: center; justify-content: center; background: rgba(15, 20, 19, 0.05); color: var(--ink-muted); }
+.proc.on .ico { background: var(--surface-brand-tint); color: var(--brand-700); }
+.proc-copy { display: grid; gap: 4px; min-width: 0; }
+.proc-name { font-size: 16px; font-weight: 700; line-height: 1.3; color: var(--ink-strong); }
+.proc-desc { font-size: 14px; line-height: 1.45; color: var(--ink-muted); }
+.loss { font-size: 12px; font-weight: 600; color: var(--state-danger); }
+.tick { width: 24px; height: 24px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; box-shadow: inset 0 0 0 1.5px rgba(15, 20, 19, 0.2); flex: none; }
+.proc.on .tick { background: var(--brand-500); color: #fff; box-shadow: none; }
 @media (max-width: 1100px) {
   .procs { grid-template-columns: 1fr; }
 }

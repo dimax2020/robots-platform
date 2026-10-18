@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhArrowRight, PhArrowUpRight, PhDatabase, PhGitBranch, PhChartLineUp, PhPlay } from '@phosphor-icons/vue'
+import { PhArrowRight, PhArrowUpRight, PhPlay } from '@phosphor-icons/vue'
 import { objectTypeLabel, objectTypeImage } from '~/data/projects'
 import { cardToProduct, platformGet, type PlatformPage } from '~/composables/usePlatform'
 import { demoObjectType, demoPath, useDemoProjects } from '~/composables/useDemoProjects'
@@ -33,11 +33,6 @@ const demoStore = useDemoProjects()
 const demos = demoStore.items
 const demoReport = computed(() => (demoStore.first.value ? `${demoPath(demoStore.first.value)}/report` : '/projects'))
 
-const rules = [
-  { icon: PhDatabase, title: 'У каждого значения есть источник', text: 'Характеристики приходят из каталога ФЦ БАС, ручной таблицы и парсеров сайтов. В карточке видно, откуда взято значение, а ручная правка не затирается следующим импортом.' },
-  { icon: PhGitBranch, title: 'Подбор по процессам объекта', text: 'У каждого процесса свои фильтры: поля площадки сравниваются с характеристиками робота. Не хватает данных — робот не пропадает, а попадает во вкладку «Уточнить» с причиной.' },
-  { icon: PhChartLineUp, title: 'Экономика в трёх сценариях', text: 'Без роботизации, покупка и аренда. У каждого числа формула и источник, а what-if показывает, как срок окупаемости меняется при отклонении параметра на 20%.' },
-]
 
 /* Hero: фоновое видео. 960px декодируются дёшево, а матовость уже в файле. */
 const video = ref<HTMLVideoElement | null>(null)
@@ -154,6 +149,11 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
       </div>
     </section>
 
+    <!-- Ссылка на «Как это работает» -->
+    <section class="container teaser-wrap" v-reveal>
+      <HowTeaser />
+    </section>
+
     <!-- Метрики -->
     <section class="container metrics" v-reveal>
       <div class="metrics-grid glass glass-xl">
@@ -177,31 +177,6 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
           </div>
           <span class="obj-arrow glass"><PhArrowUpRight :size="20" weight="bold" /></span>
         </NuxtLink>
-      </div>
-    </section>
-
-    <!-- Как работает подбор: графит -->
-    <section class="container">
-      <div class="graphite graphite-section graphite-grid scanline how">
-        <div class="orbits" aria-hidden="true">
-          <span class="orbit o1"><span class="dot" /></span>
-          <span class="orbit o2" />
-          <span class="orbit o3" />
-        </div>
-        <div class="how-head">
-          <div class="label">Как это работает</div>
-          <h2 class="hero-2">Откуда берутся роботы, вердикты и цифры</h2>
-        </div>
-        <div class="rules">
-          <div v-for="(r, i) in rules" :key="r.title" class="rule glass-graphite" v-reveal="i">
-            <component :is="r.icon" :size="28" weight="duotone" class="rule-ic" />
-            <h3 class="h3">{{ r.title }}</h3>
-            <p class="body-sm muted">{{ r.text }}</p>
-          </div>
-        </div>
-        <div class="how-flow mono-sm">
-          <span>отрасль и объект</span><i /><span>параметры</span><i /><span>подбор</span><i /><span>сравнение</span><i /><span>экономика</span><i /><span>what-if</span><i /><span>2D-план</span><i /><span>отчёт</span>
-        </div>
       </div>
     </section>
 
@@ -325,20 +300,8 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
 .obj:hover .obj-arrow { transform: translate(2px, -2px); }
 
 /* How: graphite */
-.how { display: grid; gap: var(--space-10); }
-.how-head { display: grid; gap: var(--space-3); max-width: 880px; position: relative; z-index: 1; }
-.orbits { position: absolute; right: -180px; top: -220px; width: 720px; height: 720px; pointer-events: none; }
-.orbit { inset: 0; }
-.o1 { inset: 0; }
-.o2 { inset: 110px; }
-.o3 { inset: 220px; border-color: rgba(43, 209, 141, 0.16); }
-.rules { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); position: relative; z-index: 1; }
-.rule { padding: clamp(24px, 2vw, 36px); display: grid; gap: 12px; align-content: start; transition: box-shadow var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease); }
-.rule:hover { box-shadow: inset 0 1px 0 var(--glass-g-highlight), 0 0 0 1px var(--glass-g-stroke), var(--glow-brand); transform: translateY(-2px); }
-.rule-ic { color: var(--brand-300); }
-.how-flow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: var(--ink-muted-graphite); position: relative; z-index: 1; }
-.how-flow span { padding: 6px 10px; border-radius: 8px; background: rgba(255, 255, 255, 0.05); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); color: var(--ink-on-graphite); }
-.how-flow i { width: 18px; height: 1px; background: var(--brand-400); opacity: 0.6; }
+
+.teaser-wrap { margin-top: var(--space-6); margin-bottom: var(--space-6); }
 
 /* Demos */
 .demos { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
@@ -375,7 +338,7 @@ const visibleObjects = computed(() => (matchable.value ? objects.filter((item) =
   .metrics-grid { grid-template-columns: 1fr 1fr; }
   .objects { grid-auto-rows: 220px; }
   .obj.warehouse, .obj.airport, .obj.hospital { grid-column: span 12; grid-row: span 1; }
-  .rules, .demos { grid-template-columns: 1fr; }
+  .demos { grid-template-columns: 1fr; }
   .disclaimer { grid-template-columns: 1fr; }
 }
 

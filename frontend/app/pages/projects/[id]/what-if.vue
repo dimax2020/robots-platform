@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { skippedAlerts } from '~/composables/usePlatformCompare'
 import { PhArrowRight, PhArrowCounterClockwise, PhFloppyDisk } from '@phosphor-icons/vue'
 import {
   figValue,
@@ -217,6 +218,7 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
   <ProjectShell
     v-if="project"
     :project="project"
+    :alerts="skippedAlerts(skipped)"
     current="what-if"
     title="What-if: свои допущения"
     lead="Коэффициенты всего парка и, отдельно, одного процесса. Сценарий пересчитывается сразу. После сохранения шаг «Экономика» увидит и общие значения, и настройки процесса."
@@ -228,10 +230,8 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
     </template>
 
     <UiCallout tone="warn" title="Предварительная оценка">{{ report?.disclaimer ?? PRELIMINARY }}</UiCallout>
-    <SkippedProcesses :rows="skipped" />
 
-    <UiCallout v-if="readonly" tone="info" title="Демо-объект · только просмотр">Коэффициенты можно двигать и смотреть результат, но в демо они не сохранятся. Чтобы вести свои допущения, скопируйте демо в свои проекты.</UiCallout>
-    <UiCallout v-else-if="isDemo" tone="info" title="Демо-объект">Вы правите демо как администратор: сохранённые коэффициенты увидят все после публикации.</UiCallout>
+    <UiCallout v-if="isDemo && !readonly" tone="info" title="Демо-объект">Вы правите демо как администратор: сохранённые коэффициенты увидят все после публикации.</UiCallout>
 
     <section v-if="(pending || loading) && !report" class="waiting glass"><div class="h3">Считаем сценарии</div></section>
     <UiCallout v-else-if="(failure || error) && !report" tone="danger" title="Сценарии не посчитались">{{ failure || fetchErrorMessage(error, 'Сервер не ответил.') }}</UiCallout>

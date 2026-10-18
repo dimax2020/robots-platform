@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { PhPencilSimple, PhArrowRight, PhSparkle, PhCopy, PhDownloadSimple, PhUploadSimple } from '@phosphor-icons/vue'
-import { objectTypeLabel, isFullPath, type ObjectType } from '~/data/projects'
+import { PhPencilSimple, PhArrowRight, PhSparkle, PhDownloadSimple, PhUploadSimple } from '@phosphor-icons/vue'
+import { objectTypeLabel, type ObjectType } from '~/data/projects'
 import { fieldSources, labelProcess, processLabel, processesByObject, siteFieldMeta, warehouseDatasetGroups } from '~/data/siteFields'
 import { fetchErrorMessage } from '~/utils/errors'
 import { downloadBytes, downloadText } from '~/utils/exportTables'
 import { parseCell, parseTables, readImportTables, TASK_COLUMNS, templateCsv, templateSheets, templateXlsx, type ImportField } from '~/utils/siteImport'
 import { platformGet, platformSend } from '~/composables/usePlatform'
-import { asObjectType, useLiveProject } from '~/composables/useLiveProject'
+import { asObjectType, useLiveProject, type LiveProcess, type LiveRecord } from '~/composables/useLiveProject'
 import { useDemoProjects } from '~/composables/useDemoProjects'
 import type { ApiSiteProfile, ApiTask } from '~/types/api'
 
@@ -22,6 +22,10 @@ interface FormField {
   required: boolean
   default: number | boolean | string | null
   source: string
+  /** Процессы объекта, в расчёт которых идёт поле. Нет у встроенного набора полей. */
+  processes?: string[]
+  /** Поле читает экономика при любом наборе процессов. */
+  economy?: boolean
 }
 
 const route = useRoute()
@@ -34,7 +38,6 @@ const pending = doc.pending
 const error = doc.error
 const live = computed(() => Boolean(project.value))
 const readonly = doc.readonly
-const { role } = useRole()
 const demos = useDemoProjects()
 const detail = computed(() => doc.record.value
   ? { id: doc.record.value.id, object_type_code: doc.record.value.object_code, site: doc.record.value.site, tasks: doc.record.value.tasks }
@@ -51,9 +54,9 @@ const emptySite = (code: string): ApiSiteProfile => ({
   aisle_width_m: null,
   temp_min_c: null,
   temp_max_c: null,
-  shifts_per_day: 1,
-  shift_hours: 8,
-  days_year: 250,
+  shifts_per_day: null,
+  shift_hours: null,
+  days_year: null,
   staff_salary_year_rub: null,
   energy_tariff_rub_kwh: null,
   budget_rub: null,
@@ -113,6 +116,7 @@ const emptyTask = (code: string): ApiTask => ({
 
 const site = reactive<ApiSiteProfile>(emptySite('warehouse'))
 const tasks = ref<ApiTask[]>([])
+const processes = ref<LiveProcess[]>([])
 const hydrated = ref('')
 
 const applyDetail = () => {
@@ -124,6 +128,7 @@ const applyDetail = () => {
     ...t,
     container_types: [...(t.container_types ?? [])],
   }))
+  processes.value = (doc.record.value?.processes ?? []).map((item) => ({ ...item }))
   hydrated.value = String(p.id)
 }
 
@@ -189,12 +194,24 @@ watch(objectType, async (code) => {
 }, { immediate: true })
 const fieldMeta = (key: string) => formFields.value?.find((f) => f.key === key)
 
+/* Пустое обязательное поле нового проекта берёт значение объекта по умолчанию: смены, дни, площадь. */
+watch([formFields, hydrated], () => {
+  if (!hydrated.value || readonly.value) return
+  for (const f of formFields.value ?? []) {
+    if (!f.required || f.default === null || f.default === undefined || f.default === '') continue
+    const value = siteValue(f.key)
+    if (value === null || value === undefined || value === '') (site as unknown as Record<string, unknown>)[f.key] = f.default
+  }
+})
+
 const siteValue = (key: string) => (site as unknown as Record<string, unknown>)[key]
 const profileVal = (key: string) => fieldMeta(key)?.default
 const siteEdited = (key: string) => {
   const base = profileVal(key)
   const value = siteValue(key)
   if (base === undefined || base === null) return false
+  // Пустое поле не правили: в нём подсказка со значением по умолчанию.
+  if (value === null || value === undefined || value === '') return false
   return !sameNum(value, base)
 }
 const siteSource = (key: string) => fieldMeta(key)?.source || sources.value[key]
@@ -213,7 +230,7 @@ const rangeHint = (f: FormField) => {
 /** Проверка до отправки: обязательные поля и границы из справочника (ТЗ 3.2.4). Сервер проверяет ещё раз. */
 const validateSite = () => {
   for (const k of Object.keys(siteErrors)) delete siteErrors[k]
-  for (const f of formFields.value ?? []) {
+  for (const f of formFields.value ? visibleFields.value : []) {
     const value = siteValue(f.key)
     const empty = value === null || value === undefined || value === ''
     if (empty) {
@@ -337,7 +354,7 @@ const save = async (quiet = false) => {
   notice.value = null
   try {
     const body = payload()
-    await doc.save(body.site as unknown as Record<string, unknown>, body.tasks)
+    await doc.save(body.site as unknown as Record<string, unknown>, body.tasks, enabledMap())
     applyDetail()
     clearFieldErrors()
     if (!quiet) notice.value = { ok: true, text: 'Параметры сохранены' }
@@ -356,63 +373,63 @@ const save = async (quiet = false) => {
   }
 }
 
-const part = computed<'object' | 'processes'>(() => route.query.part === 'processes' ? 'processes' : 'object')
-const setupRef = ref<{ save: () => Promise<void> } | null>(null)
+/* Сначала процессы, потом параметры: форма объекта спрашивает только то, что нужно выбранным процессам. */
+const part = computed<'processes' | 'object'>(() => route.query.part === 'object' ? 'object' : 'processes')
 const substages = computed(() => [
-  { id: 'object', label: 'Параметры объекта', to: `/projects/${id.value}/params` },
-  { id: 'processes', label: 'Процессы объекта', to: `/projects/${id.value}/params?part=processes` },
+  { id: 'processes', label: 'Процессы', to: `/projects/${id.value}/params` },
+  { id: 'object', label: 'Параметры объекта', to: `/projects/${id.value}/params?part=object` },
 ])
-const advanceLabel = computed(() => part.value === 'object' ? 'К процессам' : 'К подбору')
+const advanceLabel = computed(() => part.value === 'processes' ? 'К параметрам объекта' : 'К подбору')
+const toObject = () => ({ path: `/projects/${id.value}/params`, query: { part: 'object' } })
+
+const enabledMap = () => Object.fromEntries(processes.value.map((item) => [item.code, item.enabled]))
+const enabledCount = computed(() => processes.value.filter((item) => item.enabled).length)
+const processesDirty = computed(() => {
+  const saved = new Map((doc.record.value?.processes ?? []).map((item) => [item.code, item.enabled]))
+  return processes.value.some((item) => saved.get(item.code) !== item.enabled)
+})
+const toggleProcess = (code: string) => {
+  const item = processes.value.find((row) => row.code === code)
+  if (item) item.enabled = !item.enabled
+}
+const toggleAll = (on: boolean) => { for (const item of processes.value) item.enabled = on }
+
+const saveProcesses = async () => {
+  if (readonly.value || !processesDirty.value) return true
+  saving.value = true
+  try {
+    doc.record.value = await platformSend<LiveRecord>(`/projects/${id.value}`, 'PATCH', { enabled: enabledMap() })
+    return true
+  } catch (e: unknown) {
+    notice.value = { ok: false, text: fetchErrorMessage(e, 'Не удалось сохранить процессы') }
+    return false
+  } finally {
+    saving.value = false
+  }
+}
 
 const advance = async () => {
   if (!project.value || saving.value) return
-  if (readonly.value) {
-    await router.push(part.value === 'object' ? { path: `/projects/${id.value}/params`, query: { part: 'processes' } } : `/projects/${id.value}/match`)
+  if (part.value === 'processes') {
+    if (!readonly.value && !enabledCount.value) {
+      notice.value = { ok: false, text: 'Выберите хотя бы один процесс: без него подбирать нечего.' }
+      return
+    }
+    if (!(await saveProcesses())) return
+    notice.value = null
+    await router.push(toObject())
     return
   }
-  if (part.value === 'object') {
-    const ok = await save(true)
-    if (!ok) return
-    await router.push({ path: `/projects/${id.value}/params`, query: { part: 'processes' } })
-    return
-  }
-  const ok = await save(true)
-  if (!ok) return
-  try {
-    await setupRef.value?.save()
-  } catch (e: unknown) {
-    notice.value = { ok: false, text: fetchErrorMessage(e, 'Не удалось сохранить процессы') }
-    return
-  }
+  if (!readonly.value && !(await save(true))) return
   await router.push(`/projects/${id.value}/match`)
 }
 
-watch(part, async (next, prev) => {
-  if (readonly.value) return
-  if (prev === 'processes' && next !== 'processes') {
-    try { await setupRef.value?.save() } catch { /* кнопка «К подбору» покажет ошибку, если сохранить не вышло */ }
-  }
-})
-
+/* Ушли с шага по рельсу, не нажав «Дальше»: выбор процессов не теряем. */
 onBeforeRouteLeave(async () => {
-  if (part.value !== 'processes' || readonly.value) return
-  try { await setupRef.value?.save() } catch { return false }
+  if (readonly.value || !processesDirty.value) return
+  if (!(await saveProcesses())) return false
 })
 
-/* Копия демо в свои проекты: единственный способ править опубликованное демо не администратору. */
-const copying = ref(false)
-const copyDemo = async () => {
-  if (copying.value) return
-  copying.value = true
-  try {
-    const copy = await platformSend<{ id: string }>(`/projects/${id.value}/copy`, 'POST')
-    await router.push(`/projects/${copy.id}/params`)
-  } catch (e: unknown) {
-    notice.value = { ok: false, text: fetchErrorMessage(e, 'Не удалось скопировать демо') }
-  } finally {
-    copying.value = false
-  }
-}
 const activeTask = ref(0)
 
 const fieldGroups: { title: string; hint: string; keys: (keyof ApiSiteProfile)[] }[] = [
@@ -467,8 +484,27 @@ const legacyFields = (): FormField[] => {
   return fieldGroups.flatMap((g) => pick(g.keys, g.title))
 }
 
+/* Поле видно, если оно обязательное, нужно экономике или входит в расчёт хотя бы одного выбранного процесса.
+   Встроенный набор полей без отметок показывается целиком. */
+const enabledCodes = computed(() => new Set(processes.value.filter((item) => item.enabled).map((item) => item.code)))
+const allFields = computed(() => formFields.value ?? legacyFields())
+const visibleFields = computed(() => {
+  const fields = allFields.value
+  if (!fields.some((f) => f.processes)) return fields
+  return fields.filter((f) => f.required || f.economy || (f.processes ?? []).some((code) => enabledCodes.value.has(code)))
+})
+const processNames = computed(() => new Map(processes.value.map((item) => [item.code, item.name])))
+const usedFor = (f: FormField) => {
+  const names = (f.processes ?? []).filter((code) => enabledCodes.value.has(code)).map((code) => processNames.value.get(code) ?? code)
+  if (f.economy) names.unshift('Экономика')
+  if (!names.length) return ''
+  const head = names.slice(0, 2).join(', ')
+  return names.length > 2 ? `${head} и ещё ${names.length - 2}` : head
+}
+const fieldTitle = (f: FormField) => [f.hint, siteSource(f.key)].filter(Boolean).join('\n') || undefined
+
 const groups = computed(() => {
-  const fields = formFields.value ?? legacyFields()
+  const fields = visibleFields.value
   const out: { title: string; hint: string; fields: FormField[]; extra: boolean }[] = []
   for (const f of fields) {
     const title = f.group || 'Параметры'
@@ -476,7 +512,7 @@ const groups = computed(() => {
     if (!group) {
       group = {
         title,
-        hint: title === EXTRA_GROUP ? 'Этих параметров нет в исходном листе датасета. Они остаются для расчёта.' : '',
+        hint: title === EXTRA_GROUP ? 'Этих параметров нет в исходном листе датасета, но они нужны для расчёта.' : '',
         fields: [],
         extra: title === EXTRA_GROUP,
       }
@@ -497,7 +533,8 @@ const taskSummary = (t: ApiTask) => {
   return 'поток не задан'
 }
 
-const importFields = (): ImportField[] => (formFields.value ?? legacyFields()).map((field) => ({
+/* Шаблон — только видимые поля. Читаем файл по всем полям объекта, чтобы старый полный шаблон тоже подошёл. */
+const importFields = (all = false): ImportField[] => (all ? allFields.value : visibleFields.value).map((field) => ({
   key: field.key,
   label: field.label,
   unit: field.unit,
@@ -529,8 +566,8 @@ const importFile = async (file: File) => {
   }
   importing.value = true
   try {
-    const parsed = parseTables(await readImportTables(await file.arrayBuffer(), file.name), importFields())
-    const fields = importFields()
+    const parsed = parseTables(await readImportTables(await file.arrayBuffer(), file.name), importFields(true))
+    const fields = importFields(true)
     let applied = 0
     const skipped: string[] = []
     for (const item of parsed.site) {
@@ -612,7 +649,7 @@ const rejectedTitle = (count: number) => {
 }
 const focusErrorPane = () => {
   if (siteErrorCount.value && part.value !== 'object') {
-    void router.replace({ path: `/projects/${id.value}/params` })
+    void router.replace(toObject())
   }
   void nextTick(() => document.querySelector('.fld.err')?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
 }
@@ -629,8 +666,8 @@ watch(() => tasks.value.length, (n) => {
     current="params"
     :substages="substages"
     :current-sub="part"
-    :title="part === 'object' ? 'Параметры объекта' : 'Процессы объекта'"
-    :lead="part === 'object' ? 'Общие данные площадки: вручную или из шаблона Excel и CSV. Дальше — какие процессы объекта включать в подбор.' : 'Снимите процесс, если его не нужно включать в подбор.'"
+    :title="part === 'object' ? 'Параметры объекта' : 'Что роботизируем'"
+    :lead="part === 'object' ? 'Заполните данные объекта: по ним платформа посчитает, сколько роботов нужно и за какой срок они окупятся. Здесь только то, что влияет на расчёт выбранных процессов. Если точных цифр нет, подставьте демо-данные или загрузите файл Excel.' : 'Выберите процессы, которые хотите роботизировать: под каждый платформа подберёт роботов и посчитает окупаемость. Если хотите получить полный подбор, оставьте все.'"
   >
     <template #actions>
       <UiButton v-if="live && !readonly && part === 'object'" variant="secondary" size="lg" :disabled="demoFilling" @click="fillFromDemo">
@@ -651,14 +688,7 @@ watch(() => tasks.value.length, (n) => {
     </div>
 
     <template v-else-if="live">
-      <UiCallout v-if="readonly" tone="info" title="Демо-объект · только просмотр">
-        Параметры этого объекта задал администратор. Пройдите по шагам, чтобы посмотреть подбор{{ isFullPath(shell!) ? ', экономику и визуализацию' : ' и сравнение' }}.
-        <div class="call-actions">
-          <UiButton v-if="role !== 'guest'" size="sm" :disabled="copying" @click="copyDemo"><template #icon><PhCopy :size="14" weight="bold" /></template>{{ copying ? 'Копируем…' : 'Скопировать в мои проекты' }}</UiButton>
-          <UiButton v-else to="/login" size="sm">Войти, чтобы скопировать и править</UiButton>
-        </div>
-      </UiCallout>
-      <UiCallout v-else-if="notice" :tone="notice.ok ? 'ok' : 'danger'" :title="notice.items?.length ? rejectedTitle(notice.items.length) : undefined">
+      <UiCallout v-if="!readonly && notice" :tone="notice.ok ? 'ok' : 'danger'" :title="notice.items?.length ? rejectedTitle(notice.items.length) : undefined">
         {{ notice.text }}
         <ul v-if="notice.items?.length" class="notice-list">
           <li v-for="item in notice.items" :key="item">{{ item }}</li>
@@ -666,6 +696,10 @@ watch(() => tasks.value.length, (n) => {
       </UiCallout>
 
       <div v-if="part === 'object'" class="groups" :class="{ still: readonly }">
+        <p v-if="visibleFields.length < allFields.length" class="caption scope">
+          Показаны {{ visibleFields.length }} из {{ allFields.length }} параметров: те, что входят в расчёт {{ enabledCount }} выбранных процессов и экономики. Остальные на результат не влияют.
+          <NuxtLink :to="substages[0]!.to" class="scope-link">Изменить процессы</NuxtLink>
+        </p>
         <section
           v-if="!readonly"
           class="import-bar glass"
@@ -686,7 +720,7 @@ watch(() => tasks.value.length, (n) => {
           </div>
         </section>
         <UiCallout v-if="formFallback" tone="warn">Справочник полей платформы не ответил: форма собрана из встроенного набора, без границ и значений по умолчанию.</UiCallout>
-        <section v-for="(g, gi) in groups" :key="g.title" class="group" :class="g.extra ? 'extra' : 'glass'">
+        <section v-for="(g, gi) in groups" :key="g.title" class="group glass">
           <div class="sec-head">
             <div>
               <div class="h3">{{ g.title }}</div>
@@ -695,7 +729,7 @@ watch(() => tasks.value.length, (n) => {
             <UiBadge v-if="gi === 0" tone="info" size="sm">{{ objectTypeLabel[objectType] ?? detail?.object_type_code }}</UiBadge>
           </div>
           <div class="fields">
-            <label v-for="f in g.fields" :key="f.key" class="fld" :class="{ edited: siteEdited(f.key), err: !!siteError(f.key) }" :title="f.hint || undefined">
+            <label v-for="f in g.fields" :key="f.key" class="fld" :class="{ edited: siteEdited(f.key), err: !!siteError(f.key) }" :title="fieldTitle(f)">
               <span class="fld-label body-sm">{{ f.label }}<span v-if="f.required" class="req" title="Обязательное поле"> *</span><span v-if="f.unit" class="muted"> · {{ f.unit }}</span></span>
               <span class="fld-in">
                 <select
@@ -729,14 +763,14 @@ watch(() => tasks.value.length, (n) => {
               </span>
               <span v-if="siteError(f.key)" class="caption err-note">{{ siteError(f.key) }}</span>
               <span v-else-if="siteEdited(f.key)" class="caption edited-note">Изменено. По умолчанию {{ defaultHint(f) }}.</span>
-              <span v-else-if="siteSource(f.key)" class="caption src-note">{{ siteSource(f.key) }}</span>
+              <span v-else-if="usedFor(f)" class="caption src-note">Нужно для: {{ usedFor(f) }}</span>
               <span v-if="rangeHint(f) && !siteError(f.key)" class="caption range-note">Допустимо {{ rangeHint(f) }}</span>
             </label>
           </div>
         </section>
       </div>
 
-      <PlatformSetup v-else ref="setupRef" :object-code="objectType" :readonly="readonly" />
+      <PlatformSetup v-else :processes="processes" :readonly="readonly" @toggle="toggleProcess" @all="toggleAll" />
     </template>
   </ProjectShell>
 
@@ -750,6 +784,8 @@ watch(() => tasks.value.length, (n) => {
 .params { display: grid; gap: var(--space-4); }
 .pane-switch { max-width: 480px; }
 .groups { display: grid; gap: var(--space-4); }
+.scope { margin: 0; }
+.scope-link { margin-left: 6px; font-weight: 700; color: var(--link); }
 .import-bar { padding: var(--space-5); display: flex; justify-content: space-between; align-items: center; gap: var(--space-5); }
 .import-bar.over { outline: 2px dashed var(--brand-600); outline-offset: -8px; }
 .import-bar > * { position: relative; z-index: 1; }

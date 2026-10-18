@@ -145,7 +145,7 @@ const submit = async () => {
     <div class="intro" v-reveal>
       <div class="label">Новый проект</div>
       <h1 class="hero-2">Рамка расчёта</h1>
-      <p class="body-lg muted">Имя, отрасль и объект внутри отрасли. Параметры площадки заполняются на следующем шаге: вручную, из демо-объекта или из файла Excel и CSV.</p>
+      <p class="body-lg muted">Имя, отрасль и объект внутри отрасли. Дальше выберете процессы, которые хотите роботизировать, и заполните только нужные для них данные.</p>
     </div>
 
     <UiCallout v-if="createError" tone="danger" title="Проект не создан">{{ createError }}</UiCallout>
@@ -199,7 +199,7 @@ const submit = async () => {
             <div class="s-row"><span class="caption">Отрасль</span><span class="strong">{{ industry?.name ?? '—' }}</span></div>
             <div class="s-row"><span class="caption">Объект</span><span class="strong">{{ picked?.name ?? '—' }}</span></div>
             <div class="hairline" />
-            <UiButton type="submit" size="lg" block :disabled="creating || !picked">{{ creating ? 'Создаём…' : 'Создать и перейти к параметрам' }}<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
+            <UiButton type="submit" size="lg" block :disabled="creating || !picked">{{ creating ? 'Создаём…' : 'Создать и выбрать процессы' }}<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
             <div class="caption">Проект сохраняется на текущей версии каталога и модели платформы.</div>
           </div>
         </div>

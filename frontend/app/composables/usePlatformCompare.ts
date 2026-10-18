@@ -129,3 +129,14 @@ export function usePlatformCompare(projectId: Ref<string>) {
 
   return { inCompare, toggleCompare, includedHits, chosenId, remainingHit, skipReason, picksFor, skippedOf, choose, isConfirmed, choices }
 }
+
+/** «!» у шага «Подбор» со списком процессов без робота: вместо плашки на странице. */
+export const skippedAlerts = (rows: { name: string }[]) => (rows.length
+  ? {
+      match: {
+        title: 'Не выбраны роботы для процессов:',
+        items: rows.map((row) => row.name),
+        note: 'Платформа не добавила их в подбор автоматически: ни один робот не прошёл по всем параметрам. Можно дождаться, когда в каталоге появятся подходящие роботы, или вернуться к подбору и выбрать другие решения.',
+      },
+    }
+  : undefined)
