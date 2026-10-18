@@ -1,7 +1,7 @@
 import type { Component } from 'vue'
 import {
   PhSquaresFour, PhBuildings, PhSlidersHorizontal, PhListChecks, PhCalculator, PhStack,
-  PhPackage, PhTag, PhRocketLaunch, PhUploadSimple, PhLinkSimple, PhTreeStructure, PhFactory, PhShapes, PhPlay, PhFunnel,
+  PhPackage, PhTag, PhRocketLaunch, PhUploadSimple, PhLinkSimple, PhTreeStructure, PhFactory, PhShapes, PhPlay, PhFunnel, PhHandshake,
 } from '@phosphor-icons/vue'
 
 export interface AdminNavItem { to: string; label: string; icon: Component; note: string }
@@ -45,6 +45,12 @@ export const adminNav: AdminNavGroup[] = [
       { to: '/admin/parsers', label: 'Парсеры', icon: PhRocketLaunch, note: 'Расписание обхода сайтов' },
       { to: '/admin/tables', label: 'Таблицы', icon: PhUploadSimple, note: 'CSV каталога и ручных характеристик' },
       { to: '/admin/sources', label: 'Источники', icon: PhLinkSimple, note: 'Реестр и достоверность A–D' },
+    ],
+  },
+  {
+    label: 'Вендоры',
+    items: [
+      { to: '/admin/vendor-requests', label: 'Заявки вендоров', icon: PhHandshake, note: 'Подтвердить, вернуть на доработку или отклонить' },
     ],
   },
   {

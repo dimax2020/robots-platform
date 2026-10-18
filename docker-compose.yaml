@@ -1,9 +1,14 @@
+name: robots-platform
+
 services:
   traefik:
     image: traefik:v3.6
     command:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
+      # Сокет Docker общий. Другие стеки на этой машине тоже называют роутер web,
+      # и без фильтра Traefik отправляет часть запросов в их контейнеры.
+      - --providers.docker.constraints=Label(`com.docker.compose.project`,`robots-platform`)
       - --entrypoints.web.address=:80
     ports:
       - "80:80"

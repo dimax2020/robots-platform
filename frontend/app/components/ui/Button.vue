@@ -29,7 +29,9 @@ withDefaults(defineProps<{
   align-items: center;
   justify-content: center;
   gap: 8px;
-  white-space: nowrap;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.25;
   font-weight: 700;
   letter-spacing: -0.005em;
   border-radius: var(--radius-sm);

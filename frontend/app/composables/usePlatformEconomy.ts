@@ -194,7 +194,12 @@ export const millions = (value: number | null | undefined) =>
 
 export const figValue = (value: number | null | undefined, unit: string) => {
   if (value == null) return '—'
-  if (unit.startsWith('₽')) return `${Math.round(value).toLocaleString('ru-RU')} ${unit}`
+  /* Сумма в рублях округляется. Тариф вроде 7,2 ₽/кВт·ч оставляем дробным, иначе в тексте и в формуле разные числа. */
+  if (unit === '₽') return `${Math.round(value).toLocaleString('ru-RU')} ${unit}`
+  if (unit.startsWith('₽')) {
+    const text = value.toLocaleString('ru-RU', { maximumFractionDigits: Number.isInteger(value) ? 0 : 2 })
+    return `${text} ${unit}`
+  }
   if (unit === '%') return `${Math.round(value).toLocaleString('ru-RU')}%`
   if (unit === 'лет') return `${value.toLocaleString('ru-RU', { maximumFractionDigits: 1, minimumFractionDigits: 1 })} лет`
   const text = value.toLocaleString('ru-RU', { maximumFractionDigits: Math.abs(value) < 10 ? 3 : 1 })

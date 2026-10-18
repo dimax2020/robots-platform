@@ -102,6 +102,6 @@ const manual = (item: Source) => item.parser_code === 'manual'
 .tg { display: inline-flex; gap: 8px; align-items: center; }
 .block { display: block; }
 .kind { display: inline-flex; gap: 8px; align-items: center; }
-.url { word-break: break-all; }
+.url { overflow-wrap: anywhere; }
 @media (max-width: 1100px) { .legend { grid-template-columns: repeat(2, 1fr); } }
 </style>

@@ -3,8 +3,8 @@
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0019_process_description"
-down_revision = "0018_warehouse_roles_back"
+revision = "0023_process_description"
+down_revision = "0022_product_offer"
 branch_labels = None
 depends_on = None
 
@@ -79,7 +79,8 @@ DESCRIPTIONS = {
 
 
 def upgrade() -> None:
-    op.add_column("process", sa.Column("description", sa.Text(), nullable=False, server_default=""))
+    # IF NOT EXISTS: на базах, где эта миграция стояла раньше под номером 0019, колонка уже есть.
+    op.execute("ALTER TABLE process ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT ''")
     process = sa.table("process", sa.column("code", sa.Text), sa.column("description", sa.Text))
     for code, text in DESCRIPTIONS.items():
         op.execute(process.update().where(process.c.code == code, process.c.description == "").values(description=text))

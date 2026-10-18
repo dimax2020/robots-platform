@@ -131,6 +131,11 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   font-feature-settings: 'ss01', 'cv11';
+  /* Слова переносятся целиком. Рвём строку только там, где нет пробела, например у длинной ссылки. */
+  word-break: normal;
+  overflow-wrap: break-word;
+  hyphens: manual;
+  -webkit-hyphens: manual;
 }
 img, svg, video { display: block; max-width: 100%; }
 a { color: inherit; text-decoration: none; }
@@ -378,8 +383,13 @@ table { border-collapse: collapse; width: 100%; }
 .table td.num, .table th.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
 /* Формы */
-.field { display: grid; gap: var(--space-2); }
-.field-label { font-size: 15px; font-weight: 600; color: var(--ink-strong); }
+.field { display: grid; gap: var(--space-2); min-width: 0; }
+/* Подпись и поле в одну строку, где текст короткий. На узком экране снова столбиком. */
+.field-line { grid-template-columns: minmax(148px, 220px) minmax(0, 1fr); align-items: center; column-gap: 16px; }
+.field-line:has(textarea) { align-items: start; }
+.field-line:has(textarea) .field-label { padding-top: 10px; }
+.field-line .field-hint, .field-line .field-error { grid-column: 2; }
+.field-label { font-size: 15px; font-weight: 600; color: var(--ink-strong); line-height: 1.35; }
 .field-hint { font-size: 13px; color: var(--ink-muted); }
 .field-error { font-size: 13px; color: var(--state-danger); }
 .input, .select, .textarea {
@@ -396,7 +406,8 @@ table { border-collapse: collapse; width: 100%; }
 .input:hover, .select:hover { border-color: var(--border-strong); }
 .input:focus, .select:focus, .textarea:focus { outline: none; border-color: var(--focus-ring); box-shadow: 0 0 0 3px rgba(13, 132, 85, 0.18); background: #fff; }
 .input.is-error { border-color: var(--state-danger); }
-.select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23586662' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; }
+.select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23586662' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px; text-overflow: clip; }
+select option { line-height: 1.4; }
 .input-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
 /* Слайдер */
@@ -428,6 +439,20 @@ table { border-collapse: collapse; width: 100%; }
   .container { padding-inline: var(--space-6); }
   .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .between { flex-wrap: wrap; align-items: flex-start; }
+}
+
+@media (max-width: 720px) {
+  .container { padding-inline: 16px; }
+  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+  .field-line { grid-template-columns: 1fr; align-items: stretch; }
+  .field-line .field-hint, .field-line .field-error { grid-column: 1; }
+  .hero-1 { font-size: clamp(30px, 9vw, 40px); }
+  .hero-2 { font-size: clamp(26px, 7.5vw, 34px); }
+  .display-3 { font-size: clamp(24px, 6.5vw, 30px); }
+  /* 16px, чтобы телефон не увеличивал страницу при фокусе в поле. */
+  .input, .select, .textarea { font-size: 16px; }
+  .table { display: block; overflow-x: auto; }
 }
 
 @page {

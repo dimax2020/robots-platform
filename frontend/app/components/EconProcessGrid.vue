@@ -133,8 +133,8 @@ const fleetPayback = computed(() => props.fleet?.payback.value ?? null)
 .fleet .c-top { grid-template-columns: minmax(0, 1fr); }
 .c-top img { width: 44px; height: 36px; object-fit: contain; border-radius: 8px; background: #e9eeec; }
 .c-name { display: grid; gap: 1px; min-width: 0; }
-.c-name .body-sm { color: var(--ink-strong); line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.c-name .caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.c-name .body-sm { color: var(--ink-strong); line-height: 1.3; }
+.c-name .caption { line-height: 1.35; }
 .pill { justify-self: start; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
 .pill.ok { background: var(--state-ok-tint); color: var(--state-ok); }
 .pill.bad { background: var(--state-danger-tint); color: var(--state-danger); }

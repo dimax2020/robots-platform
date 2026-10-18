@@ -3,6 +3,9 @@ import { activeAdminPath, adminNav, adminOverview } from '~/data/adminNav'
 
 const route = useRoute()
 const active = computed(() => activeAdminPath(route.path))
+/* На узком экране меню разделов не занимает весь первый экран. */
+const openNav = ref(false)
+watch(() => route.path, () => { openNav.value = false })
 </script>
 
 <template>
@@ -10,7 +13,10 @@ const active = computed(() => activeAdminPath(route.path))
     <AppNavbar />
     <div class="container admin">
       <aside class="side">
-        <nav class="menu glass" aria-label="Разделы админки">
+        <button type="button" class="side-btn" :aria-expanded="openNav" @click="openNav = !openNav">
+          {{ openNav ? 'Скрыть разделы' : 'Показать разделы' }}
+        </button>
+        <nav class="menu glass" :class="{ open: openNav }" aria-label="Разделы админки">
           <div class="menu-head"><span class="label">Админка</span><span class="caption">каталог и модель подбора</span></div>
           <NuxtLink :to="adminOverview.to" class="mi" :class="{ on: active === adminOverview.to }">
             <component :is="adminOverview.icon" :size="18" weight="duotone" />
@@ -41,7 +47,8 @@ const active = computed(() => activeAdminPath(route.path))
 .menu > * { position: relative; z-index: 1; }
 .menu-head { display: grid; gap: 2px; padding: 10px 12px 12px; }
 .grp { padding: 14px 12px 4px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; font-size: 11.5px; }
-.mi { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; min-height: 38px; padding: 0 12px; border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--ink-body); transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
+.side-btn { display: none; width: 100%; min-height: 44px; margin-bottom: 8px; padding: 0 14px; border-radius: 12px; font-weight: 700; text-align: left; background: rgba(255, 255, 255, 0.72); box-shadow: inset 0 0 0 1px var(--border-hairline); }
+.mi { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: center; min-height: 38px; padding: 8px 12px; border-radius: 10px; font-size: 14px; font-weight: 600; line-height: 1.35; color: var(--ink-body); transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
 .mi:hover { background: rgba(15, 20, 19, 0.05); color: var(--ink-strong); }
 .mi.on { background: var(--surface-graphite); color: var(--ink-on-graphite); }
 .mi.on svg { color: var(--brand-300); }
@@ -83,5 +90,8 @@ const active = computed(() => activeAdminPath(route.path))
 @media (max-width: 1100px) {
   .admin { grid-template-columns: 1fr; }
   .side { position: static; }
+  .side-btn { display: flex; align-items: center; }
+  .menu { display: none; }
+  .menu.open { display: grid; }
 }
 </style>

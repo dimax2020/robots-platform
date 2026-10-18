@@ -1,5 +1,6 @@
 """Фоновый исполнитель прогонов. Очередь — таблица job."""
 
+import json
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -63,6 +64,15 @@ def _run(kind: str, parser_code: str, file_path: str | None) -> dict:
         with session_factory()() as db:
             counters = ingest_records(db, records)
         return _typed({"created": counters.created, "updated": counters.updated, "rows": len(records)})
+    if kind == "vendor_parser":
+        # Обход тот же, что у администратора, но в каталог пишем только карточки этого производителя.
+        spec = json.loads(open(file_path, encoding="utf-8").read())
+        from app.infrastructure.db.vendor_repo import same_maker
+
+        records = [row for row in collect(spec["parser"]) if same_maker(spec["manufacturer"], row.manufacturer)]
+        with session_factory()() as db:
+            counters = ingest_records(db, records)
+        return _typed({"created": counters.created, "updated": counters.updated, "rows": len(records), "kept": len(records)})
     raise RuntimeError(f"неизвестный прогон {kind}")
 
 

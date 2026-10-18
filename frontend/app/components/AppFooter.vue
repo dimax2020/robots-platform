@@ -50,5 +50,9 @@ const { role } = useRole()
 .cols a { color: var(--ink-on-graphite); font-size: 15px; font-weight: 500; opacity: 0.85; transition: opacity var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease); }
 .cols a:hover { opacity: 1; color: var(--brand-300); }
 .label { margin-bottom: 6px; }
-.bottom { margin-top: var(--space-12); padding-top: var(--space-6); border-top: 1px solid var(--border-graphite); display: flex; justify-content: space-between; gap: var(--space-4); position: relative; }
+.bottom { margin-top: var(--space-12); padding-top: var(--space-6); border-top: 1px solid var(--border-graphite); display: flex; justify-content: space-between; gap: var(--space-4); position: relative; flex-wrap: wrap; }
+@media (max-width: 800px) {
+  .inner { grid-template-columns: 1fr; gap: var(--space-8); }
+  .cols { grid-template-columns: 1fr; gap: var(--space-6); }
+}
 </style>

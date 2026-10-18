@@ -264,3 +264,47 @@ class JobRow(Base):
     created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class VendorProfileRow(Base):
+    """Опубликованный профиль. Черновик вендора живёт в заявке, пока его не подтвердят."""
+
+    __tablename__ = "vendor_profile"
+    user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("app_user.id", ondelete="CASCADE"), primary_key=True)
+    manufacturer: Mapped[str] = mapped_column(Text, nullable=False)
+    company_name: Mapped[str] = mapped_column(Text, nullable=False)
+    about: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    website: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    email: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    phone: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    city: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    logo_url: Mapped[str | None] = mapped_column(Text)
+    documents: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+
+
+class VendorRequestRow(Base):
+    """Любое изменение вендора. В каталог попадает только статус approved."""
+
+    __tablename__ = "vendor_request"
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    admin_comment: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Скрытие только из своего списка. Строка и каталог от этого не пропадают.
+    owner_hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    admin_hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Старые принятые заявки уже лежат в каталоге. Новые ждут, пока очередь производителя опустеет.
+    catalog_applied: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ProductOfferRow(Base):
+    """Сколько раз подбор показал карточку. Заказчика, проект и площадку сюда не пишем."""
+
+    __tablename__ = "product_offer"
+    product_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("product.id", ondelete="CASCADE"), primary_key=True)
+    offers: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")

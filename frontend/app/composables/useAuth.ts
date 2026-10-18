@@ -2,7 +2,7 @@ import { platformGet, platformSend } from '~/composables/usePlatform'
 
 export interface AuthUser {
   login: string
-  role: 'guest' | 'user' | 'admin'
+  role: 'guest' | 'user' | 'admin' | 'vendor'
 }
 
 export function useAuth() {
