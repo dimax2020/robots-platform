@@ -19,6 +19,7 @@ from app.infrastructure.db.vendor_repo import (
     load_profile,
     own_products,
     publish_request,
+    vendor_stats,
     parser_choices,
     partners,
     process_choices,
@@ -91,6 +92,16 @@ def vendor_me(user: SessionUser = Depends(require_vendor)) -> dict:
             raise HTTPException(404, "Профиль вендора не заведён") from None
         pending = sum(1 for item in list_requests(db, user.id, audience="vendor") if item["status"] == "pending")
         return {"login": user.login, "profile": profile_view(row), "pending": pending}
+
+
+@router.get("/api/v1/vendor/stats", tags=["Вендор"], summary="Сколько карточек, процессов и показов в подборе, без данных заказчиков")
+def vendor_statistics(user: SessionUser = Depends(require_vendor)) -> dict:
+    with session_factory()() as db:
+        try:
+            row = load_profile(db, user.id)
+        except KeyError:
+            raise HTTPException(404, "Профиль производителя не найден") from None
+        return vendor_stats(db, row.manufacturer)
 
 
 @router.get("/api/v1/vendor/products", tags=["Вендор"], summary="Роботы этого производителя в каталоге")

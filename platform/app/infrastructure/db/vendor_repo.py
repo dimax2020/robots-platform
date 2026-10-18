@@ -12,10 +12,20 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.domain.csv_parse import attr_key
-from app.infrastructure.db.models import ProcessRow, ProductRow, VendorProfileRow, VendorRequestRow
+from app.infrastructure.db.models import (
+    ObjectProcessRow,
+    ObjectTypeRow,
+    ProcessRow,
+    ProductOfferRow,
+    ProductProcessRow,
+    ProductRow,
+    VendorProfileRow,
+    VendorRequestRow,
+)
 from app.infrastructure.db.product_admin_repo import create_product, patch_product, product_detail
 from app.parsers import PARSERS
 
@@ -80,6 +90,104 @@ def own_products(db: Session, manufacturer: str) -> list[dict]:
         select(ProductRow).where(ProductRow.manufacturer == manufacturer).order_by(ProductRow.name)
     )
     return [product_detail(db, row.slug) for row in rows]
+
+
+# В список заказчика попадают эти три вкладки. «Не подходит» человек не выбирает.
+_SHOWN = {"pass", "conditional", "unknown"}
+
+
+def remember_offers(db: Session, groups: list) -> None:
+    """Один открытый подбор прибавляет единицу каждой показанной модели. Чей это был проект, не сохраняем."""
+    wanted: set[UUID] = set()
+    for group in groups or []:
+        for hit in group.get("hits") or []:
+            if hit.get("verdict") not in _SHOWN:
+                continue
+            try:
+                wanted.add(UUID(str(hit.get("product_id"))))
+            except (TypeError, ValueError):
+                continue
+    if not wanted:
+        return
+    owned = list(db.scalars(
+        select(ProductRow.id)
+        .join(VendorProfileRow, VendorProfileRow.manufacturer == ProductRow.manufacturer)
+        .where(ProductRow.id.in_(wanted))
+    ))
+    if not owned:
+        return
+    stmt = pg_insert(ProductOfferRow).values([{"product_id": item, "offers": 1} for item in owned])
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[ProductOfferRow.product_id],
+        set_={"offers": ProductOfferRow.offers + 1},
+    )
+    db.execute(stmt)
+    db.commit()
+
+
+def vendor_stats(db: Session, manufacturer: str) -> dict:
+    """Сводка для кабинета: свои карточки, их процессы, объекты подбора и число показов."""
+    products = list(db.scalars(
+        select(ProductRow).where(ProductRow.manufacturer == manufacturer).order_by(ProductRow.name)
+    ))
+    ids = [row.id for row in products]
+    process_by_product: dict[UUID, list[tuple[int, str]]] = {item: [] for item in ids}
+    process_ids: set[int] = set()
+    if ids:
+        links = db.execute(
+            select(ProductProcessRow.product_id, ProcessRow.id, ProcessRow.name)
+            .join(ProcessRow, ProcessRow.id == ProductProcessRow.process_id)
+            .where(ProductProcessRow.product_id.in_(ids))
+            .order_by(ProcessRow.name)
+        )
+        for product_id, process_id, name in links:
+            process_by_product.setdefault(product_id, []).append((process_id, name))
+            process_ids.add(process_id)
+    objects_by_process: dict[int, list[str]] = {}
+    if process_ids:
+        places = db.execute(
+            select(ObjectProcessRow.process_id, ObjectTypeRow.name)
+            .join(ObjectTypeRow, ObjectTypeRow.id == ObjectProcessRow.object_type_id)
+            .where(ObjectProcessRow.process_id.in_(process_ids), ObjectTypeRow.in_match.is_(True))
+            .order_by(ObjectTypeRow.name)
+        )
+        for process_id, name in places:
+            bucket = objects_by_process.setdefault(process_id, [])
+            if name not in bucket:
+                bucket.append(name)
+    offer_rows = {
+        row.product_id: row.offers
+        for row in db.scalars(select(ProductOfferRow).where(ProductOfferRow.product_id.in_(ids)))
+    } if ids else {}
+    models = []
+    object_names: set[str] = set()
+    process_names: set[str] = set()
+    for row in products:
+        linked = process_by_product.get(row.id, [])
+        names = [name for _process_id, name in linked]
+        process_names.update(names)
+        places: list[str] = []
+        for process_id, _name in linked:
+            for place in objects_by_process.get(process_id, []):
+                if place not in places:
+                    places.append(place)
+        object_names.update(places)
+        models.append({
+            "name": row.name,
+            "offers": int(offer_rows.get(row.id, 0)),
+            "processes": names,
+            "objects": places,
+        })
+    models.sort(key=lambda item: (-item["offers"], item["name"]))
+    return {
+        "cards": len(products),
+        "processes": len(process_names),
+        "objects": len(object_names),
+        "offers": sum(item["offers"] for item in models),
+        "process_names": sorted(process_names),
+        "object_names": sorted(object_names),
+        "models": models,
+    }
 
 
 def process_choices(db: Session) -> list[dict]:

@@ -39,6 +39,16 @@ interface RequestRow {
 }
 interface ProcessChoice { code: string; name: string }
 interface ParserChoice { code: string; title: string; summary: string }
+interface ModelStat { name: string; offers: number; processes: string[]; objects: string[] }
+interface VendorStats {
+  cards: number
+  processes: number
+  objects: number
+  offers: number
+  process_names: string[]
+  object_names: string[]
+  models: ModelStat[]
+}
 interface DraftRobot { name: string; summary: string; price_rub: number | null; processes: string[]; attrs: { key: string; label: string; value: unknown }[] }
 
 const route = useRoute()
@@ -48,6 +58,7 @@ watch(() => route.query.tab, (value) => { if (typeof value === 'string') tab.val
 const profile = ref<Profile | null>(null)
 const products = ref<Robot[]>([])
 const requests = ref<RequestRow[]>([])
+const stats = ref<VendorStats | null>(null)
 const processes = ref<ProcessChoice[]>([])
 const parsers = ref<ParserChoice[]>([])
 const notice = ref('')
@@ -102,6 +113,7 @@ const attention = computed(() => requests.value.filter((item) => item.status ===
 const tabs = computed(() => [
   { id: 'profile', label: 'Компания' },
   { id: 'robots', label: 'Роботы', count: products.value.length },
+  { id: 'stats', label: 'Статистика' },
   { id: 'requests', label: 'Заявки', count: attention.value.length },
 ])
 const parserPlain: Record<string, string> = {
@@ -139,6 +151,14 @@ const robotsWord = (count: number) => {
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'робота'
   return 'роботов'
 }
+/* «2 раза», «5 раз», «21 раз». Человеку так понятнее, чем голое число. */
+const timesWord = (count: number) => {
+  const mod10 = count % 10
+  const mod100 = count % 100
+  const word = mod10 === 1 && mod100 !== 11 ? 'раз' : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? 'раза' : 'раз'
+  return `${count} ${word}`
+}
+const asList = (items: string[], empty: string) => items.length ? items.join(', ') : empty
 const when = (iso: string | null) => iso
   ? new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })
   : ''
@@ -160,12 +180,13 @@ const fillProfile = (row: Profile) => {
 }
 
 const load = async () => {
-  const [me, robots, queue, processPage, parserPage] = await Promise.all([
+  const [me, robots, queue, processPage, parserPage, summary] = await Promise.all([
     platformGet<{ profile: Profile }>('/vendor/me'),
     platformGet<Robot[]>('/vendor/products'),
     platformGet<RequestRow[]>('/vendor/requests'),
     platformGet<ProcessChoice[]>('/vendor/processes'),
     platformGet<ParserChoice[]>('/vendor/parsers'),
+    platformGet<VendorStats>('/vendor/stats'),
   ])
   profile.value = me.profile
   fillProfile(me.profile)
@@ -173,6 +194,7 @@ const load = async () => {
   requests.value = queue
   processes.value = processPage
   parsers.value = parserPage
+  stats.value = summary
   if (!parserCode.value && parserPage[0]) parserCode.value = parserPage[0].code
   if (!selectedSlug.value && robots[0]) pickRobot(robots[0].slug)
   if (!modeReady.value) {
@@ -355,6 +377,11 @@ const sendParse = () => run(async () => {
 }, 'Заявка отправлена. После подтверждения в каталог попадут только роботы вашей компании.')
 
 onMounted(() => { void load().catch((err) => { error.value = fetchErrorMessage(err, 'Кабинет не открылся') }) })
+/* После подбора в другом окне цифры обновляются, когда человек снова открывает вкладку. */
+watch(tab, (value) => {
+  if (value !== 'stats') return
+  platformGet<VendorStats>('/vendor/stats').then((summary) => { stats.value = summary }).catch(() => {})
+})
 </script>
 
 <template>
@@ -536,6 +563,30 @@ onMounted(() => { void load().catch((err) => { error.value = fetchErrorMessage(e
       </section>
     </div>
 
+    <section v-else-if="tab === 'stats'" class="stack">
+      <div>
+        <div class="h3">Как ваши роботы попадают в подбор</div>
+        <p class="body-sm muted">Здесь только общие цифры. Имён заказчиков и адресов площадок нет.</p>
+      </div>
+      <div v-if="stats" class="stats glass glass-xl">
+        <UiStat label="Карточек в каталоге" :value="String(stats.cards)" note="Столько ваших моделей уже видит заказчик" />
+        <UiStat label="Процессов" :value="String(stats.processes)" :note="asList(stats.process_names, 'К роботам ещё не привязаны работы, поэтому в подбор они не попадают')" />
+        <UiStat label="Объектов в подборе" :value="String(stats.objects)" :note="asList(stats.object_names, 'Эти процессы пока не стоят ни на одном типе площадки')" />
+        <UiStat label="Показов в подборе" :value="String(stats.offers)" note="Сколько раз модель попала в «Подходит», «С условием» или «Уточнить». «Не подходит» сюда не входит." />
+      </div>
+      <p v-else class="body-sm muted">Считаем сводку.</p>
+      <div class="h4">По моделям</div>
+      <p v-if="stats && !stats.models.length" class="body-sm muted">Своих карточек в каталоге пока нет. Добавьте робота, и здесь появится его строка.</p>
+      <div v-else class="cards">
+        <article v-for="model in stats?.models || []" :key="model.name" class="glass card">
+          <div class="card-title">{{ model.name }}</div>
+          <p class="model-line">Показали в подборе: {{ timesWord(model.offers) }}</p>
+          <p class="model-line">Процессы: {{ asList(model.processes, 'не отмечены, в подбор модель не попадает') }}</p>
+          <p class="model-line">Объекты: {{ asList(model.objects, 'пока ни один тип площадки') }}</p>
+        </article>
+      </div>
+    </section>
+
     <section v-else class="requests">
       <div class="h3">Заявки</div>
       <p v-if="!requests.length" class="body-sm muted">Пока пусто. Измените компанию или робота, и здесь появится ответ администратора.</p>
@@ -601,10 +652,16 @@ onMounted(() => { void load().catch((err) => { error.value = fetchErrorMessage(e
 .preview { display: grid; gap: 8px; }
 .names { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 .jump { margin-left: 8px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; padding: 20px 22px; }
+.model-line { margin: 0; color: var(--ink-body); font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
 .specs { display: grid; gap: 10px; }
 .specs summary { font-weight: 700; color: var(--ink-strong); cursor: pointer; }
 .note { margin: 0; padding: 8px 12px; border-radius: 10px; background: var(--state-warn-tint); color: var(--state-warn); font-weight: 600; }
+@media (max-width: 900px) {
+  .stats { grid-template-columns: 1fr 1fr; }
+}
 @media (max-width: 800px) {
   .grid-2 { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: 1fr; }
 }
 </style>

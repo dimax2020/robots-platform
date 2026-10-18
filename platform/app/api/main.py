@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.api import admin_catalog, admin_objects, admin_products, vendor
+from app.infrastructure.db.vendor_repo import remember_offers
 from app.api.auth import SessionUser, load_user, optional_user, require_admin, require_user
 from app.config import get_settings
 from app.domain.layout_items import COUNT_RULES, ROLES, SHAPES
@@ -522,7 +523,10 @@ def admin_assign(slug: str, body: AssignIn) -> dict:
 def catalog_preview_match(body: PreviewMatchIn) -> dict:
     with session_factory()() as db:
         try:
-            return match_object(db, body.object_code, body.site)
+            result = match_object(db, body.object_code, body.site)
+            # Пробный подбор без проекта тоже показ: заказчик уже видит модели.
+            remember_offers(db, result.get("groups"))
+            return result
         except KeyError:
             raise HTTPException(404, "Объект не найден") from None
 
@@ -632,12 +636,15 @@ def remove_project(project_key: str, user: SessionUser | None = Depends(optional
 def match_project(project_key: str, body: MatchIn | None = None, user: SessionUser | None = Depends(optional_user)) -> dict:
     with session_factory()() as db:
         project = _readable(db, project_key, user)
-        return run_match(
+        result = run_match(
             db,
             project.id,
             site=None if body is None else body.site,
             tasks=None if body is None else body.tasks,
         )
+        # Считаем показ только на экране подбора. Расчёт экономики вызывает тот же подбор ещё раз и число не прибавляет.
+        remember_offers(db, result.get("groups"))
+        return result
 
 
 @app.post("/api/v1/projects/{project_key}/economy", tags=["Экономика"], summary="Посчитать бюджет и окупаемость по выбранным роботам")
