@@ -130,7 +130,7 @@ export function buildProcess(code: string, name: string, robot: RobotInput | nul
   const charge = spec('charge_time_h')
   const spec_: RobotSpec = {
     name: robot?.name ?? 'Робот не выбран',
-    count: Math.max(1, Math.round(robot?.count ?? 1)),
+    count: typeof robot?.count === 'number' && Number.isFinite(robot.count) && Number.isInteger(robot.count) && robot.count >= 0 ? robot.count : 0,
     speed: speed && speed > 0 ? speed : DEFAULT_SPEED,
     speedSource: speed && speed > 0 ? 'card' : 'default',
     workS: work && work > 0 ? work * 3600 : null,
@@ -288,7 +288,7 @@ export function placedCount(layout: Layout, code: string, item: LayoutItem): num
 }
 
 export const processReady = (layout: Layout, proc: SimProcess) =>
-  proc.items.every((item) => placedCount(layout, proc.code, item) >= Math.max(item.role === 'waypoint' ? 2 : 1, item.min_count))
+  proc.robot.count > 0 && proc.items.every((item) => placedCount(layout, proc.code, item) >= Math.max(item.role === 'waypoint' ? 2 : 1, item.min_count))
 
 export const hasStations = (layout: Layout, code: string) =>
   layout.floors.some((floor) => floor.stations.some((item) => item.process === code) || floor.zones.some((item) => item.process === code))

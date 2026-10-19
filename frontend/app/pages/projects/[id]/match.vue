@@ -105,7 +105,7 @@ const runMatch = async () => {
   startClock()
   try {
     const site = live.site.value
-    const result = await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site })
+    const result = await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site, tasks: live.tasks.value })
     groups.value = result.groups
     const requested = typeof route.query.process === 'string' ? route.query.process : ''
     const first = result.groups[0]?.process_code
@@ -200,7 +200,7 @@ onBeforeUnmount(stopClock)
             <RobotReadiness :trl="hit.trl" :stage="hit.stage" :flagged="isImmature(hit)" />
           </div>
           <UiBadge :tone="verdictTone[hit.verdict] || 'neutral'" size="sm">{{ verdictLabel[hit.verdict] || hit.verdict }}</UiBadge>
-          <span class="caption">{{ hit.notes.join(' · ') || 'замечаний нет' }}</span>
+          <AssessmentStatus :hit="hit" />
           <button
             type="button"
             class="pick"

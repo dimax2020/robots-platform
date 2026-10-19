@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import re
+import math
 from typing import Any
 
 from app.domain.formula import FormulaError, MissingName, build_env, evaluate
 from app.domain.specs import CANON_LABELS
+from app.domain.assessment import Reason, reason, functional_reasons, checked, valid_count
 
 _LABELS = {
     **CANON_LABELS,
@@ -123,6 +125,10 @@ class RobotView:
     image_url: str | None = None
     trl: int | None = None
     stage: str | None = None
+    assessment: dict = field(default_factory=dict)
+    attribute_issues: dict = field(default_factory=dict)
+    catalog_reasons: tuple[Reason, ...] = ()
+    site_conditions: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -137,6 +143,7 @@ class MatchHit:
     image_url: str | None = None
     trl: int | None = None
     stage: str | None = None
+    reasons: tuple[Reason, ...] = ()
 
 
 def match_robots(
@@ -148,92 +155,109 @@ def match_robots(
     robots: tuple[RobotView, ...],
     bindings: dict[str, str] | None = None,
     readiness: Readiness | None = None,
+    profile: dict | None = None,
 ) -> list[MatchHit]:
     """Вердикт по каждому роботу процесса. Базы здесь нет."""
-    linked = bindings or {}
+    from app.domain.process_requirements import compile_requirements
+    policy, rules, builtin_bindings, errors = compile_requirements(process_code, rules, profile, site)
+    linked = {**builtin_bindings, **(bindings or {})}
     return [
-        _one(process_code, process_name, site, rules, robot, linked, readiness)
+        _one(process_code, process_name, site, rules, robot, linked, readiness, policy, errors)
         for robot in robots
     ]
 
 
 def _one(
-    process_code: str,
-    process_name: str,
-    site: dict[str, Any],
-    rules: tuple[FilterRule, ...],
-    robot: RobotView,
-    bindings: dict[str, str],
-    readiness: Readiness | None = None,
+    process_code: str, process_name: str, site: dict[str, Any], rules: tuple[FilterRule, ...],
+    robot: RobotView, bindings: dict[str, str], readiness: Readiness | None = None,
+    profile: dict | None = None,
+    profile_errors=(),
 ) -> MatchHit:
-    fails: list[str] = []
-    unknowns: list[str] = []
-    conditions: list[str] = []
+    problems = [*robot.catalog_reasons, *profile_errors, *functional_reasons(robot.assessment, profile, process_code)]
+    policy, errors = checked(profile, product=False)
+    problems.extend(errors)
+    for key, message in robot.site_conditions.items():
+        value = site.get(key)
+        if value is False or value == 'false':
+            problems.append(reason('site_condition_incompatible', message, field=key, severity='fail'))
+        elif value is not True and value != 'true':
+            problems.append(reason('site_condition_missing', message + ': условия площадки не указаны', field=key))
+    for name in policy.get('required_checks', []):
+        if not any(r.name == name and r.mode == 'hard' for r in rules):
+            problems.append(reason('configuration_error', f'Отсутствует обязательная проверка: {name}', field=name))
+    for key in policy.get('critical_site_keys', []):
+        if site.get(key) in (None, ''):
+            problems.append(reason('site_input_missing', f'Не задан обязательный параметр площадки: {_label(key)}', field=key))
+    for key in policy.get('critical_robot_keys', []):
+        if robot.attrs.get(key) in (None, ''):
+            problems.append(_missing_attribute(robot, key, f'Нет критичной характеристики: {_label(key)}'))
     for rule in rules:
+        if rule.mode not in {'hard', 'conditional'}:
+            problems.append(reason('configuration_error', f'{rule.name}: неизвестный режим проверки'))
+            continue
         if rule.formula:
-            _formula_rule(rule, site, bindings, robot, fails, unknowns, conditions)
+            _formula_rule(rule, site, bindings, robot, problems)
             continue
         pairs = _pairs(rule)
+        if not pairs or (len(rule.object_keys) != len(rule.robot_keys) and len(rule.object_keys) != 1):
+            problems.append(reason('configuration_error', f'{rule.name}: не настроено сравнение'))
+            continue
         for object_key, robot_key in pairs:
             site_value = site.get(object_key)
-            if site_value is None or site_value == "":
+            if site_value is None or site_value == '':
+                problems.append(reason('site_input_missing', f'{rule.name}: не задан параметр объекта «{object_key}»', field=object_key))
                 continue
             robot_value = robot.attrs.get(robot_key)
-            if robot_value is None or robot_value == "":
-                unknowns.append(f"{rule.name}: нет «{robot_key}»")
+            if robot_value is None or robot_value == '':
+                problems.append(_missing_attribute(robot, robot_key, f'{rule.name}: нет «{robot_key}»'))
                 continue
             ok, detail = _compare(rule.op, robot_value, site_value)
             if ok is None:
-                unknowns.append(f"{rule.name}: {detail}")
-                continue
-            if ok:
-                continue
-            note = f"{rule.name}: {robot_key} {rule.op} {object_key} не выполнено ({detail})"
-            if rule.mode == "conditional":
-                conditions.append(note)
-            else:
-                fails.append(note)
-    immature = readiness.notes(robot.trl, robot.stage) if readiness else []
-    if fails:
-        verdict, notes = "fail", tuple(fails + unknowns + conditions + immature)
-    elif unknowns or immature:
-        verdict, notes = "unknown", tuple(immature + unknowns + conditions)
-    elif conditions:
-        verdict, notes = "conditional", tuple(conditions)
-    else:
-        verdict, notes = "pass", ()
-    return MatchHit(robot.id, robot.name, robot.slug, process_code, process_name, verdict, notes, robot.image_url, robot.trl, robot.stage)
+                problems.append(reason('invalid_value', f'{rule.name}: {detail}'))
+            elif not ok:
+                problems.append(reason('technical_constraint', f'{rule.name}: {robot_key} {rule.op} {object_key} не выполнено ({detail})',
+                                       severity='conditional' if rule.mode == 'conditional' else 'fail'))
+    if readiness:
+        problems.extend(reason('readiness_unconfirmed', n) for n in readiness.notes(robot.trl, robot.stage))
+    verdict = ('fail' if any(p.severity == 'fail' for p in problems) else
+               'unknown' if any(p.severity == 'unknown' for p in problems) else
+               'conditional' if problems else 'pass')
+    return MatchHit(robot.id, robot.name, robot.slug, process_code, process_name, verdict,
+                    tuple(p.message for p in problems), robot.image_url, robot.trl, robot.stage, tuple(problems))
 
 
-def _formula_rule(rule: FilterRule, site: dict, bindings: dict[str, str], robot: RobotView, fails: list[str], unknowns: list[str], conditions: list[str]) -> None:
+def _missing_attribute(robot, key, message):
+    if key in robot.attribute_issues:
+        return reason('catalog_attribute_ambiguous', f'{message}. {robot.attribute_issues[key]}', field=key)
+    return reason('robot_attribute_missing', message, field=key)
+
+
+def _formula_rule(rule: FilterRule, site: dict, bindings: dict[str, str], robot: RobotView, problems: list[Reason]) -> None:
     input_keys = {key for key, _label in rule.inputs}
     status, env, detail = build_env(rule.formula, input_keys, bindings, site, robot.attrs)
-    if status == "skip":
+    if status == 'skip':
+        code = 'site_input_missing' if bindings.get(detail) else 'site_binding_missing'
+        problems.append(reason(code, f'{rule.name}: не задан параметр объекта «{_label(detail)}»', field=detail))
         return
-    if status == "missing":
-        unknowns.append(f"{rule.name}: нет «{_label(detail)}»")
+    if status == 'missing':
+        problems.append(_missing_attribute(robot, detail, f'{rule.name}: нет «{_label(detail)}»'))
         return
-    if status != "ok":
-        unknowns.append(f"{rule.name}: «{_label(detail)}» не число")
+    if status != 'ok':
+        problems.append(reason('invalid_value', f'{rule.name}: «{_label(detail)}» не число', field=detail))
         return
     try:
         result = evaluate(rule.formula, env)
     except MissingName as exc:
-        unknowns.append(f"{rule.name}: нет «{exc.name}»")
+        problems.append(reason('configuration_error', f'{rule.name}: нет «{exc.name}»'))
         return
     except FormulaError as exc:
-        unknowns.append(f"{rule.name}: {exc}")
+        problems.append(reason('configuration_error', f'{rule.name}: {exc}'))
         return
     if not isinstance(result, bool):
-        unknowns.append(f"{rule.name}: формула должна отвечать да или нет")
-        return
-    if result:
-        return
-    note = f"{rule.name}: условие не выполнено"
-    if rule.mode == "conditional":
-        conditions.append(note)
-    else:
-        fails.append(note)
+        problems.append(reason('configuration_error', f'{rule.name}: формула должна отвечать да или нет'))
+    elif not result:
+        problems.append(reason('technical_constraint', f'{rule.name}: условие не выполнено',
+                               severity='conditional' if rule.mode == 'conditional' else 'fail'))
 
 
 def _pairs(rule: FilterRule) -> list[tuple[str, str]]:
@@ -257,6 +281,8 @@ def _compare(op: str, robot_value: Any, site_value: Any) -> tuple[bool | None, s
         right = float(str(site_value).replace(",", ".").replace(" ", ""))
     except (TypeError, ValueError):
         return None, "значение не число"
+    if not math.isfinite(left) or not math.isfinite(right):
+        return None, "значение не является конечным числом"
     detail = f"{left:g} {op} {right:g}"
     if op == "<=":
         return left <= right, detail
@@ -323,7 +349,7 @@ def count_site(site: dict | None) -> dict:
 
 def robot_count(formula: str, inputs: tuple[tuple[str, str], ...], bindings: dict[str, str], site: dict, robot: dict) -> tuple[float | None, str]:
     if not formula.strip():
-        return None, ""
+        return None, "Модель расчёта количества не настроена"
     status, env, detail = build_env(formula, {key for key, _label in inputs}, bindings, site, robot)
     if status == "skip":
         return None, "параметр объекта не задан"
@@ -339,6 +365,8 @@ def robot_count(formula: str, inputs: tuple[tuple[str, str], ...], bindings: dic
         return None, str(exc)
     if isinstance(value, bool):
         return None, "формула количества должна давать число"
+    if not valid_count(value):
+        return None, "Количество должно быть конечным неотрицательным целым числом"
     return float(value), ""
 
 

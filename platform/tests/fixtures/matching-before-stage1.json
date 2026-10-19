@@ -1,0 +1,357 @@
+{
+  "commit": "e83d694dfd26d68a647cf42e90d79e2e1ed1126a",
+  "source": "READ ONLY reproduction 2026-10-19; legacy behavior, not target assertions",
+  "demos": [
+    {
+      "slug": "demo-hospital",
+      "groups": [
+        {
+          "process_code": "biomaterial_delivery",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 0,
+            "unknown": 5,
+            "fail": 0
+          },
+          "best_product_id": "00ddbb71-8fca-4cb1-9998-78250c62ea03",
+          "best_count": null
+        },
+        {
+          "process_code": "medicine_delivery",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 0,
+            "unknown": 2,
+            "fail": 0
+          },
+          "best_product_id": "00ddbb71-8fca-4cb1-9998-78250c62ea03",
+          "best_count": null
+        },
+        {
+          "process_code": "warehouse_inventory",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 1,
+            "unknown": 1,
+            "fail": 0
+          },
+          "best_product_id": "242d637c-6512-4bdf-9964-2c0010259f36",
+          "best_count": null
+        },
+        {
+          "process_code": "facade_washing",
+          "verdicts": {
+            "pass": 2,
+            "conditional": 0,
+            "unknown": 1,
+            "fail": 0
+          },
+          "best_product_id": "9f06ff5b-0ed4-42e4-9795-b2cf3ac55fbb",
+          "best_count": null
+        },
+        {
+          "process_code": "perimeter_security",
+          "verdicts": {
+            "pass": 1,
+            "conditional": 2,
+            "unknown": 9,
+            "fail": 0
+          },
+          "best_product_id": "49db955c-62c7-4f69-912f-2745000471fa",
+          "best_count": 2.0
+        },
+        {
+          "process_code": "ward_service",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 0,
+            "unknown": 0,
+            "fail": 0
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "floor_cleaning",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 1,
+            "unknown": 64,
+            "fail": 0
+          },
+          "best_product_id": "0d38fcc2-93e0-43f9-851c-71656d0b80cf",
+          "best_count": null
+        }
+      ],
+      "robots": 7.0,
+      "purchase_capex": 34209948.16
+    },
+    {
+      "slug": "demo-warehouse",
+      "groups": [
+        {
+          "process_code": "pallet_storage",
+          "verdicts": {
+            "pass": 2,
+            "conditional": 0,
+            "unknown": 1,
+            "fail": 1
+          },
+          "best_product_id": "cebbdfa8-500a-425f-bcbc-ad2dcc106539",
+          "best_count": 4.0
+        },
+        {
+          "process_code": "cart_towing",
+          "verdicts": {
+            "pass": 2,
+            "conditional": 0,
+            "unknown": 0,
+            "fail": 0
+          },
+          "best_product_id": "b4a9ef38-b68a-4c0f-8512-9bc9a718c4e1",
+          "best_count": 5.0
+        },
+        {
+          "process_code": "tote_delivery",
+          "verdicts": {
+            "pass": 2,
+            "conditional": 2,
+            "unknown": 36,
+            "fail": 0
+          },
+          "best_product_id": "cebd9672-1d6b-4fb5-8f87-f776bd7cacca",
+          "best_count": null
+        },
+        {
+          "process_code": "warehouse_inventory",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 1,
+            "unknown": 1,
+            "fail": 0
+          },
+          "best_product_id": "242d637c-6512-4bdf-9964-2c0010259f36",
+          "best_count": 2.0
+        },
+        {
+          "process_code": "order_picking",
+          "verdicts": {
+            "pass": 1,
+            "conditional": 2,
+            "unknown": 6,
+            "fail": 0
+          },
+          "best_product_id": "cebbdfa8-500a-425f-bcbc-ad2dcc106539",
+          "best_count": 150.0
+        },
+        {
+          "process_code": "facade_washing",
+          "verdicts": {
+            "pass": 2,
+            "conditional": 0,
+            "unknown": 1,
+            "fail": 0
+          },
+          "best_product_id": "9f06ff5b-0ed4-42e4-9795-b2cf3ac55fbb",
+          "best_count": null
+        },
+        {
+          "process_code": "roof_inspection",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 0,
+            "unknown": 0,
+            "fail": 0
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "perimeter_security",
+          "verdicts": {
+            "pass": 1,
+            "conditional": 2,
+            "unknown": 9,
+            "fail": 0
+          },
+          "best_product_id": "49db955c-62c7-4f69-912f-2745000471fa",
+          "best_count": 2.0
+        },
+        {
+          "process_code": "palletizing",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 0,
+            "unknown": 2,
+            "fail": 0
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "pallet_transport",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 2,
+            "unknown": 10,
+            "fail": 1
+          },
+          "best_product_id": "5760e938-9a43-45a7-b8e8-f4f2e6383930",
+          "best_count": 5.0
+        },
+        {
+          "process_code": "rack_placement",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 1,
+            "unknown": 1,
+            "fail": 0
+          },
+          "best_product_id": "f7634ef8-0034-4c5b-b2f0-e44a14f05a76",
+          "best_count": 5.0
+        },
+        {
+          "process_code": "parcel_sorting",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 1,
+            "unknown": 3,
+            "fail": 1
+          },
+          "best_product_id": "66d8e7ad-cdcd-4287-afb0-e2afa9ef5217",
+          "best_count": 232.0
+        },
+        {
+          "process_code": "floor_cleaning",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 3,
+            "unknown": 62,
+            "fail": 0
+          },
+          "best_product_id": "f31223c1-44c8-4410-8381-6356e2158b61",
+          "best_count": null
+        },
+        {
+          "process_code": "packing",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 0,
+            "unknown": 2,
+            "fail": 1
+          },
+          "best_product_id": null,
+          "best_count": null
+        }
+      ],
+      "robots": 408.0,
+      "purchase_capex": 2916351288.0
+    },
+    {
+      "slug": "demo-airport",
+      "groups": [
+        {
+          "process_code": "tote_delivery",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 0,
+            "unknown": 40,
+            "fail": 0
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "passenger_service",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 2,
+            "unknown": 24,
+            "fail": 0
+          },
+          "best_product_id": "7cc0f8b1-371e-4175-89ff-b1d3ea698e94",
+          "best_count": null
+        },
+        {
+          "process_code": "facade_washing",
+          "verdicts": {
+            "pass": 2,
+            "conditional": 0,
+            "unknown": 1,
+            "fail": 0
+          },
+          "best_product_id": "9f06ff5b-0ed4-42e4-9795-b2cf3ac55fbb",
+          "best_count": null
+        },
+        {
+          "process_code": "territory_inspection",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 0,
+            "unknown": 3,
+            "fail": 0
+          },
+          "best_product_id": "9f6146e2-fe03-4652-a52e-ba0ef737c0ff",
+          "best_count": null
+        },
+        {
+          "process_code": "roof_inspection",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 0,
+            "unknown": 0,
+            "fail": 0
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "perimeter_security",
+          "verdicts": {
+            "pass": 1,
+            "conditional": 2,
+            "unknown": 9,
+            "fail": 0
+          },
+          "best_product_id": "49db955c-62c7-4f69-912f-2745000471fa",
+          "best_count": 2.0
+        },
+        {
+          "process_code": "baggage_transport",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 0,
+            "unknown": 1,
+            "fail": 0
+          },
+          "best_product_id": "28a5afa8-0473-4f80-99a9-b2922b76810f",
+          "best_count": 3.0
+        },
+        {
+          "process_code": "apron_transport",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 0,
+            "unknown": 0,
+            "fail": 0
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "floor_cleaning",
+          "verdicts": {
+            "pass": 0,
+            "conditional": 6,
+            "unknown": 59,
+            "fail": 0
+          },
+          "best_product_id": "7918b1c3-a9f0-4612-a9bc-7b938e59b5f2",
+          "best_count": null
+        }
+      ],
+      "robots": 8.0,
+      "purchase_capex": 42762341.614719994
+    }
+  ]
+}

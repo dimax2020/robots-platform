@@ -229,6 +229,7 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
       <UiButton :to="`/projects/${project.id}/plan`" size="lg">К визуализации<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
     </template>
 
+    <UiCallout v-if="report?.status === 'incomplete'" tone="warn" title="Недостаточно данных для оценки проекта">Изменение финансовых коэффициентов не подтверждает применимость и количество оборудования. Итоговая окупаемость пока не определена.</UiCallout>
     <UiCallout tone="warn" title="Предварительная оценка">{{ report?.disclaimer ?? PRELIMINARY }}</UiCallout>
 
     <UiCallout v-if="isDemo && !readonly" tone="info" title="Демо-объект">Вы правите демо как администратор: сохранённые коэффициенты увидят все после публикации.</UiCallout>
@@ -310,7 +311,7 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
               <div class="s-name"><span class="h4">{{ item.title }}</span><span class="caption">{{ item.subtitle }}</span></div>
               <div class="s-cell">
                 <span class="caption">Окупаемость</span>
-                <span class="mono-lg">{{ item.key === 'asis' ? '—' : item.payback.value != null ? figValue(item.payback.value, 'лет') : 'нет' }}</span>
+                <span class="mono-lg">{{ item.key === 'asis' ? '—' : item.payback.value != null ? figValue(item.payback.value, 'лет') : report?.status === 'incomplete' ? 'не определена' : 'нет' }}</span>
                 <span v-if="paybackDelta(item.key)" class="caption delta">{{ paybackDelta(item.key) }}</span>
               </div>
               <div class="s-cell">

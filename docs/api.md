@@ -67,11 +67,11 @@ curl -s -X POST http://localhost/platform/api/v1/projects/demo-warehouse/match \
 
 ```json
 {"project_id": "888e9c05-…", "groups": [{
-  "process_code": "pallet_storage", "process_name": "Автоматизированное хранение и выдача грузов",
-  "best_product_id": "cebbdfa8-…",
-  "hits": [{"name": "AS-RS P", "slug": "as-rs-p", "verdict": "pass", "notes": [],
-            "trl": 9, "stage": "operation", "count": 4.0, "count_note": "",
-            "specs": [{"key": "price_rub", "label": "Цена", "unit": "₽", "direction": "low", "value": 10000000.0}]}]
+  "process_code": "warehouse_inventory", "process_name": "Инвентаризация товаров",
+  "best_product_id": null, "technical_best_product_id": null,
+  "hits": [{"name": "Инвентаризатор AI Stock Counter 12M", "slug": "inventarizator-ai-stock-counter-12m", "verdict": "unknown",
+            "technical_ready": false, "sizing_ready": false, "economic_ready": false,
+            "count": null, "data_basis": "published_catalog_v1"}]
 }]}
 ```
 
@@ -87,3 +87,10 @@ curl -b cookie.txt -X POST http://localhost/platform/api/v1/admin/imports \
 ```
 
 Поле `kind`: `import_catalog` или `import_manual`. В ответе идентификатор задания; статус: `GET /admin/jobs/{id}`. Форматы файлов: раздел 7.2.
+
+
+## Допуск и неполная экономика (0024)
+
+Актуальный расширенный контракт: [14-catalog-assessment.md](14-catalog-assessment.md). Опубликованные характеристики используются без reviewed=true и обязательных assessment-документов. Прежние verdict/notes/count/best_product_id сохранены; добавлены reasons, независимые technical_ready/sizing_ready/economic_ready, data_basis, resolved_facts, provenance и technical_best_product_id. Отсутствие цены/комплектации/модели количества не блокирует технический pass. Экономика проверяет выбор на сервере, различает picks отсутствует и picks={}, не принимает fail/unknown/conditional и не подставляет count=1. При неизвестных критичных данных возвращает HTTP 200, status=incomplete, blockers и nullable финансовые totals (в том числе annual_cost). Старые сохранённые ID диагностируются, не заменяются молча.
+
+Необязательные дополнения/исправления и настройки модели количества администратор читает/заменяет через GET/PUT `/api/v1/admin/products/{slug}/assessment` и `/api/v1/admin/processes/{code}/assessment`. Эти документы не являются обязательным разрешением на использование каталога.

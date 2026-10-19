@@ -487,7 +487,15 @@ const legacyFields = (): FormField[] => {
 /* Поле видно, если оно обязательное, нужно экономике или входит в расчёт хотя бы одного выбранного процесса.
    Встроенный набор полей без отметок показывается целиком. */
 const enabledCodes = computed(() => new Set(processes.value.filter((item) => item.enabled).map((item) => item.code)))
-const allFields = computed(() => formFields.value ?? legacyFields())
+const allFields = computed(() => {
+  const fields = formFields.value ?? legacyFields()
+  const conditions: FormField[] = [
+    { key: 'qr_marking_ready', label: 'QR-маркировка ячеек и паллетомест', hint: 'Укажите наличие маркировки, если она требуется выбранному решению.', kind: 'bool' },
+    { key: 'towing_available', label: 'Предусмотрены тягач и оператор для перемещения комплекса', hint: 'Для комплексов без собственного привода. Наличие погрузчика само по себе не подтверждает схему работы.', kind: 'bool' },
+  ].map(field => ({ unit: '', min: null, max: null, group: 'Условия применения', required: false,
+    default: null, source: 'Условия применения из опубликованной карточки', processes: [...enabledCodes.value], ...field })) as FormField[]
+  return [...fields, ...conditions.filter(f => !fields.some(existing => existing.key === f.key))]
+})
 const visibleFields = computed(() => {
   const fields = allFields.value
   if (!fields.some((f) => f.processes)) return fields

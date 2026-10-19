@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import math
+from copy import deepcopy
+from app.domain.assessment import valid_count
 from dataclasses import dataclass
 
 NO_PRICE = "Не будет использоваться в расчётах, не хватает цены."
-NO_COUNT = "Количество посчитать не удалось, поэтому в расчёте экономики участвует только один робот."
+NO_COUNT = "Количество оборудования не определено: позиция не включена в расчёт."
 DISCLAIMER = "Результат является предварительной оценкой и требует верификации при обследовании объекта."
 
 SOURCES = {
@@ -127,7 +129,7 @@ SUBSIDY_CODES = tuple(item[0] for item in SUBSIDIES)
 SUPPORT_NOTE = "Право на меру и её размер подтверждаются условиями конкретной программы."
 
 NORM_BY_KEY = {norm.key: norm for norm in NORMS}
-LOAD_KEYS = ("inbound_pallets_per_day", "outbound_pallets_per_day", "pick_lines_per_day", "pick_units_per_day")
+LOAD_KEYS = ("flow_per_day", "inbound_pallets_per_day", "outbound_pallets_per_day", "pick_lines_per_day", "pick_units_per_day")
 
 _ROLES = (
     ("pickers_count", "picker_salary_month_rub", "Отборщики", r"\text{отб}"),
@@ -209,7 +211,9 @@ def blend_by_type(
         if price is None:
             continue
         count = _num(row.get("count"))
-        priced.append((row.get("solution_type") or "", price * (count if count is not None else 1.0)))
+        if price <= 0 or not valid_count(count):
+            continue
+        priced.append((row.get("solution_type") or "", price * count))
     total = sum(weight for _code, weight in priced)
     if not total:
         return blended, notes
@@ -352,13 +356,34 @@ def calculate(
     overrides: dict | None = None,
     tasks: list[dict] | None = None,
     meta: dict[str, dict] | None = None,
+    blockers: list[dict] | None = None,
 ) -> dict:
     site = site or {}
     global_overrides, by_process = split_process_overrides(overrides)
     subsidies = enabled_subsidies(overrides)
     params = resolve(standard, global_overrides, site, meta)
     report = _compute(rows, site, tasks or [], params, by_process, with_processes=True, subsidies=subsidies)
-    report["sensitivity"] = _sensitivity(rows, site, tasks or [], params, report, by_process, subsidies)
+    all_blockers = list(blockers or [])
+    all_blockers.extend({'process_code': item['process_code'], 'code': 'equipment_incomplete', 'message': item['note']}
+                        for item in report['fleet'] if not item['included'])
+    if not rows:
+        all_blockers.append({'code': 'empty_fleet', 'message': 'Нет подтверждённого парка для расчёта'})
+    equipment_complete = not all_blockers
+    staffed = _task_staff(tasks or [])
+    missing_baseline = [r.get('process_code', '') for r in rows if staffed and r.get('process_code') not in staffed]
+    if not report['labor_baseline_complete'] or missing_baseline:
+        all_blockers.append({'code': 'labor_baseline_missing', 'message': 'Нет независимой исходной численности и стоимости труда для всех выбранных процессов', 'processes': missing_baseline})
+    report['status'] = 'complete' if not all_blockers else 'incomplete'
+    report['complete'] = not all_blockers
+    report['blockers'] = all_blockers
+    report['equipment_complete'] = equipment_complete
+    if all_blockers:
+        report['disclaimer'] += ' Расчёт проекта неполный; итоговая окупаемость не определена.'
+    if all_blockers:
+        _mask_incomplete(report, equipment_complete)
+        report['sensitivity'] = []
+    else:
+        report['sensitivity'] = _sensitivity(rows, site, tasks or [], params, report, by_process, subsidies)
     return report
 
 
@@ -407,13 +432,14 @@ def _compute(
         "horizon_years": horizon,
         "robots": robots,
         "payroll": payroll["fig"],
+        "labor_baseline_complete": payroll.get("complete", payroll["fig"]["included"]),
         "hours": hours,
         "operator": operator,
         "scenarios": scenarios,
         "params": list(params.values()),
     }
     if with_processes:
-        result["processes"] = _process_views(shared)
+        result["processes"] = _process_views(shared) if included and len(included) == len(fleet) else []
     return result
 
 
@@ -443,12 +469,20 @@ def _line(row: dict, params: dict[str, dict], hours: dict, tariff: dict, by_proc
         "energy_rub": 0.0,
         "fig": None,
     }
-    if price is None:
+    if price is None or price <= 0:
         item["note"] = NO_PRICE
         return item
-    n = count if count is not None else 1.0
-    if count is None:
+    if not valid_count(count):
         item["note"] = NO_COUNT
+        return item
+    if count == 0:
+        item["count_used"] = 0
+        item["note"] = "При нулевой потребности парк роботизации не формируется"
+        return item
+    if row.get("technical_ready") is False:
+        item["note"] = "Техническая применимость не подтверждена"
+        return item
+    n = count
     factor = p["price_factor"] / 100
     item["price_used"] = price * factor
     item["count_used"] = n
@@ -514,11 +548,11 @@ def _payroll(site: dict, tasks: list[dict], params: dict[str, dict], included: l
         note = "Роли площадки с численностью и зарплатой."
         if skipped:
             note += f" Без зарплаты на площадке, в ФОТ не входят: {', '.join(item.lower() for item in skipped)}."
-        return {"total": total, "lines": lines, "fig": _fig("payroll", "ФОТ ролей до роботизации", total, "₽/год", tex, sub, vars_, note)}
+        return {"total": total, "lines": lines, "complete": not skipped, "fig": _fig("payroll", "ФОТ ролей до роботизации", total, "₽/год", tex, sub, vars_, note)}
 
     loose = sum(_num(task.get("staff_fte_now")) or 0 for task in tasks if isinstance(task, dict) and not task.get("process_code"))
     year_cost = _num(site.get("staff_salary_year_rub"))
-    if loose > 0 and year_cost:
+    if loose > 0 and year_cost is not None and year_cost > 0:
         total = loose * year_cost * factor
         return {
             "total": total,
@@ -559,19 +593,19 @@ def _task_staff(tasks: list[dict]) -> dict[str, dict]:
         row = staffed.setdefault(code, {"fte": 0.0, "rate": None, "name": str(task.get("name") or code)})
         row["fte"] += fte
         own = _num(task.get("staff_salary_year_rub"))
-        if own:
+        if own is not None and own > 0:
             row["rate"] = own
     return staffed
 
 
 def _default_rate(site: dict) -> tuple[float | None, str]:
     year_cost = _num(site.get("staff_salary_year_rub"))
-    if year_cost:
+    if year_cost is not None and year_cost > 0:
         return year_cost, "Годовая стоимость сотрудника целевой группы с начислениями."
     burden = _num(site.get("payroll_burden")) or 1.0
     for _count_key, salary_key, label, _tag in _ROLES:
         salary = _num(site.get(salary_key))
-        if salary:
+        if salary is not None and salary > 0:
             return salary * 12 * burden, f"{label}: зарплата × 12 × начисления."
     return None, ""
 
@@ -598,7 +632,7 @@ def _payroll_by_process(site: dict, staffed: dict[str, dict], included: list[dic
             rate = task["rate"] or rate_default
             estimated = False
         elif robot_hours and robots and fte_hours:
-            fte = robots * robot_hours / fte_hours
+            fte = 0.0
             rate = rate_default
             estimated = True
         else:
@@ -622,7 +656,7 @@ def _payroll_by_process(site: dict, staffed: dict[str, dict], included: list[dic
         index = len(lines)
         parts.append(rf"L_{{{index}}} \times W_{{{index}}}")
         how = (
-            f"Оценка: {_t_plain(robots)} роб. × {_t_plain(robot_hours or 0)} ч / {_t_plain(fte_hours)} ч на человека."
+            "Исходная численность не задана; она не выводится из числа предлагаемых роботов."
             if estimated else "Численность задачи на площадке."
         )
         vars_.append(_var(f"L_{{{index}}}", f"{name}: численность", fte, "чел.", "calc" if estimated else "site", how))
@@ -632,13 +666,13 @@ def _payroll_by_process(site: dict, staffed: dict[str, dict], included: list[dic
     note = "У каждого процесса свой ФОТ: численность его задачи."
     if estimated_count:
         note += (
-            f" Для {estimated_count} процессов численности в данных нет: людей считаем по часам работы роботов,"
-            f" один сотрудник — {_t_plain(fte_hours)} ч в год."
+            f" Для {estimated_count} процессов исходная численность не задана."
         )
     return {
         "total": total,
         "lines": lines,
         "by_process": by_process,
+        "complete": bool(lines) and all(line["salary_month_rub"] > 0 and not line["estimated"] for line in lines),
         "fig": _fig(
             "payroll",
             "ФОТ процессов парка до роботизации",
@@ -1314,9 +1348,14 @@ def _num(raw: object) -> float | None:
     if raw is None or raw == "" or isinstance(raw, bool):
         return None
     if isinstance(raw, (int, float)):
-        return float(raw)
+        try:
+            value = float(raw)
+        except OverflowError:
+            return None
+        return value if math.isfinite(value) else None
     try:
-        return float(str(raw).replace(" ", "").replace(",", "."))
+        value = float(str(raw).replace(" ", "").replace(",", "."))
+        return value if math.isfinite(value) else None
     except ValueError:
         return None
 
@@ -1779,3 +1818,34 @@ def _process_views(s: dict) -> list[dict]:
         })
         out.append(base)
     return out
+
+
+def _mask_incomplete(report: dict, equipment_complete: bool) -> None:
+    report['scenarios'] = deepcopy(report['scenarios'])
+    message = 'Расчёт неполный: ' + '; '.join(b['message'] for b in report['blockers'])
+
+    def mask(node):
+        if isinstance(node, dict):
+            if 'value' in node and 'tex' in node:
+                node.update(value=None, included=False, subst='', vars=[], note=message)
+            for value in node.values():
+                mask(value)
+        elif isinstance(node, list):
+            for value in node:
+                mask(value)
+
+    for scenario in report['scenarios']:
+        scenario.update(available=False, status='incomplete', note=message, verdict='Недостаточно данных')
+        if not equipment_complete:
+            mask(scenario)
+            scenario['annual_cost'] = None
+            scenario['years'] = []
+        else:
+            scenario['annual_cost'] = None
+            for key in ('effect', 'payback', 'roi', 'tco', 'payroll_after', 'effect_lines'):
+                mask(scenario.get(key))
+            scenario['years'] = []
+    # No process gets a precise ROI while the project coverage/baseline is incomplete.
+    for process in report.get('processes', []):
+        process.update(profitable=None, reason=message, suggestions=[], scenarios=[])
+    report['subsidies'] = []

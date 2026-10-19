@@ -57,7 +57,7 @@ export interface EconScenario {
   opex: EconFig
   opex_lines: EconFig[]
   payroll_after: EconFig
-  annual_cost: number
+  annual_cost: number | null
   effect: EconFig
   effect_lines: EconFig[]
   payback: EconFig
@@ -146,6 +146,10 @@ export interface EconProcess {
 export interface EconReport {
   project_id: string
   disclaimer: string
+  status?: 'complete' | 'incomplete'
+  complete?: boolean
+  blockers?: { code: string; message: string; process_code?: string }[]
+  coverage?: { requested_processes: number; included_processes: number }
   fleet: EconFleet[]
   horizon_years: number
   robots: number

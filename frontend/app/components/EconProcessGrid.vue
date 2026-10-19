@@ -26,7 +26,7 @@ const barOf = (payback: number | null) => {
   const width = Math.min(100, Math.max(4, (payback / (props.horizon * 2)) * 100))
   return { width: `${width}%`, tone: payback <= props.horizon ? 'ok' : 'bad' }
 }
-const paybackText = (payback: number | null) => payback == null ? 'нет' : figValue(payback, 'лет')
+const paybackText = (payback: number | null, known = true) => payback == null ? (known ? 'нет' : 'не определена') : figValue(payback, 'лет')
 const fleetPayback = computed(() => props.fleet?.payback.value ?? null)
 </script>
 
@@ -55,7 +55,7 @@ const fleetPayback = computed(() => props.fleet?.payback.value ?? null)
           <span class="c-pay">
             <span class="c-pay-v">
               <span class="caption">Окупаемость парка</span>
-              <span class="mono-lg">{{ paybackText(fleetPayback) }}</span>
+              <span class="mono-lg">{{ paybackText(fleetPayback, fleet?.available !== false) }}</span>
             </span>
           </span>
           <span class="bar"><i :class="barOf(fleetPayback).tone" :style="{ width: barOf(fleetPayback).width }" /><em /></span>
@@ -84,9 +84,9 @@ const fleetPayback = computed(() => props.fleet?.payback.value ?? null)
             <span class="c-pay">
               <span class="c-pay-v">
                 <span class="caption">Окупаемость</span>
-                <span class="mono-lg">{{ paybackText(paybackOf(item)) }}</span>
+                <span class="mono-lg">{{ paybackText(paybackOf(item), item.profitable != null) }}</span>
               </span>
-              <span class="pill" :class="item.profitable ? 'ok' : 'bad'">{{ item.profitable ? 'окупается' : 'не окупается' }}</span>
+              <span class="pill" :class="item.profitable ? 'ok' : 'bad'">{{ item.profitable == null ? 'недостаточно данных' : item.profitable ? 'окупается' : 'не окупается' }}</span>
             </span>
             <span class="bar"><i :class="barOf(paybackOf(item)).tone" :style="{ width: barOf(paybackOf(item)).width }" /><em /></span>
             <span class="c-nums">

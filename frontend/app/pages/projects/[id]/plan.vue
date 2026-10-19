@@ -412,6 +412,7 @@ const config = (): SimConfig | null => {
   return { layout: plain(layout.value), processes: plain(active.value), mode: loadMode.value, peak: peak.value, failureShare: failurePct.value / 100, durationS: shiftHours.value * 3600, seed: 20260926 }
 }
 let sim: Simulation | null = null
+const hasSimulation = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined
 let last = 0
 let lastStats = 0
@@ -482,6 +483,7 @@ const processSeries = computed(() => active.value.filter((proc) => proc.kind ===
 const resetSim = () => {
   pause()
   sim = null
+  hasSimulation.value = false
   live.value = null
   trips.value = []
   resetMonitor()
@@ -490,10 +492,12 @@ const resetSim = () => {
   if (!cfg) return
   try {
     sim = new Simulation(cfg)
+    hasSimulation.value = true
     if (!editing.value) editor.value?.drawRobots(sim.views(views))
     live.value = sim.stats()
   } catch {
     sim = null
+  hasSimulation.value = false
   }
 }
 const frame = () => {
@@ -850,10 +854,10 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
               <div class="live-ctl">
                 <label class="field">
                   <span class="caption">Поток заданий · {{ liveLoad }} % от базового</span>
-                  <input class="range" type="range" min="30" max="250" step="10" :value="liveLoad" :disabled="!sim" @input="setLiveLoad(num($event))">
+                  <input class="range" type="range" min="30" max="250" step="10" :value="liveLoad" :disabled="!hasSimulation" @input="setLiveLoad(num($event))">
                 </label>
                 <div class="pair">
-                  <button type="button" class="tb wide" :disabled="!sim" title="Случайный робот выходит из строя, груз возвращается в очередь" @click="breakRandom"><PhWarning :size="14" weight="bold" /><span>Сломать</span></button>
+                  <button type="button" class="tb wide" :disabled="!hasSimulation" title="Случайный робот выходит из строя, груз возвращается в очередь" @click="breakRandom"><PhWarning :size="14" weight="bold" /><span>Сломать</span></button>
                   <button type="button" class="tb wide" :disabled="!liveOffline" @click="setLiveOffline(liveOffline - 1)">Починить</button>
                   <button type="button" class="tb wide" :disabled="!liveOffline" @click="repairAll">Все в строй</button>
                 </div>

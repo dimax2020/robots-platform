@@ -1,0 +1,735 @@
+{
+  "products": [
+    {
+      "id": "f3d1b510-6db0-4e2d-bfb3-37900b07654f",
+      "name": "Поломоечная машина VOSTOK BR100",
+      "data": {
+        "solution_kind": "operator_equipment",
+        "control_mode": "operator",
+        "execution_class": "floor_cleaning",
+        "environments": [
+          "indoor"
+        ],
+        "capabilities": [
+          "floor_cleaning"
+        ],
+        "configuration_complete": true,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robot.moscow/catalog/polomoechnaya-mashina-vostok-br100: VOSTOK BR100 – высокопроизводительная поломоечная машина с сиденьем для оператора, предназначенная для уборки больших складских комплексов, торговых центров, производственных помещ"
+        ]
+      }
+    },
+    {
+      "id": "b8155928-f74c-474e-8dfb-8114ee0301c5",
+      "name": "Поломоечная машина VOSTOK BR150",
+      "data": {
+        "solution_kind": "operator_equipment",
+        "control_mode": "operator",
+        "execution_class": "floor_cleaning",
+        "environments": [
+          "indoor"
+        ],
+        "capabilities": [
+          "floor_cleaning"
+        ],
+        "configuration_complete": true,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robot.moscow/catalog/polomoechnaya-mashina-vostok-br150: VOSTOK BR150 –поломоечная машина с сиденьем для оператора оснащена тяговым приводом на задние колеса, двумя дисковыми щетками с общей рабочей шириной 850 мм."
+        ]
+      }
+    },
+    {
+      "id": "1f44e524-acf6-4d6f-976e-d1039922fd32",
+      "name": "Поломоечная машина VOSTOK BR200",
+      "data": {
+        "solution_kind": "operator_equipment",
+        "control_mode": "operator",
+        "execution_class": "floor_cleaning",
+        "environments": [
+          "indoor"
+        ],
+        "capabilities": [
+          "floor_cleaning"
+        ],
+        "configuration_complete": true,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robot.moscow/catalog/polomoechnaya-mashina-vostok-br200: VOSTOK BR200 – поломоечная машина с местом для оператора и баком вместимостью 200 литров."
+        ]
+      }
+    },
+    {
+      "id": "8c8f82da-8e84-4696-96b7-ef2dbfd80805",
+      "name": "Поломоечная машина VOSTOK BR85",
+      "data": {
+        "solution_kind": "operator_equipment",
+        "control_mode": "operator",
+        "execution_class": "floor_cleaning",
+        "environments": [
+          "indoor"
+        ],
+        "capabilities": [
+          "floor_cleaning"
+        ],
+        "configuration_complete": true,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robot.moscow/catalog/polomoechnaya-mashina-vostok-br85: VOSTOK BR85 – Компактная машина с метом для оператора, рекомендуется для генеральной и поддерживающей уборки в помещениях от 1 000 до 6 000 м2, в том числе неправильной формы и зас"
+        ]
+      }
+    },
+    {
+      "id": "2f4e03b7-7bdf-4856-97cd-262ecadaf55c",
+      "name": "Поломоечная машина VOSTOK BR95",
+      "data": {
+        "solution_kind": "operator_equipment",
+        "control_mode": "operator",
+        "execution_class": "floor_cleaning",
+        "environments": [
+          "indoor"
+        ],
+        "capabilities": [
+          "floor_cleaning"
+        ],
+        "configuration_complete": true,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robot.moscow/catalog/polomoechnaya-mashina-vostok-br95: VOSTOK BR95 – Компактная машина с метом для оператора, рекомендуется для генеральной и поддерживающей уборки в помещениях от 2 000 до 6 000 м2, в том числе неправильной формы и зас"
+        ]
+      }
+    },
+    {
+      "id": "2db9faa9-ca14-48bc-9071-624aae09738f",
+      "name": "Интеллектуальная вертикальная поломоечная машина Pudu SH1",
+      "data": {
+        "solution_kind": "operator_equipment",
+        "control_mode": "operator",
+        "execution_class": "floor_cleaning",
+        "environments": [
+          "indoor"
+        ],
+        "capabilities": [
+          "floor_cleaning"
+        ],
+        "configuration_complete": true,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robot.moscow/catalog/intellektualnaya-vertikalnaya-polomoechnaya-mashina-pudu-sh1: Интеллектуальная вертикальная поломоечная машина Pudu SH1 — это профессиональное решение для быстрой и безупречной уборки средних и крупных помещений."
+        ]
+      }
+    },
+    {
+      "id": "715f65cd-fa1d-4821-94b8-30f9ea5de8d0",
+      "name": "Интеллектуальная вертикальная поломоечная машина SH1",
+      "data": {
+        "solution_kind": "operator_equipment",
+        "control_mode": "operator",
+        "execution_class": "floor_cleaning",
+        "environments": [
+          "indoor"
+        ],
+        "capabilities": [
+          "floor_cleaning"
+        ],
+        "configuration_complete": true,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robort.ru/product/pudu-robotics/intellektualnaya-vertikalnaya-polomoechnaya-mashina-sh1/: Машина с постоянным оператором; нельзя считать автономным роботом и применять модель замещения персонала парком."
+        ]
+      }
+    },
+    {
+      "id": "5e865b36-53ad-4bca-a38b-5dc4f8ffc035",
+      "name": "Робот уборщик Pudu SH1",
+      "data": {
+        "solution_kind": "operator_equipment",
+        "control_mode": "operator",
+        "execution_class": "floor_cleaning",
+        "environments": [
+          "indoor"
+        ],
+        "capabilities": [
+          "floor_cleaning"
+        ],
+        "configuration_complete": true,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robot.moscow/catalog/robot-uborshik-pudu-sh1: Робот уборщик Pudu SH1"
+        ]
+      }
+    },
+    {
+      "id": "ea9b319d-773f-4d6a-8ff6-de2b6d932eb6",
+      "name": "Dobot CRA Hebe- und Palettier-Arbeitsstation (ohne Roboter)",
+      "data": {
+        "solution_kind": "component",
+        "execution_class": "stationary_cell",
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robot.moscow/catalog/dobot-cra-hebe-und-palettier-arbeitsstation-ohne-roboter: Dobot CRA Hebe- und Palettier-Arbeitsstation – Flexible Palettierlösung mit Hubsäule Die Dobot CRA Hebe- und Palettier-Arbeitsstation ist eine modulare Palettier-Workstation für au"
+        ]
+      }
+    },
+    {
+      "id": "a556b956-a781-4c38-9fc8-7daeca279b59",
+      "name": "Pick by light",
+      "data": {
+        "solution_kind": "software",
+        "execution_class": "assisted_operation",
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "ФЦ БАС: Система светового отбора для сборки штучного товара"
+        ]
+      }
+    },
+    {
+      "id": "05505022-3ef7-43da-8279-718e7c432491",
+      "name": "Pick by Voice",
+      "data": {
+        "solution_kind": "software",
+        "execution_class": "assisted_operation",
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "ФЦ БАС: Система для голосового управления складскими операциями."
+        ]
+      }
+    },
+    {
+      "id": "1f82ce16-5670-4903-a4ea-bfdbbc710f20",
+      "name": "Комплекс управления кранами ВИРСАЙН СДУ",
+      "data": {
+        "solution_kind": "component",
+        "execution_class": "assisted_operation",
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "ФЦ БАС: 26 марта 2026 года на Краснопресненской набережной состоялась торжественная церемония закладки первого бетонного блока в основание Национального центра «Россия» с помощью системы дистанционного управления «Вирсайн». Старт дал Президент РФ Владимир Путин."
+        ]
+      }
+    },
+    {
+      "id": "164329f5-2baf-47bd-86d5-adabb2fbcbc0",
+      "name": "DH: Cloud Control",
+      "data": {
+        "solution_kind": "component",
+        "execution_class": "assisted_operation",
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "ФЦ БАС: Дронсхаб» автоматизировала управление кранами на «Металл Сервис»: один оператор контролирует до 8 машин в разных регионах\nСпециалисты компании «Дронсхаб групп» оснастили погрузочные краны тамбовского предприятия «Металл Сервис» бортовыми управляющими комплексами для автоматизации операций крановщиков."
+        ]
+      }
+    },
+    {
+      "id": "98ceb2a0-f777-48ef-9863-3f9a80f8a237",
+      "name": "COGNITIVE AGRO PILOT для трактора с ИИ",
+      "data": {
+        "solution_kind": "component",
+        "execution_class": "assisted_operation",
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "ФЦ БАС: Система автономного управления сельхозтехникой на базе искусственного интеллекта (совместная разработка Сбера и Cognitive Technologies). Она объединяет компьютерное зрение и спутниковую навигацию, позволяя тракторам работать без участия человека с точностью до 1 см."
+        ]
+      }
+    },
+    {
+      "id": "db899bdd-880d-49d1-a0ed-dd4612419f72",
+      "name": "IKitbot ONE Pro S55 PRO-Series",
+      "data": {
+        "solution_kind": "family",
+        "execution_class": "family",
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robot.moscow/catalog/ikitbot-one-pro-s55-pro-series: Профессиональный моечный робот «всё в одном»: сухая уборка, всасывание, мойка и подметание с мультисенсорной навигацией."
+        ]
+      }
+    },
+    {
+      "id": "e7676172-c498-4880-9f0c-75304cbd22a3",
+      "name": "Unitree H-Serie Humanoider Roboter",
+      "data": {
+        "solution_kind": "family",
+        "execution_class": "family",
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robot.moscow/catalog/unitree-h-serie-humanoider-roboter: Человекоподобные роботы нового поколения H1 и H1-2 для исследований и разработки, скорость до 3,3 м/с."
+        ]
+      }
+    },
+    {
+      "id": "bec9e863-0c3d-44cc-a656-766a323a9746",
+      "name": "Внутритрубные роботизированные системы Тьюбот",
+      "data": {
+        "solution_kind": "family",
+        "execution_class": "family",
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "ФЦ БАС: Роботы TUBOT созданы для сегмента unpiggable — сложных, разветвленных заводских и городских сетей, которые раньше приходилось проверять только снаружи (что требовало раскопок или демонтажа). Робот передвигается внутри пустых или заполненных сред за счет собственного автономного тягового модуля."
+        ]
+      }
+    },
+    {
+      "id": "08ff32f6-6023-4b20-b528-322678f43910",
+      "name": "Серия Sigma (100D, 150, 200, 250А)",
+      "data": {
+        "solution_kind": "family",
+        "execution_class": "family",
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "ФЦ БАС: Применен плавучий модуль W-350 с автономным роботом Taris в Благовещенске для телеинспекции ливневой канализации диаметром от 150 до 3000 мм."
+        ]
+      }
+    },
+    {
+      "id": "199325e3-1c1d-4a06-aceb-d8edd5f4570d",
+      "name": "Трал Патруль T7.3 / T7.5",
+      "data": {
+        "solution_kind": "family",
+        "execution_class": "family",
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robot.moscow/catalog/tral-patrul-t7-3-t7-5: Линейка охранных роботов для патрулирования промышленных территорий и периметров в сложных климатических условиях."
+        ]
+      }
+    },
+    {
+      "id": "e8649d6e-90c0-4c49-a7b3-58d6afc4b028",
+      "name": "PUDU T600 Lieferroboter",
+      "data": {
+        "solution_kind": "family",
+        "execution_class": "family",
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robot.moscow/catalog/pudu-t600-lieferroboter: Серия тяжёлых AMR для промышленности: перевозка до 600 кг, есть версия с подъездом и подъёмом стеллажей."
+        ]
+      }
+    },
+    {
+      "id": "24f91db9-b198-4958-9bb8-a2380f1c96be",
+      "name": "Yarbo Core",
+      "data": {
+        "solution_kind": "robot",
+        "control_mode": "autonomous",
+        "execution_class": "outdoor_maintenance",
+        "environments": [
+          "outdoor"
+        ],
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robot.moscow/catalog/yarbo-core: Автономная модульная платформа Yarbo Core для круглогодичного ухода за территорией: покос, уборка снега и листьев."
+        ]
+      }
+    },
+    {
+      "id": "00ddbb71-8fca-4cb1-9998-78250c62ea03",
+      "name": "OG-07 \"Стрекоза\"",
+      "data": {
+        "solution_kind": "robot",
+        "execution_class": "aerial_mission",
+        "environments": [
+          "outdoor"
+        ],
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "ФЦ БАС: Логистические комплексы «БАС Глори Эйр» задействованы в пилотном проекте Минздрава Якутии для экспресс-снабжения удаленных населенных пунктов. В рамках регулярных вылетов беспилотники автономно преодолевают 30-километровые маршруты между селом Октемцы и городом Покровск, доставляя срочные биоматериалы и медикаменты в труднодоступные районы"
+        ]
+      }
+    },
+    {
+      "id": "ac5b3159-9df0-4911-8cc3-31227a5b3b59",
+      "name": "TFM-15-8E",
+      "data": {
+        "solution_kind": "robot",
+        "execution_class": "aerial_mission",
+        "environments": [
+          "outdoor"
+        ],
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "ФЦ БАС: Дрон применяется в Калужской области для доставки грузов."
+        ]
+      }
+    },
+    {
+      "id": "07c8f8d4-6436-40e2-94a3-3ae1df76e324",
+      "name": "Клеверкоптер Курьер-30",
+      "data": {
+        "solution_kind": "robot",
+        "execution_class": "aerial_mission",
+        "environments": [
+          "outdoor"
+        ],
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robot.moscow/catalog/kleverkopter-kurer-30: Дрон-курьер: доставка грузов до 6 кг на расстояние до 18 км, скорость до 50 км/ч, работа при температурах от −25 до +40 °C."
+        ]
+      }
+    },
+    {
+      "id": "0861538d-75c8-473e-a2ab-499a6b8c1d49",
+      "name": "Курьер-30",
+      "data": {
+        "solution_kind": "robot",
+        "execution_class": "aerial_mission",
+        "environments": [
+          "outdoor"
+        ],
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "ФЦ БАС: Беспилотная авиационная система с\nбеспилотным воздушным судном\nмультироторного типа c максимальной\nвзлетной массой 30 кг., подходит для\nперевозки различных грузов массой до 6 кг.\nобъемом до 0,055 м3 на расстояние до 18\nкм. при различных погодных условиях."
+        ]
+      }
+    },
+    {
+      "id": "12345352-d66f-4fde-b9f3-1429fb888036",
+      "name": "ЛМТ TFM-15-8E",
+      "data": {
+        "solution_kind": "robot",
+        "execution_class": "aerial_mission",
+        "environments": [
+          "outdoor"
+        ],
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "https://robot.moscow/catalog/lmt-tfm-15-8e: Тяжёлый беспилотник самолётного типа с вертикальным взлётом: взлётная масса 80 кг, дальность 200 км, скорость 160 км/ч."
+        ]
+      }
+    },
+    {
+      "id": "c125ce9a-8f04-4183-a136-5ddbb3c5ae89",
+      "name": "AS-RS B",
+      "data": {
+        "solution_kind": "system",
+        "control_mode": "autonomous",
+        "execution_class": "automated_storage",
+        "environments": [
+          "indoor"
+        ],
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "ФЦ БАС: Груз хранится в KLT ящиках. Тип стеллажа: фронтальный палетный стеллаж/Автоматическая система хранения и доставки грузов. Подача груза по принципу «товар к человеку» механизирована с помощью робота-штабелера"
+        ]
+      }
+    },
+    {
+      "id": "cebbdfa8-500a-425f-bcbc-ad2dcc106539",
+      "name": "AS-RS P",
+      "data": {
+        "solution_kind": "system",
+        "control_mode": "autonomous",
+        "execution_class": "automated_storage",
+        "environments": [
+          "indoor"
+        ],
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "ФЦ БАС: Груз хранится на стеллажах на EUR-поддонах. Тип стеллажа: стационарный палетный стеллаж/ Автоматическая система хранения и доставки грузов. Подача груза по принципу «товар к человеку» механизирована с помощью кран-штабелера."
+        ]
+      }
+    },
+    {
+      "id": "0ece582a-084c-4a8b-99f4-576f0e01b7c8",
+      "name": "SmartCube",
+      "data": {
+        "solution_kind": "system",
+        "control_mode": "autonomous",
+        "execution_class": "automated_storage",
+        "environments": [
+          "indoor"
+        ],
+        "configuration_complete": false,
+        "version": 1,
+        "reviewed": true,
+        "evidence": [
+          "ФЦ БАС: Флагманская роботизированная система кубического хранения, разработанная отечественной компанией ARS Smart Robotics (основана выпускниками МГТУ им. Баумана в 2016 году). Это первая и единственная в России и СНГ автоматизированная система такого типа, которая конкурирует с мировыми аналогами (например, AutoStore)."
+        ]
+      }
+    }
+  ],
+  "processes": [
+    {
+      "code": "medicine_delivery",
+      "data": {
+        "version": 1,
+        "reviewed": false,
+        "evidence": [
+          "Этап 1: ограничения среды и исполнения; достаточный технический профиль и модель мощности ещё требуют предметной проверки."
+        ],
+        "allowed_kinds": [
+          "robot"
+        ],
+        "allowed_controls": [
+          "autonomous"
+        ],
+        "environments": [
+          "indoor"
+        ],
+        "critical_robot_keys": [
+          "payload_kg",
+          "work_time_h"
+        ],
+        "critical_site_keys": [
+          "shift_hours"
+        ],
+        "required_checks": [],
+        "sizing": {},
+        "requirements_reviewed": true
+      }
+    },
+    {
+      "code": "biomaterial_delivery",
+      "data": {
+        "version": 1,
+        "reviewed": false,
+        "evidence": [
+          "Этап 1: ограничения среды и исполнения; достаточный технический профиль и модель мощности ещё требуют предметной проверки."
+        ],
+        "allowed_kinds": [
+          "robot"
+        ],
+        "allowed_controls": [
+          "autonomous"
+        ],
+        "environments": [
+          "indoor"
+        ],
+        "critical_robot_keys": [
+          "payload_kg",
+          "work_time_h"
+        ],
+        "critical_site_keys": [
+          "shift_hours"
+        ],
+        "required_checks": [],
+        "sizing": {},
+        "requirements_reviewed": true
+      }
+    },
+    {
+      "code": "floor_cleaning",
+      "data": {
+        "version": 1,
+        "reviewed": false,
+        "evidence": [
+          "Этап 1: ограничения среды и исполнения; достаточный технический профиль и модель мощности ещё требуют предметной проверки."
+        ],
+        "allowed_kinds": [
+          "robot"
+        ],
+        "allowed_controls": [
+          "autonomous"
+        ],
+        "environments": [
+          "indoor"
+        ],
+        "critical_robot_keys": [
+          "min_aisle_width_m",
+          "work_time_h"
+        ],
+        "critical_site_keys": [
+          "shift_hours"
+        ],
+        "required_checks": [],
+        "sizing": {},
+        "requirements_reviewed": true
+      }
+    },
+    {
+      "code": "pallet_transport",
+      "data": {
+        "version": 1,
+        "reviewed": false,
+        "evidence": [
+          "Этап 1: ограничения среды и исполнения; достаточный технический профиль и модель мощности ещё требуют предметной проверки."
+        ],
+        "allowed_kinds": [
+          "robot"
+        ],
+        "allowed_controls": [
+          "autonomous"
+        ],
+        "environments": [
+          "indoor"
+        ],
+        "critical_robot_keys": [
+          "payload_kg",
+          "work_time_h"
+        ],
+        "critical_site_keys": [
+          "shift_hours"
+        ],
+        "required_checks": [],
+        "sizing": {},
+        "requirements_reviewed": true
+      }
+    },
+    {
+      "code": "rack_placement",
+      "data": {
+        "version": 1,
+        "reviewed": false,
+        "evidence": [
+          "Этап 1: ограничения среды и исполнения; достаточный технический профиль и модель мощности ещё требуют предметной проверки."
+        ],
+        "allowed_kinds": [
+          "robot"
+        ],
+        "allowed_controls": [
+          "autonomous"
+        ],
+        "environments": [
+          "indoor"
+        ],
+        "critical_robot_keys": [
+          "payload_kg",
+          "work_time_h"
+        ],
+        "critical_site_keys": [
+          "shift_hours"
+        ],
+        "required_checks": [],
+        "sizing": {},
+        "requirements_reviewed": true
+      }
+    },
+    {
+      "code": "cart_towing",
+      "data": {
+        "version": 1,
+        "reviewed": false,
+        "evidence": [
+          "Этап 1: ограничения среды и исполнения; достаточный технический профиль и модель мощности ещё требуют предметной проверки."
+        ],
+        "allowed_kinds": [
+          "robot"
+        ],
+        "allowed_controls": [
+          "autonomous"
+        ],
+        "environments": [
+          "indoor"
+        ],
+        "critical_robot_keys": [
+          "payload_kg",
+          "work_time_h"
+        ],
+        "critical_site_keys": [
+          "shift_hours"
+        ],
+        "required_checks": [],
+        "sizing": {},
+        "requirements_reviewed": true
+      }
+    },
+    {
+      "code": "order_picking",
+      "data": {
+        "version": 1,
+        "reviewed": false,
+        "evidence": [
+          "Этап 1: ограничения среды и исполнения; достаточный технический профиль и модель мощности ещё требуют предметной проверки."
+        ],
+        "allowed_kinds": [
+          "robot",
+          "system",
+          "cell"
+        ],
+        "allowed_controls": [
+          "autonomous"
+        ],
+        "environments": [
+          "indoor"
+        ],
+        "critical_robot_keys": [
+          "payload_kg",
+          "work_time_h"
+        ],
+        "critical_site_keys": [
+          "shift_hours"
+        ],
+        "required_checks": [],
+        "sizing": {},
+        "requirements_reviewed": true
+      }
+    },
+    {
+      "code": "pallet_storage",
+      "data": {
+        "version": 1,
+        "reviewed": false,
+        "evidence": [
+          "Этап 1: ограничения среды и исполнения; достаточный технический профиль и модель мощности ещё требуют предметной проверки."
+        ],
+        "allowed_kinds": [
+          "robot",
+          "system",
+          "cell"
+        ],
+        "allowed_controls": [
+          "autonomous"
+        ],
+        "environments": [
+          "indoor"
+        ],
+        "critical_robot_keys": [
+          "payload_kg",
+          "work_time_h"
+        ],
+        "critical_site_keys": [
+          "shift_hours"
+        ],
+        "required_checks": [],
+        "sizing": {},
+        "requirements_reviewed": true
+      }
+    }
+  ]
+}

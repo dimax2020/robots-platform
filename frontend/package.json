@@ -9,7 +9,8 @@
     "preview": "nuxt preview",
     "typecheck": "nuxi typecheck",
     "postinstall": "nuxt prepare",
-    "test:sim": "tsx app/sim/engine.check.ts"
+    "test:sim": "tsx app/sim/engine.check.ts",
+    "test:selection": "tsx tests/fleetSelection.check.ts"
   },
   "dependencies": {
     "@phosphor-icons/vue": "^2.2.1",

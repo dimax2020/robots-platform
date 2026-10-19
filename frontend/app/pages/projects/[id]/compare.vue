@@ -4,6 +4,7 @@ import { fetchErrorMessage } from '~/utils/errors'
 import { platformSend } from '~/composables/usePlatform'
 import { useLiveProject } from '~/composables/useLiveProject'
 import { photoFor } from '~/data/placeholders'
+import { eligibleForEconomy } from '~/utils/fleetSelection'
 import { skippedAlerts, usePlatformCompare, type MatchGroup, type MatchHit, type RobotSpec } from '~/composables/usePlatformCompare'
 
 const route = useRoute()
@@ -60,7 +61,6 @@ const lineup = computed(() => readyGroups.value.map((group) => ({
   robot: remainingHit(group),
   open: group.hits.length > 0,
 })))
-const canEconomy = computed(() => lineup.value.some((row) => row.robot) && lineup.value.every((row) => row.robot || !row.open))
 
 const isImmature = (hit: MatchHit) => hit.notes.some((note) => note.startsWith('Готовность:'))
 const specsOf = (hit: MatchHit | null) => {
@@ -94,7 +94,7 @@ const rows = computed(() => {
 })
 
 const take = (hit: MatchHit) => {
-  if (!activeGroup.value) return
+  if (!activeGroup.value || !eligibleForEconomy(hit)) return
   choose(activeGroup.value.process_code, hit.product_id)
 }
 
@@ -118,7 +118,7 @@ const load = async () => {
   matchError.value = ''
   try {
     const site = live.site.value
-    const result = await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site })
+    const result = await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site, tasks: live.tasks.value })
     groups.value = result.groups
     const ready = result.groups.filter((group) => includedHits(group).length > 0)
     const requested = typeof route.query.process === 'string' ? route.query.process : ''
@@ -148,8 +148,11 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, 
     :subtitle="activeGroup ? `по процессу «${activeGroup.process_name}»` : undefined"
     lead="На этом шаге вы можете сравнить подобранные решения и выбрать одно для расчёта экономики. По умолчанию выбран оптимальный робот — его рекомендует платформа."
   >
+    <UiCallout v-if="skipped.length" tone="warn" title="Часть решений нельзя включить в расчёт">
+      <ul><li v-for="item in skipped" :key="item.code">{{ item.name }}: {{ item.reason }}</li></ul>
+    </UiCallout>
     <template #actions>
-      <UiButton v-if="shell" size="lg" :disabled="loadingMatch || (!nextGroup && !canEconomy)" @click="goForward">
+      <UiButton v-if="shell" size="lg" :disabled="loadingMatch" @click="goForward">
         {{ forwardLabel }}<template v-if="!loadingMatch" #after><PhArrowRight :size="18" weight="bold" /></template>
       </UiButton>
     </template>
@@ -199,16 +202,20 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, 
                   <span class="photo"><img :src="photoFor(hit.image_url, hit.name, activeGroup.process_code)" :alt="hit.name"></span>
                   <NuxtLink :to="`/catalog/card/${hit.slug}`" target="_blank" rel="noopener" class="name" :title="`${hit.name}: карточка робота в новой вкладке`">{{ hit.name }}</NuxtLink>
                   <div class="ready"><RobotReadiness :trl="hit.trl" :stage="hit.stage" :flagged="isImmature(hit)" /></div>
+                  <AssessmentStatus :hit="hit" />
                   <button
                     type="button"
                     class="take"
                     :class="{ on: hit.product_id === chosen?.product_id }"
                     :aria-pressed="hit.product_id === chosen?.product_id"
+                    :disabled="!eligibleForEconomy(hit)"
+                    :title="hit.economic_reasons?.map((item) => item.message).join('; ')"
                     @click="take(hit)"
                   >
                     <template v-if="hit.product_id === chosen?.product_id"><PhCheckCircle :size="18" weight="fill" /> Выбран для расчёта</template>
                     <template v-else>Выбрать этого робота</template>
                   </button>
+                  <p v-if="!eligibleForEconomy(hit)" class="caption">{{ hit.economic_reasons?.map((item) => item.message).join('; ') || 'Не допущен к экономическому расчёту' }}</p>
                 </div>
               </th>
               <th class="fill" aria-hidden="true" />

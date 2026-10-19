@@ -163,6 +163,11 @@ const fleetOpen = ref(false)
       <UiButton :to="`/projects/${project.id}/what-if`" size="lg">К what-if<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
     </template>
 
+    <UiCallout v-if="report?.status === 'incomplete'" tone="warn" title="Расчёт проекта неполный">
+      <p>Не все процессы имеют подтверждённое решение, количество и цену. Итоговая окупаемость не определена.</p>
+      <ul><li v-for="(item, index) in report.blockers" :key="index">{{ item.process_code ? `${item.process_code}: ` : '' }}{{ item.message }}</li></ul>
+    </UiCallout>
+
     <UiCallout tone="warn" title="Предварительная оценка">{{ report?.disclaimer ?? PRELIMINARY }}</UiCallout>
 
     <UiCallout v-if="isDemo && !readonly" tone="info" title="Демо-объект">
@@ -217,7 +222,7 @@ const fleetOpen = ref(false)
             </div>
             <div class="d-kpi">
               <span class="caption">Окупаемость покупки</span>
-              <span class="d-pay" :class="{ bad: activeProcess.profitable === false }">{{ activePurchase?.payback.value != null ? figValue(activePurchase.payback.value, 'лет') : 'нет' }}</span>
+              <span class="d-pay" :class="{ bad: activeProcess.profitable === false }">{{ activePurchase?.payback.value != null ? figValue(activePurchase.payback.value, 'лет') : report?.status === 'incomplete' ? 'не определена' : 'нет' }}</span>
               <span class="caption">горизонт {{ report.horizon_years }} лет</span>
             </div>
           </div>
@@ -277,7 +282,7 @@ const fleetOpen = ref(false)
               <span><span class="caption">CAPEX</span><span class="mono-md">{{ millions(item.capex.value) }}</span></span>
               <span><span class="caption">Затраты в год</span><span class="mono-md">{{ millions(item.annual_cost) }}</span></span>
               <span><span class="caption">Эффект в год</span><span class="mono-md">{{ item.key === 'asis' ? 'база' : millions(item.effect.value) }}</span></span>
-              <span><span class="caption">Окупаемость</span><span class="mono-md">{{ item.key === 'asis' ? '—' : item.payback.value != null ? figValue(item.payback.value, 'лет') : 'нет' }}</span></span>
+              <span><span class="caption">Окупаемость</span><span class="mono-md">{{ item.key === 'asis' ? '—' : item.payback.value != null ? figValue(item.payback.value, 'лет') : report?.status === 'incomplete' ? 'не определена' : 'нет' }}</span></span>
               <span><span class="caption">TCO за {{ report.horizon_years }} лет</span><span class="mono-md">{{ millions(item.tco.value) }}</span></span>
             </span>
             <span v-if="item.note" class="caption sc-note">{{ item.note }}</span>
@@ -291,8 +296,8 @@ const fleetOpen = ref(false)
           <div class="result glass-graphite glass-graphite-solid">
             <div class="label">{{ scenario.title }} · окупаемость</div>
             <button type="button" class="payback" :aria-expanded="open === 'payback'" @click="toggle('payback')">
-              <span class="payback-n">{{ scenario.key === 'asis' ? '—' : scenario.payback.value != null ? scenario.payback.value.toLocaleString('ru-RU', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : 'нет' }}</span>
-              <span class="caption">{{ scenario.payback.value != null ? 'лет' : scenario.key === 'asis' ? 'точка сравнения' : 'эффект не покрывает вложения' }}</span>
+              <span class="payback-n">{{ scenario.key === 'asis' ? '—' : scenario.payback.value != null ? scenario.payback.value.toLocaleString('ru-RU', { maximumFractionDigits: 1, minimumFractionDigits: 1 }) : report?.status === 'incomplete' ? 'не определена' : 'нет' }}</span>
+              <span class="caption">{{ scenario.payback.value != null ? 'лет' : scenario.key === 'asis' ? 'точка сравнения' : report?.status === 'incomplete' ? 'недостаточно данных' : 'эффект не покрывает вложения' }}</span>
               <UiExpandHint :open="open === 'payback'" label="как посчитано" dark />
             </button>
             <p v-if="scenario.verdict" class="body-sm verdict">{{ scenario.verdict }}</p>
@@ -383,7 +388,7 @@ const fleetOpen = ref(false)
           <button type="button" class="c-head fleet-toggle" :aria-expanded="fleetOpen" @click="fleetOpen = !fleetOpen">
             <div>
               <div class="h3">Один робот на процесс</div>
-              <div class="caption">{{ report.fleet.length }} процессов, {{ report.robots.toLocaleString('ru-RU') }} роботов в расчёте{{ withoutPrice ? `, ${withoutPrice} без цены не входят` : '' }}. Раскройте, чтобы увидеть, как посчитано количество.</div>
+              <div class="caption">{{ report.fleet.length }} процессов, {{ report.robots.toLocaleString('ru-RU') }} роботов в расчёте{{ withoutPrice ? `, ${withoutPrice} не рассчитаны` : '' }}. Раскройте, чтобы увидеть, как посчитано количество.</div>
             </div>
             <PhCaretDown :size="16" weight="bold" class="caret" :class="{ up: fleetOpen }" />
           </button>

@@ -126,6 +126,7 @@ const linesOf = (figs: EconFig[]) => figs
 
 const paybackText = (item: EconScenario) => {
   if (item.key === 'asis') return '—'
+  if (!item.available) return 'не определена'
   return item.payback.value != null ? figValue(item.payback.value, 'лет') : 'нет'
 }
 

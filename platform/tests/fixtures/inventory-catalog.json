@@ -1,0 +1,485 @@
+{
+  "origin": "platform/seed/platform.sql; сохранённые опубликованные сведения, не новое подтверждение паспортов",
+  "products": [
+    {
+      "id": "242d637c-6512-4bdf-9964-2c0010259f36",
+      "name": "Инвентаризатор AI Stock Counter 12M",
+      "slug": "inventarizator-ai-stock-counter-12m",
+      "summary": "Специализированный российский робот-инвентаризатор, разработанный группой компаний «Автомакон». Комплекс создан для автоматического высоковысотного пересчета и верификации паллетных грузов на складах и в крупных распределительных центрах.\nГлавное отличие этого комплекса от робота Яндекса — полуавтономный или гибридный форм-фактор. Робот не имеет собственного самоходного полноприводного шасси, а выполнен в виде мобильной базы-вышки. Она легко перемещается обычной ручной рохлей, вилочным погрузчик",
+      "attrs": {
+        "risks": {
+          "quote": "Автономность всего 2 ч — для полной смены нужен тягач или подзарядка; требуется QR-маркировка ячеек и паллетомест (затраты на подготовку склада); нет данных о температуре и габаритах",
+          "value": "Автономность всего 2 ч — для полной смены нужен тягач или подзарядка; требуется QR-маркировка ячеек и паллетомест (затраты на подготовку склада); температура и габариты неизвестны",
+          "status": "known",
+          "source_id": 22
+        },
+        "region": {
+          "quote": null,
+          "value": "Москва",
+          "status": "known",
+          "source_id": 2
+        },
+        "purpose": {
+          "quote": "Специализированный российский робот-инвентаризатор, разработанный группой компаний «Автомакон». Комплекс создан для автоматического высоковысотного пересчета и верификации паллетных грузов на складах и в крупных распределительных центрах.  Главное отличие этого комплекса от робота Яндекса — полуавтономный или гибридный форм-фактор. Робот не имеет собственного самоходного полноприводного шасси, а выполнен в виде мобильной базы-вышки. Она легко перемещается обычной ручной рохлей, вилочным погрузчик",
+          "value": "Специализированный российский робот-инвентаризатор, разработанный группой компаний «Автомакон». Комплекс создан для автоматического высоковысотного пересчета и верификации паллетных грузов на складах и в крупных распределительных центрах. Главное отличие этого комплекса от робота Яндекса — полуавтономный или гибридный форм-фактор. Робот не имеет собственного самоходного полноприводного шасси, а выполнен в виде мобильной базы-вышки. Она легко перемещается обычной ручной рохлей, вилочным погрузчик",
+          "status": "known",
+          "source_id": 22
+        },
+        "subtype": {
+          "quote": null,
+          "value": "Робот-инвентаризатор",
+          "status": "known",
+          "source_id": 2
+        },
+        "scenario": {
+          "quote": null,
+          "value": "Инвентаризация склада",
+          "status": "known",
+          "source_id": 2
+        },
+        "enclosure": {
+          "quote": "Indoor, склад с адресным хранением [A]",
+          "value": "Indoor, склад с адресным хранением",
+          "status": "known",
+          "source_id": 22
+        },
+        "navigation": {
+          "quote": "Компьютерное зрение, камеры, дополнительная подсветка; AI-видеоаналитика на нейросетях [A]",
+          "value": "Компьютерное зрение, камеры, дополнительная подсветка; AI-видеоаналитика на нейросетях",
+          "status": "known",
+          "source_id": 22
+        },
+        "payload_kg": {
+          "quote": "не применимо (не перевозит груз)",
+          "value": null,
+          "status": "not_applicable",
+          "source_id": 22
+        },
+        "throughput": {
+          "quote": "от 12 600 [A]",
+          "value": "12600",
+          "status": "known",
+          "source_id": 22
+        },
+        "robot_class": {
+          "quote": null,
+          "value": "Мобильные роботы",
+          "status": "known",
+          "source_id": 2
+        },
+        "work_time_h": {
+          "unit": "ч",
+          "quote": "2 (без подключения внешнего питания) [A]",
+          "value": 2,
+          "status": "known",
+          "source_id": 22,
+          "normalization_original": {
+            "quote": "2 (без подключения внешнего питания) [A]",
+            "value": "2",
+            "status": "known",
+            "source_id": 22
+          }
+        },
+        "case_summary": {
+          "quote": null,
+          "value": "Сеть «ВкусВилл» начала роботизацию складов, включая внедрение AI Stock Counter 12M, что позволило снизить количество ошибок почти вдвое (с 2200 до 1300), а ежемесячная экономия превышает 350 тысяч рублей.",
+          "status": "known",
+          "source_id": 2
+        },
+        "system_class": {
+          "quote": null,
+          "value": "brs",
+          "status": "known",
+          "source_id": 2
+        },
+        "charging_type": {
+          "quote": "Автоматическая зарядка робота [B, Automacon]; опционально питание от погрузчика-тягача (крепление под вилы) [A, B]",
+          "value": "Автоматическая зарядка робота; опционально питание от погрузчика-тягача (крепление под вилы)",
+          "status": "known",
+          "source_id": 21
+        },
+        "industry_name": {
+          "quote": null,
+          "value": "Торговля и услуги",
+          "status": "known",
+          "source_id": 2
+        },
+        "container_type": {
+          "quote": "Паллеты с QR-кодами и бар-кодами на упаковках [A]",
+          "value": "Паллеты с QR-кодами и бар-кодами на упаковках",
+          "status": "known",
+          "source_id": 22
+        },
+        "lift_height_mm": {
+          "unit": "мм",
+          "quote": "мачта 5 секций, подъём до 12 000 мм [B]",
+          "value": 12000,
+          "status": "known",
+          "source_id": 21,
+          "normalization_original": {
+            "quote": "мачта 5 секций, подъём до 12 000 мм [B]",
+            "value": "12000",
+            "status": "known",
+            "source_id": 21
+          }
+        },
+        "speed_empty_ms": {
+          "unit": "м/с",
+          "quote": "средняя 0,4 [A, Neurus]; максимальная 0,6 [B, Automacon]",
+          "value": 0.4,
+          "status": "known",
+          "source_id": 22,
+          "normalization_original": {
+            "quote": "средняя 0,4 [A, Neurus]; максимальная 0,6 [B, Automacon]",
+            "value": "0.4",
+            "status": "known",
+            "source_id": 22
+          }
+        },
+        "speed_loaded_ms": {
+          "quote": "не применимо (груз не перевозит)",
+          "value": null,
+          "status": "not_applicable",
+          "source_id": 22
+        },
+        "throughput_unit": {
+          "quote": "ячеек/ч сканирования",
+          "value": "ячеек/ч сканирования",
+          "status": "known",
+          "source_id": 22
+        },
+        "market_potential": {
+          "quote": null,
+          "value": "5.00",
+          "status": "known",
+          "source_id": 2
+        },
+        "infrastructure_req": {
+          "quote": "QR-маркировка ячеек и паллетомест; вилочный погрузчик или паллетоперевозчик как тягач (в основании предусмотрено крепление под любой вилочный погрузчик); работа без остановки склада [A, B]",
+          "value": "QR-маркировка ячеек и паллетомест; вилочный погрузчик или паллетоперевозчик как тягач (в основании предусмотрено крепление под любой вилочный погрузчик); работа без остановки склада",
+          "status": "known",
+          "source_id": 22
+        },
+        "ready_for_automatch": {
+          "quote": "Да",
+          "value": "true",
+          "status": "known",
+          "source_id": 22
+        },
+        "software_integration": {
+          "quote": "Интеграция с WMS; собственное ПО (резидент «Сколково»), разработано под проект и совместимо с существующими складскими системами [A, B]",
+          "value": "Интеграция с WMS; собственное ПО (резидент «Сколково»), разработано под проект и совместимо с существующими складскими системами",
+          "status": "known",
+          "source_id": 22
+        }
+      },
+      "price_rub": 2600000,
+      "trl": 9,
+      "availability": "operation",
+      "column_sources": {
+        "trl": 2,
+        "name": 2,
+        "summary": 2,
+        "price_rub": 2,
+        "availability": 2,
+        "manufacturer": 2
+      }
+    },
+    {
+      "id": "9dfb0b55-4d9e-47fc-8a28-ad4390147a26",
+      "name": "Робот инвентаризатор",
+      "slug": "robot-inventarizator",
+      "summary": "Автономное мобильное решение для полностью автоматического учета и сверки паллетных грузов на крупных складах.",
+      "attrs": {
+        "risks": {
+          "quote": "Маркетинговые 30 000 vs практика 20–22 тыс. Нет публичной автономности и точных габаритов серийной машины (цифры Spectro). Цена каталога может не отражать RaaS.",
+          "value": "Маркетинговые 30 000 vs практика 20–22 тыс. Нет публичной автономности и точных габаритов серийной машины (цифры Spectro). Цена каталога может не отражать RaaS.",
+          "status": "known",
+          "source_id": 35
+        },
+        "region": {
+          "quote": null,
+          "value": "Москва",
+          "status": "known",
+          "source_id": 2
+        },
+        "purpose": {
+          "quote": "Автономное мобильное решение для полностью автоматического учета и сверки паллетных грузов на крупных складах.",
+          "value": "Автономное мобильное решение для полностью автоматического учета и сверки паллетных грузов на крупных складах.",
+          "status": "known",
+          "source_id": 35
+        },
+        "subtype": {
+          "quote": null,
+          "value": "Робот инвентаризатор",
+          "status": "known",
+          "source_id": 2
+        },
+        "scenario": {
+          "quote": null,
+          "value": "Инвентаризация склада",
+          "status": "known",
+          "source_id": 2
+        },
+        "enclosure": {
+          "quote": "Indoor, высотные стеллажные склады [A]",
+          "value": "Indoor, высотные стеллажные склады",
+          "status": "known",
+          "source_id": 35
+        },
+        "navigation": {
+          "quote": "Лидар, ультразвуковые сенсоры, камеры; автономное безопасное движение рядом с людьми [A]",
+          "value": "Лидар, ультразвуковые сенсоры, камеры; автономное безопасное движение рядом с людьми",
+          "status": "known",
+          "source_id": 35
+        },
+        "payload_kg": {
+          "quote": "не применимо (не перевозит груз)",
+          "value": null,
+          "status": "not_applicable",
+          "source_id": 35
+        },
+        "throughput": {
+          "quote": "до 30 000 палето-мест/ч [A, сайт вендора]; практика Spectro (Софьино) ~20–22 тыс. мест/ч [B]",
+          "value": "30000",
+          "status": "known",
+          "source_id": 35
+        },
+        "robot_class": {
+          "quote": null,
+          "value": "Мобильные роботы",
+          "status": "known",
+          "source_id": 2
+        },
+        "case_summary": {
+          "quote": null,
+          "value": "На складе сети «Азбука Вкуса» внедрен робот-инвентаризатор от «Яндекс Роботикс», что позволило ускорить проверку остатков, повысить точность учета и обеспечить годовую экономию более 1 млн рублей.",
+          "status": "known",
+          "source_id": 2
+        },
+        "system_class": {
+          "quote": null,
+          "value": "brs",
+          "status": "known",
+          "source_id": 2
+        },
+        "dimensions_mm": {
+          "quote": "платформа ~2000x1000 (Spectro «телега 2 на 1 м») + мачта до 12 500 [B]",
+          "value": "2000×1000",
+          "status": "known",
+          "source_id": 36
+        },
+        "industry_name": {
+          "quote": null,
+          "value": "Торговля и услуги",
+          "status": "known",
+          "source_id": 2
+        },
+        "container_type": {
+          "quote": "Паллеты и упаковки с QR-кодами, в т.ч. крупногабаритный товар [A]",
+          "value": "Паллеты и упаковки с QR-кодами, в т.ч. крупногабаритный товар",
+          "status": "known",
+          "source_id": 35
+        },
+        "lift_height_mm": {
+          "unit": "мм",
+          "quote": "12,5 (раздвижная мачта) [A]; мачта до 12 500 [B]",
+          "value": 12500,
+          "status": "known",
+          "source_id": 35,
+          "normalization_original": {
+            "quote": "12,5 (раздвижная мачта) [A]; мачта до 12 500 [B]",
+            "value": "12500",
+            "status": "known",
+            "source_id": 35
+          }
+        },
+        "price_includes": {
+          "quote": "Вендор предлагает модель подписки (робот по подписке / RaaS); публичных ставок нет [B]",
+          "value": "Вендор предлагает модель подписки (робот по подписке / RaaS); публичных ставок нет",
+          "status": "known",
+          "source_id": 36
+        },
+        "raas_available": {
+          "quote": "Да — вендор развивает подписочную модель на роботов и ПО [B]",
+          "value": "true",
+          "status": "known",
+          "source_id": 36
+        },
+        "speed_empty_ms": {
+          "unit": "м/с",
+          "quote": "~1,0 (целевая/рабочая, блог команды Spectro) [B]",
+          "value": 1,
+          "status": "known",
+          "source_id": 36,
+          "normalization_original": {
+            "quote": "~1,0 (целевая/рабочая, блог команды Spectro) [B]",
+            "value": "1",
+            "status": "known",
+            "source_id": 36
+          }
+        },
+        "throughput_unit": {
+          "quote": "палето-мест/ч",
+          "value": "палето-мест/ч",
+          "status": "known",
+          "source_id": 35
+        },
+        "market_potential": {
+          "quote": null,
+          "value": "5.00",
+          "status": "known",
+          "source_id": 2
+        },
+        "infrastructure_req": {
+          "quote": "QR-маркировка; установка без изменений инфраструктуры склада [A]",
+          "value": "QR-маркировка; установка без изменений инфраструктуры склада",
+          "status": "known",
+          "source_id": 35
+        },
+        "ready_for_automatch": {
+          "quote": "Да, с оговорками — производительность диапазоном 20–30 тыс., не одной цифрой",
+          "value": "true",
+          "status": "known",
+          "source_id": 35
+        },
+        "software_integration": {
+          "quote": "Интеграция через API с WMS и ERP; Yandex Robotics Platform (управление роботами разных вендоров, без vendor lock) [A]",
+          "value": "Интеграция через API с WMS и ERP; Yandex Robotics Platform (управление роботами разных вендоров, без vendor lock)",
+          "status": "known",
+          "source_id": 35
+        }
+      },
+      "price_rub": 2000000,
+      "trl": 8,
+      "availability": "operation",
+      "column_sources": {
+        "trl": 2,
+        "name": 2,
+        "summary": 2,
+        "price_rub": 2,
+        "availability": 2,
+        "manufacturer": 2
+      }
+    }
+  ],
+  "sources": [
+    {
+      "id": 2,
+      "url": "",
+      "kind": "catalog",
+      "title": "ФЦ БАС",
+      "publisher": "ФЦ БАС",
+      "parser_code": ""
+    },
+    {
+      "id": 21,
+      "url": "https://neurus.ru/projects/inventory",
+      "kind": "dealer",
+      "title": "neurus.ru",
+      "publisher": "neurus.ru",
+      "parser_code": ""
+    },
+    {
+      "id": 22,
+      "url": "https://neurus.ru/projects/inventory",
+      "kind": "vendor",
+      "title": "neurus.ru",
+      "publisher": "neurus.ru",
+      "parser_code": ""
+    },
+    {
+      "id": 35,
+      "url": "https://robotics.yandex.ru/robotizatsiya-sklada",
+      "kind": "vendor",
+      "title": "robotics.yandex.ru",
+      "publisher": "robotics.yandex.ru",
+      "parser_code": ""
+    },
+    {
+      "id": 36,
+      "url": "https://robotics.yandex.ru/robotizatsiya-sklada",
+      "kind": "dealer",
+      "title": "robotics.yandex.ru",
+      "publisher": "robotics.yandex.ru",
+      "parser_code": ""
+    }
+  ],
+  "process_filters": [
+    {
+      "id": 52,
+      "op": "formula",
+      "mode": "conditional",
+      "name": "Автономность смены",
+      "inputs": [
+        {
+          "key": "shift",
+          "label": "Длительность смены"
+        }
+      ],
+      "formula": "robot.work_time_h >= shift",
+      "process_id": 6,
+      "robot_keys": [],
+      "object_keys": []
+    }
+  ],
+  "bindings": {
+    "shift": "shift_hours",
+    "pallet_places": "pallet_places",
+    "shift_hours": "shift_hours",
+    "shifts_per_day": "shifts_per_day"
+  },
+  "site": {
+    "__tasks": [],
+    "area_m2": 20000,
+    "free_m2": 10000,
+    "has_wms": true,
+    "erp_name": "1С:ERP",
+    "power_kw": 500,
+    "days_year": 365,
+    "rack_type": "Фронтальные паллетные",
+    "sku_count": 2000,
+    "budget_rub": 80000000,
+    "floor_type": "Промышленный бетон",
+    "temp_max_c": null,
+    "temp_min_c": null,
+    "peak_factor": 1.5,
+    "shift_hours": 11,
+    "staff_total": 180,
+    "floors_count": 1,
+    "unit_dims_mm": "300×200×150",
+    "unit_mass_kg": 1.8,
+    "aisle_width_m": 2.8,
+    "clean_area_m2": 10000,
+    "pallet_places": 20000,
+    "payback_years": 5,
+    "pickers_count": 100,
+    "time_loss_pct": 25,
+    "pack_operators": 20,
+    "pallet_dims_mm": "1200×800×1600",
+    "pallet_mass_kg": 800,
+    "payroll_burden": 1.302,
+    "picker_route_m": 25,
+    "shifts_per_day": 2,
+    "noise_limit_dba": null,
+    "sku_a_share_pct": 20,
+    "floor_load_kg_m2": 833,
+    "object_type_code": "warehouse",
+    "storage_height_m": 10,
+    "conveyor_length_m": 350,
+    "floor_flatness_mm": 3,
+    "forklift_operators": 25,
+    "main_aisle_width_m": 3.5,
+    "pick_lines_per_day": 100000,
+    "pick_units_per_day": 150000,
+    "oversized_share_pct": 5,
+    "piece_pick_share_pct": 30,
+    "energy_tariff_rub_kwh": null,
+    "picker_lines_per_hour": 150,
+    "staff_salary_year_rub": 1562400,
+    "inbound_pallets_per_day": 1000,
+    "picker_salary_month_rub": 100000,
+    "outbound_pallets_per_day": 1000,
+    "forklift_salary_month_rub": 120000
+  }
+}

@@ -22,6 +22,8 @@ python docs/tools/build_docx.py          # docs/dist/documentation.docx
 | 8. Демо-доступы и сценарий проверки | [appendix-G-demo-and-check.md](appendix-G-demo-and-check.md) |
 | 9. Презентация (раскадровка) | [presentation-outline.md](presentation-outline.md) |
 | 10. Пример отчёта | Выгрузить из платформы в `docs/examples/` |
+| Исправление допуска и экономики, этап 1 | [13-assessment-stage1.md](13-assessment-stage1.md) |
+| Автоматический подбор по данным каталога | [14-catalog-assessment.md](14-catalog-assessment.md) |
 | Матрица соответствия | [appendix-Z-compliance.md](appendix-Z-compliance.md) |
 
 Прочие приложения: [Д правила подбора](appendix-D-rules.md), [Е схема БД](appendix-E-schema.md), [Ж поля площадки](appendix-Zh-site-fields.md).
