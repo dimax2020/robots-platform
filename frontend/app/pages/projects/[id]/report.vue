@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { PhPrinter, PhFileXls, PhFileCsv, PhWarning, PhArrowRight } from '@phosphor-icons/vue'
+import { PhPrinter, PhFileXls, PhFileCsv, PhArrowRight, PhFlask } from '@phosphor-icons/vue'
 import { objectTypeImage, objectTypeLabel } from '~/data/projects'
 import { downloadText, toCsv, toExcelXml, pickReportSheets } from '~/utils/exportTables'
 import { fetchErrorMessage } from '~/utils/errors'
 import { useProjectReport } from '~/composables/useProjectReport'
 import { figValue, millions, SOURCE_TONE } from '~/composables/usePlatformEconomy'
 import { isAccent } from '~/utils/accent'
+import { formatDemoValue, formatOrigin } from '~/utils/demoSynthetic'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
@@ -287,10 +288,26 @@ const showAll = () => {
       </section>
 
       <div class="r-in">
-        <div class="disclaimer">
-          <PhWarning :size="18" weight="fill" />
-          <p><span class="strong">{{ doc.disclaimer.value }}</span> Числа, формулы и допущения взяты из расчёта экономики и what-if. Если в модели появится новое поле или изменится формула, отчёт покажет их так же, как экран расчёта.</p>
-        </div>
+        <AssessmentNotice :report="doc.econ.value" :text="doc.disclaimer.value">
+          <p>Числа, формулы и допущения взяты из расчёта экономики и what-if.</p>
+        </AssessmentNotice>
+
+        <section v-if="doc.demoSynthetic.value.length" class="synthetic-summary">
+          <h3>Синтетические допущения DEV</h3>
+          <p class="synthetic-legend"><PhFlask :size="16" weight="duotone" aria-hidden="true" /> — синтетическое значение, требующее проверки. Происхождение и пояснения приведены в приложении А.</p>
+          <div v-for="group in doc.demoSynthetic.value" :key="`${group.process_code}:${group.product_id}:${group.name}`">
+            <h4>{{ group.name }} · {{ group.process_name }}</h4>
+            <p>Включён в экономический парк: {{ group.included_in_economy ? 'да' : 'нет' }}</p>
+            <table class="table">
+              <thead><tr><th>Характеристика</th><th>Значение</th></tr></thead>
+              <tbody>
+                <tr v-for="item in group.fields" :key="item.key">
+                  <td>{{ item.label }}</td><td>{{ formatDemoValue(item.value) }} {{ item.unit }}<SyntheticMarker v-if="item.origin === 'demo_synthetic'" :origin="item.origin" :explanation="item.explanation" /></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         <section v-if="showMatch && visibleAdvice" class="advice" :class="{ asis: visibleAdvice.rows.find((row) => row.winner)?.key === 'asis' }">
           <p class="advice-kicker">Что выгоднее</p>
@@ -423,7 +440,7 @@ const showAll = () => {
                 <h4>{{ robot.name }}</h4>
                 <p class="robot-meta">{{ robot.count }} · {{ robot.price }}<span v-if="robot.cost !== '—'"> · парк {{ robot.cost }}</span></p>
                 <dl v-if="robot.specs.length" class="specs">
-                  <div v-for="spec in robot.specs" :key="spec.label"><dt>{{ spec.label }}</dt><dd>{{ spec.value }}</dd></div>
+                  <div v-for="spec in robot.specs" :key="spec.label"><dt>{{ spec.label }}</dt><dd>{{ spec.value }}<SyntheticMarker v-if="spec.synthetic" :origin="spec.synthetic.origin" :explanation="spec.synthetic.explanation" /></dd></div>
                 </dl>
                 <p v-else class="note">В карточке нет числовых ТТХ.</p>
                 <p v-if="robot.note" class="note">{{ robot.note }}</p>
@@ -482,7 +499,7 @@ const showAll = () => {
               <div class="assume-h">
                 <UiTex :tex="item.symbol" class="assume-sym" />
                 <span class="strong" :class="{ 'cost-accent': isAccent(item.key, item.label) }">{{ item.label }}</span>
-                <b>{{ item.value.toLocaleString('ru-RU') }} {{ item.unit }}</b>
+                <b>{{ item.value.toLocaleString('ru-RU') }} {{ item.unit }}<SyntheticMarker v-if="item.origin === 'demo_synthetic'" :origin="item.origin" :explanation="item.rationale" /></b>
                 <UiBadge :tone="SOURCE_TONE[item.source]" size="sm">{{ sourceText(item.source) }}</UiBadge>
               </div>
               <dl>
@@ -490,8 +507,8 @@ const showAll = () => {
                 <div><dt>Диапазон</dt><dd>{{ item.min.toLocaleString('ru-RU') }} … {{ item.max.toLocaleString('ru-RU') }}</dd></div>
                 <div v-if="item.overridden"><dt>Для проекта</dt><dd>значение заменено</dd></div>
               </dl>
-              <p>{{ item.rationale }}</p>
-              <p class="note">{{ item.origin }}</p>
+              <p v-if="item.origin !== 'demo_synthetic'">{{ item.rationale }}</p>
+              <p v-if="item.origin !== 'demo_synthetic'" class="note">{{ formatOrigin(item.origin) }}</p>
             </article>
           </div>
           <template v-if="doc.processes.value.some((item) => item.suggestions.length)">
@@ -543,8 +560,26 @@ const showAll = () => {
           </ol>
         </section>
 
+        <details v-if="doc.demoSynthetic.value.length" class="synthetic-appendix">
+          <summary>Приложение А. Происхождение и пояснения синтетических значений</summary>
+          <div class="appendix-body">
+            <div v-for="group in doc.demoSynthetic.value" :key="`${group.process_code}:${group.product_id}:${group.name}`" class="appendix-group">
+              <h4>{{ group.name }} · {{ group.process_name }}</h4>
+              <p>Включён в экономический парк: {{ group.included_in_economy ? 'да' : 'нет' }}</p>
+              <table class="table">
+                <thead><tr><th>Характеристика</th><th>Значение</th><th>Происхождение и пояснение</th></tr></thead>
+                <tbody>
+                  <tr v-for="item in group.fields" :key="item.key">
+                    <td>{{ item.label }}</td><td>{{ formatDemoValue(item.value) }} {{ item.unit }}</td>
+                    <td>{{ formatOrigin(item.origin) }} · {{ item.explanation }}<br>{{ item.requires_vendor_confirmation ? 'Требуется подтверждение вендора.' : 'Требуется проверка параметров и оценки.' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+
         <footer class="r-foot">
-          <p class="strong">{{ doc.disclaimer.value }}</p>
           <p>Отчёт сформирован платформой подбора роботизированных решений. Кейс ФЦ БАС, хакатон «Лидеры цифровой трансформации», 2026. Версия каталога {{ project.catalogVersion }}, версия расчётной модели {{ project.modelVersion }}.</p>
         </footer>
       </div>
@@ -663,8 +698,12 @@ const showAll = () => {
 .cover-foot { display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; color: var(--ink-muted-graphite); }
 
 .r-in { padding: 18px 22px 22px; display: grid; gap: 16px; color: var(--ink-body); font-size: clamp(13px, 0.85vw, 15px); line-height: 1.4; }
-.disclaimer { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; background: var(--state-warn-tint); color: #5c3700; font-size: 13.5px; line-height: 1.45; }
-.disclaimer svg { flex: none; color: var(--state-warn); margin-top: 1px; }
+.synthetic-legend { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-muted); }
+.synthetic-legend svg { flex: none; color: #956014; }
+.synthetic-appendix { padding: 14px; border: 1px solid var(--border-hairline); border-radius: 12px; }
+.synthetic-appendix > summary { cursor: pointer; font-weight: 700; }
+.synthetic-appendix > summary:focus-visible { outline: 2px solid var(--brand-400); outline-offset: 3px; }
+.appendix-body { margin-top: 16px; display: grid; gap: 16px; }
 
 .r-sec { display: grid; gap: 8px; }
 .sec-head { display: flex; align-items: flex-start; gap: 10px; }
@@ -819,6 +858,10 @@ const showAll = () => {
 
 @media print {
   .report {
+    /* Печать доступна до прокрутки до блока с v-reveal. */
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
     max-width: none;
     overflow: visible;
     box-shadow: none;
@@ -888,12 +931,18 @@ const showAll = () => {
     -webkit-box-decoration-break: clone; box-decoration-break: clone;
   }
   .r-in > * + * { margin-top: 5mm; }
+  .synthetic-legend { font-size: 9px; }
+  .synthetic-appendix { break-before: page; padding: 0; border: 0; }
+  .synthetic-appendix::details-content { content-visibility: visible; display: block; }
+  .synthetic-appendix > summary { display: block; font-size: 14px; margin-bottom: 4mm; }
+  .appendix-body { display: block !important; }
+  .appendix-group + .appendix-group { margin-top: 4mm; }
+  .appendix-group h4 { break-after: avoid; }
   .r-sec, .formula-block, .assume { display: block; }
   .r-sec > * + * { margin-top: 2.5mm; }
   .sec-head, .formula-block > h4, .assume > .label, .robot-gloss { break-after: avoid; page-break-after: avoid; }
   .sec-head { break-inside: avoid; page-break-inside: avoid; }
   .formula-block > h4 { margin: 4mm 0 2mm; font-size: 12px; }
-  .disclaimer { padding: 6px 8px; font-size: 10px; break-inside: avoid; }
   .sec-title { font-size: 13px; }
   .sec-lead { font-size: 10px; }
   .advice { display: block; break-inside: avoid; page-break-inside: avoid; }

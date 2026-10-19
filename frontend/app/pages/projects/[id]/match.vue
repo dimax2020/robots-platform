@@ -199,7 +199,7 @@ onBeforeUnmount(stopClock)
             <span class="mono-sm">{{ countText(hit) }}</span>
             <RobotReadiness :trl="hit.trl" :stage="hit.stage" :flagged="isImmature(hit)" />
           </div>
-          <UiBadge :tone="verdictTone[hit.verdict] || 'neutral'" size="sm">{{ verdictLabel[hit.verdict] || hit.verdict }}</UiBadge>
+          <UiBadge :tone="verdictTone[hit.verdict] || 'neutral'" size="sm">{{ hit.uses_demo_synthetic && hit.verdict === 'pass' ? 'Подходит при демодопущениях' : verdictLabel[hit.verdict] || hit.verdict }}</UiBadge>
           <AssessmentStatus :hit="hit" />
           <button
             type="button"

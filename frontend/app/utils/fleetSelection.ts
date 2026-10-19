@@ -4,20 +4,25 @@ export interface EligibilityHit {
   verdict: string
   count?: number | null
   economic_ready?: boolean
+  demo_economic_ready?: boolean
+  calculation_mode?: string
   economic_reasons?: { code: string; message: string }[]
 }
 export interface EligibilityGroup {
   best_product_id?: string | null
+  demo_best_product_id?: string | null
+  calculation_mode?: string
   hits: EligibilityHit[]
 }
 /** Технически подходящее решение можно сравнивать до определения количества и цены. */
 export const includedInTechnicalComparison = (hit: EligibilityHit): boolean => hit.verdict === 'pass'
 export const eligibleForEconomy = (hit: EligibilityHit | undefined): boolean => Boolean(
-  hit && hit.verdict === 'pass' && hit.economic_ready === true
+  hit && hit.verdict === 'pass' && (hit.economic_ready === true || hit.calculation_mode === 'demo' && hit.demo_economic_ready === true)
   && typeof hit.count === 'number' && Number.isFinite(hit.count) && Number.isInteger(hit.count) && hit.count > 0,
 )
 export function automaticChoice(group: EligibilityGroup): string {
-  const hit = group.hits.find((h) => h.product_id === group.best_product_id)
+  const id = group.calculation_mode === 'demo' ? group.demo_best_product_id : group.best_product_id
+  const hit = group.hits.find((h) => h.product_id === id)
   return eligibleForEconomy(hit) ? hit!.product_id : ''
 }
 export function selectionIssue(group: EligibilityGroup, chosenId: string): string {

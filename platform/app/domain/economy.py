@@ -68,8 +68,7 @@ NORMS: tuple[Norm, ...] = (
     Norm("robots_per_operator", "staff", "Роботов на одного оператора", r"m", 10.0, "шт.",
          "Каталог не говорит, сколько людей нужно парку. Допущение: один оператор или диспетчер на 10 машин.", "Допущение команды", 1, 50, 1),
     Norm("fte_hours", "staff", "Рабочих часов одного сотрудника", r"h_{\text{чел}}", 1970.0, "ч в год",
-         "Если у процесса нет численности в данных, людей считаем по часам работы его роботов: часы парка делятся на годовой фонд "
-         "одного сотрудника. Около 1 970 ч — 40-часовая неделя по производственному календарю.", "Допущение команды", 1000, 3000, 10),
+         "Годовой фонд времени сотрудника. Численность не выводится из количества роботов; нужен независимый исходный штат.", "Допущение команды", 1000, 3000, 10),
     Norm("raas_rate_pct", "raas", "Ставка аренды", r"k_{\text{RaaS}}", 2.2, "% цены робота в месяц",
          "Выведено из демо: аренда дороже покупки на 19 млн ₽ в год при оборудовании 71,4 млн ₽, это около 26,6% в год или 2,2% в месяц. "
          "В ставку входят сервис, ремонт, расходники и лицензии.", "Демо-проект склада", 0.5, 6, 0.1),
@@ -152,7 +151,7 @@ TYPE_NORMS = (
 )
 
 # Коэффициенты, которые можно задать одному процессу, не двигая весь парк.
-PROCESS_TUNABLE = frozenset(("price_factor", "energy_kwh", *TYPE_NORMS))
+PROCESS_TUNABLE = frozenset(("price_factor", "energy_kwh", "replacement_pct", "robots_per_operator", *TYPE_NORMS))
 _CAPEX_EXTRAS = ("infra_pct", "software_pct", "integration_pct", "commissioning_pct", "training_pct")
 _RAAS_EXTRAS = ("infra_pct", "integration_pct", "commissioning_pct", "training_pct")
 # direction -1: процессу помогает меньшее значение, +1: большее.
@@ -259,6 +258,9 @@ def scale_task_flows(tasks: list | None, load_pct: float) -> list:
         flow = _num(row.get("flow_per_day"))
         if flow is not None:
             row["flow_per_day"] = flow * load_pct / 100
+        passes = _num(row.get('cleaning_passes_per_day'))
+        if passes is not None:
+            row['cleaning_passes_per_day'] = passes * load_pct / 100
         scaled.append(row)
     return scaled
 
@@ -466,6 +468,7 @@ def _line(row: dict, params: dict[str, dict], hours: dict, tariff: dict, by_proc
         "raas_available": bool(row.get("raas_available")),
         "kwh_per_hour": None,
         "kwh_source": "",
+        "operating_hours_per_day": row.get("operating_hours_per_day"),
         "energy_rub": 0.0,
         "fig": None,
     }
@@ -492,7 +495,11 @@ def _line(row: dict, params: dict[str, dict], hours: dict, tariff: dict, by_proc
     item["kwh_per_hour"] = kwh
     item["kwh_source"] = kwh_source
     if hours["value"]:
-        item["energy_rub"] = n * kwh * hours["value"] * tariff["value"]
+        daily = _num(row.get('operating_hours_per_day'))
+        year_days = next((v['value'] for v in hours.get('vars', []) if v['symbol'] == 'D'), None)
+        operating_hours = daily * year_days if daily is not None and year_days is not None else hours['value']
+        item['operating_hours_year'] = operating_hours
+        item["energy_rub"] = n * kwh * operating_hours * tariff["value"]
     item["fig"] = _fig(
         f"cost:{item['process_code']}",
         item["name"],
@@ -611,7 +618,7 @@ def _default_rate(site: dict) -> tuple[float | None, str]:
 
 
 def _payroll_by_process(site: dict, staffed: dict[str, dict], included: list[dict], params: dict[str, dict], hours: dict) -> dict:
-    """ФОТ каждого процесса парка: численность задачи, а без неё — люди, которых заменяют часы работы роботов."""
+    """ФОТ процесса по независимому исходному штату; без штата расчёт неполон."""
     p = {key: item["value"] for key, item in params.items()}
     factor = p["salary_factor"] / 100
     rate_default, rate_note = _default_rate(site)
@@ -853,7 +860,11 @@ def _robot_scenario(s, key, title, subtitle, capex, capex_lines, opex_lines, ope
     support = support or {"once": 0.0, "by_year": lambda _year: 0.0, "year_lines": [], "last_year": 0}
     by_year = support["by_year"]
     payroll = s["payroll"]["total"]
-    share = p["replacement_pct"] / 100
+    allocations = s['payroll'].get('by_process') or {}
+    replacement_lines = [(code, amount, _local_params(s, code)['replacement_pct']['value'] / 100)
+                         for code, amount in allocations.items()]
+    saved_total = sum(amount * fraction for code, amount, fraction in replacement_lines) if replacement_lines else payroll * p['replacement_pct'] / 100
+    share = saved_total / payroll if payroll else 0
     opex_value = sum(item["value"] or 0 for item in opex_lines if item["included"])
     opex = _fig(
         "opex", "OPEX в год", opex_value, "₽/год", opex_tex,
@@ -869,6 +880,10 @@ def _robot_scenario(s, key, title, subtitle, capex, capex_lines, opex_lines, ope
         [_var(r"\text{ФОТ}_{\text{база}}", "ФОТ ролей до роботизации", payroll, "₽/год", "calc"), _norm_var_fraction(p, "replacement_pct", s["params"])],
         "Люди, которые остаются на исключениях и контроле.",
     )
+    if replacement_lines:
+        after['tex'] = r"ФОТ_{после} = \sum_i ФОТ_i (1-s_i)"
+        after['subst'] = f"{payroll} − {saved_total} = {after_value} ₽"
+        after['vars'] = [_var(code, 'Доля замещения: ' + code, fraction, 'доля', 'project') for code, amount, fraction in replacement_lines]
     saved = payroll - after_value
     saving = _fig(
         "saving", "Экономия ФОТ", saved, "₽/год",
@@ -876,6 +891,10 @@ def _robot_scenario(s, key, title, subtitle, capex, capex_lines, opex_lines, ope
         rf"{_t(payroll)} \times {_t(share, 2)} = {_t(saved)}\ \text{{₽}}",
         [_var(r"\text{ФОТ}_{\text{база}}", "ФОТ ролей до роботизации", payroll, "₽/год", "calc"), _norm_var_fraction(p, "replacement_pct", s["params"])],
     )
+    if replacement_lines:
+        saving['tex'] = r"\Delta ФОТ = \sum_i ФОТ_i s_i"
+        saving['subst'] = ' + '.join(f'{amount} × {fraction}' for code, amount, fraction in replacement_lines) + f' = {saved} ₽'
+        saving['vars'] = after['vars']
     operational = saved - opex_value
     first_support = by_year(1)
     effect_value = operational + first_support
@@ -1053,6 +1072,10 @@ def _energy_fig(s: dict) -> dict:
         ],
         ("Мощность из карточки: " + ", ".join(from_card) + ". Остальным — стандарт e.") if from_card else "Мощности в карточках нет, у всех роботов стандарт e.",
     )
+    if any(item.get('operating_hours_per_day') is not None for item in s['included']):
+        fig['tex'] = r"C_{эл} = \sum_i N_i e_i H_i \tau"
+        fig['subst'] = ' + '.join(f"{item['count_used']} × {item['kwh_per_hour']} × {item['operating_hours_year']} × {tariff['value']}" for item in s['included']) + f' = {value} ₽'
+        fig['note'] = 'Часы каждого процесса из модели количества; резерв учтён консервативно как эксплуатируемый парк.'
     fig["symbol"] = r"C_{\text{эл}}"
     return fig
 
@@ -1067,10 +1090,10 @@ def _operators_fig(s: dict) -> dict:
             return fig
         fig = _fig(
             "operators", "Персонал эксплуатации", value, "₽/год",
-            r"C_{\text{опер}} = C_{\text{опер парка}} \times \dfrac{N_i}{N}",
+            r"C_{\text{опер}} = C_{\text{опер процесса}}",
             rf"= {_t(value)}\ \text{{₽}}",
-            [_var(r"C_{\text{опер парка}}", "Персонал эксплуатации парка, доля процесса по числу роботов", value, "₽/год", "calc")],
-            "Доля общего персонала эксплуатации парка, пропорционально числу роботов процесса.",
+            [_var(r"C_{\text{опер парка}}", "Затраты на персонал эксплуатации данного процесса", value, "₽/год", "calc")],
+            "Затраты на персонал эксплуатации, выделенные данному процессу из общего расчёта парка.",
         )
         fig["symbol"] = r"C_{\text{опер}}"
         return fig
@@ -1081,7 +1104,11 @@ def _operators_fig(s: dict) -> dict:
                    "Нет зарплаты подходящей роли на площадке." if s["robots"] else "Роботов нет.", included=False)
         fig["symbol"] = r"C_{\text{опер}}"
         return fig
-    people = math.ceil(s["robots"] / per)
+    own = s.get('by_process') or {}
+    if any('robots_per_operator' in entry for entry in own.values()):
+        people = sum(_operator_fte(s, item) for item in s['included'])
+    else:
+        people = math.ceil(s["robots"] / per)
     value = people * operator["value"]
     fig = _fig(
         "operators", "Персонал эксплуатации", value, "₽/год",
@@ -1095,8 +1122,19 @@ def _operators_fig(s: dict) -> dict:
         ],
         f"{people} операторов или диспетчеров парка.",
     )
+    if any('robots_per_operator' in entry for entry in own.values()):
+        fig['tex'] = r"C_{опер} = \sum_i \lceil N_i / m_i \rceil (H_i / h_{FTE}) W_{опер}"
+        fig['subst'] = f'{people} × {operator["value"]} = {value} ₽'
+        fig['note'] = 'Операторы считаются по отдельным группам с годовым фондом времени сотрудника; не замещают остаточный ручной труд.'
     fig["symbol"] = r"C_{\text{опер}}"
     return fig
+
+
+def _operator_fte(s, item):
+    local = _local_params(s, item['process_code'])
+    stations = math.ceil(item['count_used'] / local['robots_per_operator']['value'])
+    hours = item.get('operating_hours_year')
+    return stations * hours / local['fte_hours']['value'] if hours is not None else stations
 
 
 def _negate(fig: dict) -> dict:
@@ -1259,7 +1297,8 @@ def _sensitivity(
         for mult in (0.8, 1.2):
             changed = {k: dict(v) for k, v in params.items()}
             changed[key]["value"] = current * mult
-            values.append(_metric(_compute(rows, site, tasks, changed, by_process, subsidies=subsidies)))
+            local = {code: {**own, **({key: own[key] * mult} if key in own else {})} for code, own in (by_process or {}).items()}
+            values.append(_metric(_compute(rows, site, tasks, changed, local, subsidies=subsidies)))
         out.append({
             "key": key,
             "label": params[key]["label"],
@@ -1502,7 +1541,7 @@ def _reprice(item: dict, params: dict[str, dict], s: dict) -> dict:
     count = item["count_used"] or 0
     price = item["price_rub"] or 0
     kwh = item["kwh_per_hour"] or 0 if item.get("kwh_source") == "card" else params["energy_kwh"]["value"]
-    hours = (s.get("hours") or {}).get("value") or 0
+    hours = item.get('operating_hours_year', (s.get("hours") or {}).get("value")) or 0
     clone["cost_rub"] = count * price * factor
     clone["price_used"] = price * factor
     clone["kwh_per_hour"] = kwh
@@ -1603,6 +1642,8 @@ def _process_bundle(
     operator_total = _operators_fig(probe)["value"] or 0
     robots = s["robots"] or 0
     allocated = (item["count_used"] / robots * operator_total) if robots else 0
+    if any('robots_per_operator' in own for own in (s.get('by_process') or {}).values()):
+        allocated = _operator_fte({**s, 'params': params, 'by_process': {}}, item) * (operator['value'] or 0)
     clone = _reprice(item, params, s)
     one = {
         "fleet": [clone],

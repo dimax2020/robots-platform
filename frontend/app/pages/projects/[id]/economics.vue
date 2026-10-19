@@ -6,7 +6,6 @@ import {
   figValue,
   millions,
   PARAM_GROUPS,
-  PRELIMINARY,
   rubles,
   SOURCE_TONE,
   subsidyKey,
@@ -18,6 +17,7 @@ import {
 import { replaceQuery } from '~/composables/useQuerySync'
 import { fetchErrorMessage } from '~/utils/errors'
 import { isAccent } from '~/utils/accent'
+import { formatOrigin } from '~/utils/demoSynthetic'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
@@ -26,8 +26,8 @@ useHead({ title: () => `Экономика · ${project.value?.name ?? 'прое
 
 /* В демо только просмотр: включённые меры живут в предпросмотре и в проект не пишутся. */
 const preview = ref<Record<string, number> | null>(null)
-onMounted(() => { void load(preview.value) })
-watch([() => JSON.stringify(source.value ?? null), () => JSON.stringify(choices.value)], () => { void load(preview.value) })
+onMounted(() => { void load(preview.value ?? undefined) })
+watch([() => JSON.stringify(source.value ?? null), () => JSON.stringify(choices.value)], () => { void load(preview.value ?? undefined) })
 
 const processCode = ref(typeof route.query.process === 'string' ? route.query.process : '')
 watch(processCode, (value) => replaceQuery({ process: value || undefined }))
@@ -48,7 +48,7 @@ const subsidyBusy = ref('')
 const subsidyError = ref('')
 const setSubsidies = async (codes: string[], on: boolean | null) => {
   if (!report.value) return
-  const next = { ...(preview.value ?? report.value.saved_overrides) }
+  const next = { ...(preview.value ?? report.value.active_overrides ?? report.value.saved_overrides) }
   for (const code of codes) {
     const key = subsidyKey(code)
     if (on ?? !next[key]) next[key] = 1
@@ -62,7 +62,7 @@ const setSubsidies = async (codes: string[], on: boolean | null) => {
     } else {
       await saveOverrides(next)
     }
-    await load(preview.value)
+    await load(preview.value ?? undefined)
   } catch (err: unknown) {
     subsidyError.value = fetchErrorMessage(err, 'Не удалось изменить меру поддержки')
   } finally {
@@ -94,7 +94,7 @@ const confirmCancel = async () => {
     await disableProcess(item.process_code, reason)
     processCode.value = ''
     cancelOpen.value = false
-    await load(preview.value)
+    await load(preview.value ?? undefined)
   } catch (err: unknown) {
     cancelError.value = fetchErrorMessage(err, 'Не удалось выключить процесс')
   } finally {
@@ -108,7 +108,7 @@ const restore = async (code: string) => {
   restoreError.value = ''
   try {
     await restoreProcess(code)
-    await load(preview.value)
+    await load(preview.value ?? undefined)
     processCode.value = code
   } catch (err: unknown) {
     restoreError.value = fetchErrorMessage(err, 'Не удалось вернуть процесс')
@@ -156,19 +156,14 @@ const fleetOpen = ref(false)
     :alerts="skippedAlerts(skipped)"
     current="economics"
     title="Экономика: три сценария"
-    lead="Без роботизации, покупка и аренда. Выберите процесс, чтобы посмотреть его окупаемость отдельно. Если покупка не окупается, подберите допущения или меру господдержки — или выключите процесс."
+    lead="Без роботизации, покупка и аренда. Оцените программу выбранного объекта и вклад отдельных процессов; отрицательный эффект также является результатом расчёта."
   >
     <template #actions>
       <UiButton :to="`/projects/${project.id}/compare`" variant="secondary">К сравнению</UiButton>
       <UiButton :to="`/projects/${project.id}/what-if`" size="lg">К what-if<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
     </template>
 
-    <UiCallout v-if="report?.status === 'incomplete'" tone="warn" title="Расчёт проекта неполный">
-      <p>Не все процессы имеют подтверждённое решение, количество и цену. Итоговая окупаемость не определена.</p>
-      <ul><li v-for="(item, index) in report.blockers" :key="index">{{ item.process_code ? `${item.process_code}: ` : '' }}{{ item.message }}</li></ul>
-    </UiCallout>
-
-    <UiCallout tone="warn" title="Предварительная оценка">{{ report?.disclaimer ?? PRELIMINARY }}</UiCallout>
+    <EconomicContext v-if="report" :report="report" />
 
     <UiCallout v-if="isDemo && !readonly" tone="info" title="Демо-объект">
       Вы правите демо как администратор: параметры и коэффициенты сохраняются в проект и после публикации станут видны всем.
@@ -286,7 +281,6 @@ const fleetOpen = ref(false)
               <span><span class="caption">TCO за {{ report.horizon_years }} лет</span><span class="mono-md">{{ millions(item.tco.value) }}</span></span>
             </span>
             <span v-if="item.note" class="caption sc-note">{{ item.note }}</span>
-            <span class="caption sc-note">Предварительная оценка</span>
           </span>
         </button>
       </div>
@@ -301,7 +295,6 @@ const fleetOpen = ref(false)
               <UiExpandHint :open="open === 'payback'" label="как посчитано" dark />
             </button>
             <p v-if="scenario.verdict" class="body-sm verdict">{{ scenario.verdict }}</p>
-            <p class="caption prelim">{{ report.disclaimer }}</p>
             <EconFormula v-if="open === 'payback'" :fig="scenario.payback" dark />
             <div class="kpis">
               <button v-for="fig in kpis" :key="fig.key" type="button" class="kpi" :class="{ on: open === `kpi:${fig.key}` }" :aria-expanded="open === `kpi:${fig.key}`" @click="toggle(`kpi:${fig.key}`)">
@@ -358,7 +351,7 @@ const fleetOpen = ref(false)
           <div class="c-head">
             <div>
               <div class="h3">Затраты нарастающим итогом</div>
-              <div class="caption">CAPEX + (OPEX + оставшийся ФОТ) × год, млн ₽. Без роботизации: ФОТ × год. Предварительная оценка.</div>
+              <div class="caption">CAPEX + (OPEX + оставшийся ФОТ) × год, млн ₽. Без роботизации: ФОТ × год.</div>
             </div>
           </div>
           <div class="tco-rows">
@@ -431,7 +424,7 @@ const fleetOpen = ref(false)
                 </button>
                 <div v-if="openParam === item.key" class="coef-body">
                   <div><span class="caption">Обоснование</span><p class="body-sm">{{ item.rationale }}</p></div>
-                  <div><span class="caption">Источник стандарта</span><p class="body-sm">{{ item.origin }}</p></div>
+                  <div><span class="caption">Источник стандарта</span><p class="body-sm">{{ formatOrigin(item.origin) }}</p></div>
                   <div><span class="caption">Стандарт</span><p class="body-sm">{{ item.standard.toLocaleString('ru-RU') }} {{ item.unit }}</p></div>
                 </div>
               </div>
@@ -527,7 +520,6 @@ const fleetOpen = ref(false)
 .payback-n { font-family: var(--font-mono); font-size: 64px; line-height: 0.9; letter-spacing: -0.04em; color: #fff; }
 .payback .caption { color: var(--ink-muted-graphite); }
 .verdict { color: var(--brand-300); margin: 0; }
-.prelim { color: #f0ad45; margin: 0; }
 .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); padding-top: var(--space-4); border-top: 1px solid rgba(255, 255, 255, 0.1); }
 .kpi { display: grid; gap: 6px; text-align: left; padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.03); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); transition: background var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
 .kpi:hover, .kpi.on { background: rgba(255, 255, 255, 0.07); box-shadow: inset 0 0 0 1px rgba(98, 232, 174, 0.35); }

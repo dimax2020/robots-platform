@@ -827,7 +827,7 @@ def layout_files_in_use(db: Session) -> set[str]:
     return used
 
 
-def run_match(db: Session, project_id: UUID, site: dict | None = None, tasks: list | None = None) -> dict:
+def run_match(db: Session, project_id: UUID, site: dict | None = None, tasks: list | None = None, *, _prepared=False, _input_groups=None) -> dict:
     project = db.get(ProjectRow, project_id)
     if project is None:
         raise KeyError(str(project_id))
@@ -841,7 +841,13 @@ def run_match(db: Session, project_id: UUID, site: dict | None = None, tasks: li
         .where(ProjectProcessRow.project_id == project.id, ProjectProcessRow.enabled.is_(True))
         .order_by(ProcessRow.name)
     ))
-    return {"project_id": str(project.id), "groups": _match_groups(db, project.object_type_id, processes, values, tasks)}
+    from app.domain.demo_synthetic import project_plan, project_inputs
+    plan = project_plan(project)
+    inputs = _input_groups or []
+    if plan and not _prepared:
+        values, tasks, inputs = project_inputs(plan, values, tasks)
+    return {"project_id": str(project.id), "groups": _match_groups(db, project.object_type_id, processes, values, tasks, plan=plan, input_groups=inputs),
+            'demo_plan': plan, 'demo_input_groups': inputs}
 
 
 def match_object(db: Session, object_code: str, site: dict | None, tasks: list | None = None) -> dict:
@@ -865,11 +871,47 @@ def _tasks_by_code(tasks: list | None) -> dict[str, dict]:
     return found
 
 
-def _candidate_payload(hit, row, facts, profile, values, task, catalog=None):
+def _candidate_payload(hit, row, facts, profile, values, task, catalog=None, *, demo=False, input_fields=()):
     catalog = catalog or resolve_catalog(row, facts, process_code=hit.process_code, process_name=hit.process_name, site=values)
     facts = catalog.facts
     profile, _ = checked(profile, product=False)
-    sizing = size_equipment(profile, facts, values, catalog.values, task)
+    sizing_values = dict(catalog.values)
+    for kind in ('loaded', 'empty'):
+        raw = (row.attrs or {}).get(f'speed_{kind}_ms') or {}
+        if raw.get('status') == 'known' and not raw.get('conflict') and raw.get('unit') == 'м/с':
+            sizing_values[f'speed_{kind}_limit_ms'] = raw.get('value')
+    sizing_task = dict(task or {})
+    mode_sources = {}
+    mode_errors = []
+    policy = profile.get('sizing') or {}
+    if policy.get('speed_basis') == 'working_mode':
+        for kind in ('loaded', 'empty'):
+            key, mode_key = f'speed_{kind}_ms', f'working_speed_{kind}_ms'
+            working = _number(catalog.values.get(mode_key))
+            if working is not None:
+                limits = [_number(sizing_values.get(f'speed_{kind}_limit_ms')), _number(catalog.values.get('max_speed_ms'))]
+                if any(limit is not None and working > limit for limit in limits):
+                    mode_errors.append(reason('working_speed_exceeds_limit', 'Рабочая скорость превышает опубликованный предел', field=mode_key, stage='sizing'))
+                sizing_values[key] = working
+                mode_sources[key] = {**catalog.provenance.get(mode_key, {}), 'parameter': mode_key}
+    if policy.get('rate_basis') == 'robot_mode' and catalog.values.get('effective_cleaning_rate_m2_h') is not None:
+        sizing_task['effective_cleaning_rate_m2_h'] = catalog.values['effective_cleaning_rate_m2_h']
+    sizing = size_equipment(profile, facts, values, sizing_values, sizing_task)
+    if mode_errors:
+        from app.domain.sizing import SizingResult
+        sizing = SizingResult(None, tuple(mode_errors), sizing.model)
+    if demo and (task or {}).get('__demo_input_conflict'):
+        from app.domain.sizing import SizingResult
+        sizing = SizingResult(None, (reason('task_allocation_conflict', 'Для нескольких задач одного процесса необходимо распределить нагрузку и исходный штат', stage='sizing'),), sizing.model)
+    input_provenance = {}
+    synthetic_inputs = {entry['key']: entry for entry in input_fields}
+    for key, value in sizing.details.get('inputs', {}).items():
+        source = mode_sources.get(key) or catalog.provenance.get(key) or synthetic_inputs.get(key) or {'origin': 'project_input', 'scope': hit.process_code}
+        input_provenance[key] = {**source, 'value': value}
+        if source.get('value') is not None and source['value'] != value:
+            input_provenance[key]['base_value'] = source['value']
+            input_provenance[key]['transformation'] = 'load_factor'
+
     count = sizing.count
     sizing_reasons = [*sizing.reasons, *(r for r in catalog.reasons if r.stage == 'sizing')]
     economic_reasons = [r.as_dict() for r in sizing_reasons]
@@ -889,18 +931,24 @@ def _candidate_payload(hit, row, facts, profile, values, task, catalog=None):
         'verdict': hit.verdict, 'notes': list(hit.notes),
         'reasons': [r.as_dict() for r in hit.reasons],
         'technical_ready': hit.verdict == 'pass',
-        'sizing_ready': count is not None, 'economic_ready': hit.verdict == 'pass' and count is not None and not economic_reasons,
+        'sizing_ready': count is not None,
+        'economic_ready': not demo and not catalog.demo_synthetic and hit.verdict == 'pass' and count is not None and not economic_reasons,
+        'demo_economic_ready': demo and hit.verdict == 'pass' and count is not None and not economic_reasons,
+        'calculation_mode': 'demo' if demo else 'ordinary',
         'economic_reasons': economic_reasons,
         'image_url': hit.image_url, 'trl': hit.trl, 'stage': hit.stage,
         'count': count, 'count_note': '; '.join(r.message for r in sizing_reasons),
-        'sizing': {'model': sizing.model, 'reasons': [r.as_dict() for r in sizing_reasons]},
+        'sizing': {'model': sizing.model, 'reasons': [r.as_dict() for r in sizing_reasons], **sizing.details, 'origin': 'calculated', 'uses_demo_synthetic': demo, 'input_provenance': input_provenance},
         'specs': _compare_specs(catalog.values),
-        'data_basis': 'published_catalog_v1', 'provenance': catalog.provenance,
+        'data_basis': 'catalog_with_demo_synthetic_v1' if catalog.demo_synthetic else 'published_catalog_v1', 'provenance': catalog.provenance,
         'resolved_facts': facts,
+        'uses_demo_synthetic': bool(catalog.demo_synthetic),
+        'demo_synthetic': catalog.demo_synthetic,
+        'vendor_confirmation_fields': [item['key'] for item in catalog.demo_synthetic],
     }
 
 
-def _match_groups(db: Session, object_type_id: int, processes: list, values: dict, tasks: list | None = None) -> list:
+def _match_groups(db: Session, object_type_id: int, processes: list, values: dict, tasks: list | None = None, *, plan=None, input_groups=()) -> list:
     readiness = readiness_filter(db)
     facts_map, profiles = metadata_maps(db)
     sources = _assessment_sources(db)
@@ -908,24 +956,31 @@ def _match_groups(db: Session, object_type_id: int, processes: list, values: dic
     groups = []
     for process in processes:
         profile = profiles.get(process.id, {})
+        demo_process = (plan or {}).get('processes', {}).get(process.code)
+        if demo_process and not profile.get('sizing'):
+            profile = {**profile, 'sizing': demo_process['sizing']}
         bindings = {row.input_key: row.site_key for row in db.scalars(select(ObjectInputBindingRow).where(
             ObjectInputBindingRow.object_type_id == object_type_id, ObjectInputBindingRow.process_id == process.id))}
         rules = tuple(FilterRule(item.name, tuple(item.object_keys or []), tuple(item.robot_keys or []), item.op, item.mode,
                                  tuple((r.get('key', ''), r.get('label', '')) for r in (item.inputs or []) if isinstance(r, dict)), item.formula or '')
                       for item in db.scalars(select(ProcessFilterRow).where(ProcessFilterRow.process_id == process.id).order_by(ProcessFilterRow.id)))
         rows = products_for_process(db, process.id)
-        catalogs = {str(row.id): resolve_catalog(row, facts_map.get(str(row.id)), process_code=process.code, process_name=process.name, sources=sources, site=values) for row in rows}
+        catalogs = {str(row.id): resolve_catalog(row, facts_map.get(str(row.id)), process_code=process.code, process_name=process.name, sources=sources, site=values, allow_demo=bool(plan)) for row in rows}
         robots = tuple(_robot_view(row, catalog=catalogs[str(row.id)]) for row in rows)
         hits = match_robots(process_code=process.code, process_name=process.name, site=values, rules=rules,
                             robots=robots, bindings=bindings, readiness=readiness, profile=profile)
         by_id = {str(row.id): row for row in rows}
-        payloads = [_candidate_payload(hit, by_id[hit.product_id], facts_map.get(hit.product_id, {}), profile, values, by_task.get(process.code), catalogs[hit.product_id]) for hit in hits]
+        payloads = [_candidate_payload(hit, by_id[hit.product_id], facts_map.get(hit.product_id, {}), profile, values, by_task.get(process.code), catalogs[hit.product_id], demo=bool(demo_process), input_fields=[entry for group in input_groups if group['process_code'] in ('', process.code) for entry in group['fields']]) for hit in hits]
         eligible = {h['product_id'] for h in payloads if economy_eligible(h)}
         counted = [(hit, next(h['count'] for h in payloads if h['product_id'] == hit.product_id), '') for hit in hits if hit.product_id in eligible]
         attributes = {key: catalog.values for key, catalog in catalogs.items()}
         best = _best(counted, attributes, process.rank_key or '', process.rank_order or 'asc')
         technical_best = _best([(h, None, '') for h in hits], attributes, process.rank_key or '', process.rank_order or 'asc', technical=True)
+        demo_counted = [(hit, next(h['count'] for h in payloads if h['product_id'] == hit.product_id), '') for hit in hits
+                        if next(h['demo_economic_ready'] for h in payloads if h['product_id'] == hit.product_id)]
+        demo_best = _best(demo_counted, attributes, process.rank_key or '', process.rank_order or 'asc')
         groups.append({'process_code': process.code, 'process_name': process.name, 'best_product_id': best,
+                       'demo_best_product_id': demo_best, 'calculation_mode': 'demo' if demo_process else 'ordinary',
                        'technical_best_product_id': technical_best,
                        'selection_policy': 'confirmed_economic_ready_v1',
                        'layout_items': process.layout_items or default_items(process.code), 'hits': payloads})
@@ -1140,10 +1195,29 @@ def project_economy(
     site = _public_site(site if site is not None else stored_site)
     use_tasks = tasks if tasks is not None else stored_tasks
     overrides = dict(preview) if preview is not None else dict(project.economy_overrides or {})
+    active_overrides = dict(overrides)
     standard = economy_standards(db)
     load = overrides.get("load_factor", standard.get("load_factor", NORM_BY_KEY["load_factor"].value))
-    matched = run_match(db, project_id, scale_load(site, float(load)), scale_task_flows(use_tasks, float(load)))
-    return _economy_report(db, matched, site, choices, use_tasks, overrides, dict(project.economy_overrides or {}), picks)
+    from app.domain.demo_synthetic import project_plan, project_inputs
+    plan = project_plan(project)
+    input_groups = []
+    if plan:
+        site, use_tasks, input_groups = project_inputs(plan, site, use_tasks)
+        defaults = {k: v['value'] for k, v in plan['finance'].items()}
+        if site.get('energy_tariff_rub_kwh') is not None:
+            defaults.pop('energy_tariff', None)
+        defaults.update({f'process:{code}:{k}': v['value'] for code, process in plan['processes'].items() for k, v in process['finance'].items()})
+        # Явный глобальный What-if должен менять и процесс, если нет его явного override.
+        for code, process in plan['processes'].items():
+            for key in process['finance']:
+                if key in overrides:
+                    defaults[f'process:{code}:{key}'] = overrides[key]
+        overrides = {**defaults, **overrides}
+    matched = run_match(db, project_id, scale_load(site, float(load)), scale_task_flows(use_tasks, float(load)), _prepared=True, _input_groups=input_groups)
+    matched['demo_input_groups'] = input_groups
+    report = _economy_report(db, matched, site, choices, use_tasks, overrides, dict(project.economy_overrides or {}), picks)
+    report['active_overrides'] = active_overrides
+    return report
 
 
 def preview_economy(
@@ -1176,11 +1250,28 @@ def _economy_report(
 ) -> dict:
     picked = []
     blockers = []
+    plan = matched.get('demo_plan')
+    automated = set(plan['processes']) if plan else None
+    manual = []
+    if plan and not automated:
+        blockers.append({'code': 'demo_scope_undefined', 'message': 'Нет процесса с достаточными техническими данными и моделью количества. Требуются обследование рабочих зон и эксплуатационное исполнение.'})
+        for group in matched['groups']:
+            relevant = [h for h in group['hits'] if h.get('uses_demo_synthetic')]
+            for hit in relevant:
+                blockers.extend({'process_code': group['process_code'], 'code': r['code'], 'message': hit['name'] + ': ' + r['message']} for r in hit['reasons'])
     known_codes = {g['process_code'] for g in matched['groups']}
     for code in set(picks if picks is not None else (choices or {})) - known_codes:
         blockers.append({'process_code': code, 'code': 'selection_invalid', 'message': 'Выбранный процесс отсутствует в текущем подборе'})
     for group in matched['groups']:
         code = group['process_code']
+        if automated is not None and code not in automated:
+            manual.append({'process_code': code, 'process_name': group['process_name'], 'mode': 'manual', 'cost_rub': None})
+            if code in (picks or {}) or code in (choices or {}):
+                blockers.append({'process_code': code, 'code': 'selection_invalid', 'message': 'Процесс находится вне области демонстрационной программы'})
+            continue
+        if plan:
+            group = {**group, 'best_product_id': group.get('demo_best_product_id'),
+                     'hits': [{**h, 'economic_ready': h.get('demo_economic_ready', False)} for h in group['hits']]}
         if picks is not None and code not in picks:
             blockers.append({'process_code': code, 'code': 'process_not_selected', 'message': 'Процесс не включён в расчёт проекта'})
             continue
@@ -1210,19 +1301,58 @@ def _economy_report(
             "power_w": _number(values.get("power_watt")) if values.get("power_watt") is not None else None,
             "raas_available": raas,
             "solution_type": product_types.get(hit["product_id"], ""),
+            "sizing": hit.get('sizing'),
+            "uses_demo_synthetic": bool(plan),
+            "operating_hours_per_day": (hit.get('sizing') or {}).get('operating_hours_per_day'),
         })
+    blockers = list({(b.get('process_code'), b['code'], b['message']): b for b in blockers}.values())
     meta = economy_meta(db)
     by_type, type_names = economy_type_norms(db)
     standard = economy_standards(db)
     standard, type_meta = blend_by_type(standard, rows, by_type, type_names, meta)
     meta.update(type_meta)
+    if plan:
+        for key, entry in plan['finance'].items():
+            if key in overrides:
+                meta[key] = {**meta.get(key, {}), 'origin': 'demo_synthetic', 'rationale': entry['explanation']}
     report = calculate(rows, site, standard=standard, overrides=overrides, tasks=tasks, meta=meta, blockers=blockers)
+    report['manual_processes'] = manual
+    if plan and report['complete']:
+        report['status'] = 'demo_estimate'
+    if plan:
+        report['disclaimer'] += ' Демонстрационная программа роботизации внутри объекта. Полные затраты предприятия неизвестны: ручные процессы вне программы сохраняются и не включаются в её экономию.'
+        for figure in _financial_figures(report):
+            figure['origin'] = 'calculated'
+            figure['uses_demo_synthetic'] = True
+    for item, row in zip(report['fleet'], rows):
+        item['sizing'] = row.get('sizing')
+        item['uses_demo_synthetic'] = bool(plan)
     report["coverage"] = {"requested_processes": len(matched["groups"]), "included_processes": len(picked)}
-    report["selection_policy"] = "confirmed_economic_ready_v1"
+    report["selection_policy"] = "demo_economic_ready_v1" if plan else "confirmed_economic_ready_v1"
     report["selection_mode"] = "automatic" if picks is None else "explicit"
-    report["scope"] = "project"
+    report["scope"] = "automation_program" if plan else "project"
     report["project_id"] = matched["project_id"]
     report["saved_overrides"] = saved
+    report['effective_overrides'] = overrides
+    selected = {(group['process_code'], hit['product_id']) for group, hit in picked}
+    synthetic = [
+        {'process_code': group['process_code'], 'process_name': group['process_name'],
+         'product_id': hit['product_id'], 'name': hit['name'], 'fields': hit['demo_synthetic'],
+         'included_in_economy': (group['process_code'], hit['product_id']) in selected}
+        for group in matched['groups'] for hit in group['hits'] if hit.get('demo_synthetic')
+    ]
+    if plan:
+        synthetic.extend({**group, 'included_in_economy': bool(picked) if not group['process_code'] else group['process_code'] in {g['process_code'] for g, h in picked}} for group in matched.get('demo_input_groups', []))
+        for code, process in {'': {'name': 'Финансовые допущения программы', 'finance': plan['finance']}, **plan['processes']}.items():
+            synthetic.append({'process_code': code, 'process_name': process['name'], 'product_id': '', 'name': 'Финансовые коэффициенты',
+                              'included_in_economy': bool(picked), 'fields': [{'key': k, 'label': NORM_BY_KEY[k].label, **v,
+                              'value': overrides.get(f'process:{code}:{k}' if code else k, v['value']),
+                              'category': 'finance', 'vendor_confirmed': False, 'requires_vendor_confirmation': False} for k, v in process['finance'].items() if code or k in overrides]})
+    report['demo_synthetic'] = synthetic
+    report['uses_demo_synthetic'] = bool(synthetic)
+    if synthetic:
+        from app.domain.demo_synthetic import NOTICE
+        report['disclaimer'] += ' ' + NOTICE
     return report
 
 
@@ -1339,3 +1469,14 @@ def _values(row: ProductRow) -> dict:
     if row.trl is not None:
         values["trl"] = row.trl
     return values
+
+
+def _financial_figures(value):
+    if isinstance(value, dict):
+        if 'value' in value and 'tex' in value:
+            yield value
+        for item in value.values():
+            yield from _financial_figures(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _financial_figures(item)

@@ -10,7 +10,6 @@ import { skippedAlerts, usePlatformCompare, type MatchGroup, type MatchHit, type
 const route = useRoute()
 const id = computed(() => route.params.id as string)
 const live = useLiveProject(id)
-const project = live.shell
 const shell = live.shell
 const pending = live.pending
 const error = live.error
@@ -19,9 +18,8 @@ useHead({ title: () => `Сравнение · ${shell.value?.name ?? 'проек
 const groups = ref<MatchGroup[]>([])
 const loadingMatch = ref(true)
 const matchError = ref('')
-const { includedHits, chosenId, remainingHit, skipReason, choose } = usePlatformCompare(id)
+const { includedHits, chosenId, skipReason, choose, isConfirmed, storageError } = usePlatformCompare(id)
 
-const canEdit = computed(() => Boolean(project.value))
 const readyGroups = computed(() => groups.value.filter((group) => includedHits(group).length > 0))
 const skipped = computed(() => groups.value.flatMap((group) => {
   const reason = skipReason(group)
@@ -39,14 +37,12 @@ const nextGroup = computed(() => {
   return index >= 0 ? readyGroups.value[index + 1] : undefined
 })
 const pool = computed(() => (activeGroup.value ? includedHits(activeGroup.value) : []))
+const hasSelectable = computed(() => pool.value.some(eligibleForEconomy))
 const chosen = computed(() => pool.value.find((hit) => hit.product_id === (activeGroup.value ? chosenId(activeGroup.value) : '')) ?? null)
-/* Колонки таблицы: выбранный робот всегда первым, он закреплён слева, остальные прокручиваются. */
-const columns = computed(() => {
-  const picked = chosen.value
-  return picked ? [picked, ...pool.value.filter((hit) => hit.product_id !== picked.product_id)] : pool.value
-})
+// Порядок колонок не меняется при выборе: кнопка и карточка остаются на месте.
+const columns = computed(() => pool.value)
 const optimal = computed(() => {
-  const best = activeGroup.value?.best_product_id
+  const best = activeGroup.value?.calculation_mode === 'demo' ? activeGroup.value.demo_best_product_id : activeGroup.value?.best_product_id
   if (!best) return null
   return activeGroup.value?.hits.find((hit) => hit.product_id === best) ?? null
 })
@@ -55,12 +51,8 @@ const substages = computed(() => readyGroups.value.map((group) => ({
   label: group.process_name,
   to: `/projects/${id.value}/compare?process=${group.process_code}`,
 })))
-const lineup = computed(() => readyGroups.value.map((group) => ({
-  code: group.process_code,
-  name: group.process_name,
-  robot: remainingHit(group),
-  open: group.hits.length > 0,
-})))
+const selectionMessage = ref('')
+watch(activeCode, () => { selectionMessage.value = '' })
 
 const isImmature = (hit: MatchHit) => hit.notes.some((note) => note.startsWith('Готовность:'))
 const specsOf = (hit: MatchHit | null) => {
@@ -96,7 +88,13 @@ const rows = computed(() => {
 const take = (hit: MatchHit) => {
   if (!activeGroup.value || !eligibleForEconomy(hit)) return
   choose(activeGroup.value.process_code, hit.product_id)
+  selectionMessage.value = `Выбран ${hit.name}. Экономика этого процесса будет рассчитана для него.`
 }
+
+const clarificationReasons = (hit: MatchHit) => [...new Set((hit.reasons ?? [])
+  .filter((reason) => reason.severity !== 'info')
+  .map((reason) => reason.message)
+  .filter((message) => !hit.notes.includes(message)))]
 
 const forwardLabel = computed(() => {
   if (loadingMatch.value) return 'Считаем…'
@@ -146,11 +144,12 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, 
     title="Сравнение роботов"
     :alerts="stepAlerts"
     :subtitle="activeGroup ? `по процессу «${activeGroup.process_name}»` : undefined"
-    lead="На этом шаге вы можете сравнить подобранные решения и выбрать одно для расчёта экономики. По умолчанию выбран оптимальный робот — его рекомендует платформа."
+    lead="Сравните технические характеристики и выберите робота для экономики. Решения с недостающими данными можно оставить в сравнении; для расчёта нужны применимость, количество и цена."
   >
-    <UiCallout v-if="skipped.length" tone="warn" title="Часть решений нельзя включить в расчёт">
-      <ul><li v-for="item in skipped" :key="item.code">{{ item.name }}: {{ item.reason }}</li></ul>
-    </UiCallout>
+    <details v-if="skipped.length && !loadingMatch" class="process-warning">
+      <summary>Процессов без выбора для экономики: <strong>{{ skipped.length }}</strong><span class="warning-more">Причины</span></summary>
+      <ul><li v-for="item in skipped" :key="item.code"><strong>{{ item.name }}:</strong> {{ item.reason }}</li></ul>
+    </details>
     <template #actions>
       <UiButton v-if="shell" size="lg" :disabled="loadingMatch" @click="goForward">
         {{ forwardLabel }}<template v-if="!loadingMatch" #after><PhArrowRight :size="18" weight="bold" /></template>
@@ -170,6 +169,8 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, 
     <UiCallout v-else-if="matchError" tone="danger" title="Сравнение не открылось">{{ matchError }}</UiCallout>
     <section v-else-if="!activeGroup" class="empty glass">
       <div class="h3">Процессов для сравнения нет</div>
+      <p class="body muted">Роботов с недостающими данными тоже можно сравнивать. Добавьте их на странице подбора.</p>
+      <UiButton :to="`/projects/${shell.id}/match`" size="sm" variant="secondary">К подбору</UiButton>
     </section>
     <section v-else-if="!pool.length" class="empty glass">
       <div class="h3">В сравнение никто не попал</div>
@@ -179,6 +180,12 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, 
 
 
     <template v-if="!loadingMatch && !pending && !matchError && activeGroup && pool.length">
+      <div class="selection-summary" :class="{ unselected: !chosen }" role="status" aria-live="polite" aria-atomic="true">
+        <template v-if="selectionMessage"><PhCheckCircle :size="20" weight="fill" /><span>{{ selectionMessage }}</span></template>
+        <template v-else-if="chosen"><PhCheckCircle :size="20" weight="fill" /><span>{{ isConfirmed(activeGroup.process_code) ? 'Ваш выбор для экономики' : 'Выбор платформы для экономики' }}: <strong>{{ chosen.name }}</strong></span></template>
+        <span v-else>Робот для экономики этого процесса пока не выбран. Техническое сравнение доступно.</span>
+      </div>
+      <p v-if="storageError" class="storage-warning" role="alert">{{ storageError }}</p>
       <div class="table-wrap glass">
         <table class="cmp" :class="{ multi: columns.length > 1 }" :style="{ '--cols': columns.length }" :aria-label="`Сравнение роботов по процессу «${activeGroup.process_name}»`">
           <colgroup>
@@ -191,31 +198,40 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, 
               <th class="label-col corner" scope="col">
                 <span class="pool-n">{{ pool.length }}</span>
                 <span class="caption">{{ pool.length === 1 ? 'робот в сравнении' : pool.length < 5 ? 'робота в сравнении' : 'роботов в сравнении' }}</span>
-                <span class="caption hint">Нажмите «Выбрать», чтобы взять робота в расчёт экономики.</span>
+                <span class="caption hint">{{ hasSelectable ? 'Нажмите «Выбрать», чтобы взять робота в расчёт экономики.' : 'Доступно техническое сравнение. Причины ограничений — в подробностях робота.' }}</span>
               </th>
               <th v-for="hit in columns" :key="`h-${hit.product_id}`" class="head" :class="{ sel: hit.product_id === chosen?.product_id }" scope="col">
                 <div class="head-in">
                   <div class="tags">
+                    <span v-if="hit.product_id === chosen?.product_id" class="tag selected"><PhCheckCircle :size="12" weight="fill" /> Выбран</span>
                     <span v-if="hit.product_id === optimal?.product_id" class="tag opt"><PhStar :size="12" weight="fill" /> Оптимальный</span>
-                    <UiBadge :tone="verdictTone[hit.verdict] || 'neutral'" size="sm">{{ verdictLabel[hit.verdict] || hit.verdict }}</UiBadge>
+                    <UiBadge :tone="verdictTone[hit.verdict] || 'neutral'" size="sm">{{ hit.uses_demo_synthetic && hit.verdict === 'pass' ? 'Подходит при демодопущениях' : verdictLabel[hit.verdict] || hit.verdict }}</UiBadge>
                   </div>
                   <span class="photo"><img :src="photoFor(hit.image_url, hit.name, activeGroup.process_code)" :alt="hit.name"></span>
                   <NuxtLink :to="`/catalog/card/${hit.slug}`" target="_blank" rel="noopener" class="name" :title="`${hit.name}: карточка робота в новой вкладке`">{{ hit.name }}</NuxtLink>
                   <div class="ready"><RobotReadiness :trl="hit.trl" :stage="hit.stage" :flagged="isImmature(hit)" /></div>
-                  <AssessmentStatus :hit="hit" />
+                  <div class="calculation-status caption">
+                    <p>Количество: {{ hit.sizing_ready && hit.count != null ? `${hit.count.toLocaleString('ru-RU')} шт.` : 'не определено' }}</p>
+                    <p>Экономика: {{ eligibleForEconomy(hit) ? (hit.demo_economic_ready ? 'демонстрационный расчёт' : 'доступна к расчёту') : 'недоступна — см. причины ниже' }}</p>
+                    <p v-if="hit.uses_demo_synthetic">Используются демодопущения</p>
+                  </div>
                   <button
+                    v-if="eligibleForEconomy(hit)"
                     type="button"
                     class="take"
                     :class="{ on: hit.product_id === chosen?.product_id }"
                     :aria-pressed="hit.product_id === chosen?.product_id"
-                    :disabled="!eligibleForEconomy(hit)"
-                    :title="hit.economic_reasons?.map((item) => item.message).join('; ')"
                     @click="take(hit)"
                   >
                     <template v-if="hit.product_id === chosen?.product_id"><PhCheckCircle :size="18" weight="fill" /> Выбран для расчёта</template>
                     <template v-else>Выбрать этого робота</template>
                   </button>
-                  <p v-if="!eligibleForEconomy(hit)" class="caption">{{ hit.economic_reasons?.map((item) => item.message).join('; ') || 'Не допущен к экономическому расчёту' }}</p>
+                  <p v-else class="unavailable caption">{{ hit.verdict === 'unknown' ? 'Недостаточно данных для расчёта. Робот остаётся в сравнении.' : hit.verdict === 'fail' ? 'Технически несовместим. В экономику не включается.' : 'В экономику пока не включается. Причины — в подробностях.' }}</p>
+                  <details class="assessment-details">
+                    <summary>{{ hit.verdict === 'unknown' || !eligibleForEconomy(hit) && hit.verdict !== 'fail' ? 'Что нужно уточнить' : 'Подробности оценки' }}</summary>
+                    <AssessmentStatus :hit="hit" />
+                    <ul v-if="clarificationReasons(hit).length" class="caption"><li v-for="reason in clarificationReasons(hit)" :key="reason">{{ reason }}</li></ul>
+                  </details>
                 </div>
               </th>
               <th class="fill" aria-hidden="true" />
@@ -252,8 +268,21 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, 
 .waiting, .empty { padding: var(--space-10); display: grid; gap: 8px; justify-items: center; text-align: center; }
 .waiting > *, .empty > * { position: relative; z-index: 1; }
 
-/* Таблица сравнения: колонка на робота, строка на характеристику.
-   Подписи и выбранный робот закреплены слева (sticky в настоящей таблице), остальные роботы прокручиваются. */
+.process-warning { padding: 12px 16px; border: 1px solid #eadbb5; border-radius: 12px; background: #fffcf4; font-size: 14px; }
+.process-warning summary { cursor: pointer; }
+.warning-more { margin-left: 12px; color: var(--ink-muted); text-decoration: underline; }
+.process-warning ul, .assessment-details ul { margin: 12px 0 0; padding-left: 20px; display: grid; gap: 8px; }
+.selection-summary { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-radius: 12px; background: var(--surface-brand-tint); color: var(--brand-700); }
+.selection-summary svg { flex: none; }
+.selection-summary.unselected { background: #f3f5f4; color: var(--ink-muted); }
+.storage-warning { margin: 0; color: var(--state-warn); font-size: 14px; }
+.calculation-status { display: grid; gap: 6px; }
+.calculation-status p, .unavailable { margin: 0; }
+.unavailable { padding: 10px; border-radius: 10px; background: var(--surface-raised, #f3f5f4); color: var(--ink-muted); }
+.assessment-details { font-size: 14px; text-align: left; }
+.assessment-details summary { cursor: pointer; color: var(--link); font-weight: 600; }
+.assessment-details[open] summary { margin-bottom: 12px; }
+/* Подписи закреплены слева; порядок карточек при выборе сохраняется. */
 .table-wrap { min-width: 0; max-width: 100%; padding: 8px 0; overflow-x: auto; }
 /* Ширина колонки робота одна и та же при любом их числе. Таблица всегда во всю ширину:
    если роботов мало, справа пустая колонка продолжает строки; если много — таблица прокручивается. */
@@ -268,16 +297,16 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, 
 .corner > * { display: block; }
 .pool-n { font-family: var(--font-display); font-size: 40px; line-height: 1; color: var(--ink-strong); }
 .hint { margin-top: 10px; color: var(--ink-faint); font-weight: 500; }
-.sel { position: sticky; left: var(--label-w); z-index: 2; background: #f1faf6; box-shadow: inset 1.5px 0 0 var(--brand-400), inset -1.5px 0 0 var(--brand-400); }
-.multi .sel::after { content: ''; position: absolute; top: 0; bottom: 0; right: -12px; width: 12px; background: linear-gradient(90deg, rgba(15, 20, 19, 0.07), transparent); pointer-events: none; }
+.sel { background: #f1faf6; box-shadow: inset 1.5px 0 0 var(--brand-400), inset -1.5px 0 0 var(--brand-400); }
 th.head.sel { border-radius: 16px 16px 0 0; box-shadow: inset 1.5px 0 0 var(--brand-400), inset -1.5px 0 0 var(--brand-400), inset 0 1.5px 0 var(--brand-400); }
 .cmp tbody tr:last-child .sel { border-radius: 0 0 16px 16px; box-shadow: inset 1.5px 0 0 var(--brand-400), inset -1.5px 0 0 var(--brand-400), inset 0 -1.5px 0 var(--brand-400); }
 .cmp .head { vertical-align: top; padding-top: 16px; padding-bottom: 16px; }
 /* Шапка робота: у каждой строки своя высота, поэтому кнопки всех роботов стоят на одной линии. */
-.head-in { display: grid; grid-template-rows: 22px 170px 2.6em 24px auto; gap: 10px; }
-.tags { display: flex; flex-wrap: wrap; gap: 6px; overflow: hidden; }
+.head-in { display: grid; grid-template-rows: auto 170px 2.6em 24px auto; gap: 10px; }
+.tags { min-height: 44px; display: flex; align-content: start; flex-wrap: wrap; gap: 6px; }
 .tag { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
 .tag.opt { background: var(--brand-500); color: #fff; }
+.tag.selected { background: var(--surface-brand-tint); color: var(--brand-700); }
 /* Фото целиком, без обрезки: у высоких роботов иначе остаётся одна стойка. */
 .photo { display: block; border-radius: 14px; overflow: hidden; background: #eef2f0; box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); }
 .photo img { width: 100%; height: 100%; object-fit: contain; display: block; }
@@ -286,6 +315,7 @@ th.head.sel { border-radius: 16px 16px 0 0; box-shadow: inset 1.5px 0 0 var(--br
 .ready { overflow: hidden; }
 .take { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 42px; padding: 0 14px; border-radius: 12px; font-size: 14px; font-weight: 700; color: var(--brand-700); background: #fff; box-shadow: inset 0 0 0 1.5px var(--brand-400); transition: background var(--dur-fast) var(--ease); }
 .take:hover { background: var(--surface-brand-tint); }
+.take:focus-visible, summary:focus-visible { outline: 3px solid var(--brand-400); outline-offset: 3px; }
 .take.on { color: #fff; background: var(--brand-600); box-shadow: none; cursor: default; }
 .val { font-family: var(--font-mono); font-size: 14px; color: var(--ink-strong); }
 .val > span { vertical-align: middle; }

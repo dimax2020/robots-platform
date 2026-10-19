@@ -103,6 +103,22 @@ def get_product(db: Session, slug: str) -> dict | None:
     card["summary"] = row.summary
     card["raw_catalog"] = row.raw_catalog
     card["attrs"] = attrs
+    from app.domain.catalog_assessment import resolve_catalog
+    from app.domain.demo_synthetic import supplements, enabled
+    # Дополнения показываются отдельно: оригинальные attrs остаются пригодны
+    # для будущего уточнения у вендора и не получают фиктивного status=known.
+    card['demo_synthetic'] = []
+    if enabled() and str(row.id) in supplements():
+        from app.infrastructure.db.models import ProductAssessmentRow
+        policy = db.get(ProductAssessmentRow, row.id)
+        process = db.scalar(select(ProcessRow).join(ProductProcessRow, ProductProcessRow.process_id == ProcessRow.id)
+                            .where(ProductProcessRow.product_id == row.id).order_by(ProcessRow.id).limit(1))
+        catalog = resolve_catalog(row, policy.data if policy else None,
+                                  process_code=process.code if process else '', process_name=process.name if process else '',
+                                  sources={key: {'kind': source.kind, 'publisher': source.publisher, 'url': source.url} for key, source in sources.items()}, allow_demo=True)
+        card['demo_synthetic'] = catalog.demo_synthetic
+    card['uses_demo_synthetic'] = bool(card['demo_synthetic'])
+    card['vendor_confirmation_fields'] = [item['key'] for item in card['demo_synthetic']]
     return card
 
 

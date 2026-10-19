@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     session_secret: str = "platform-demo-session-secret"
     # Внешний префикс за Traefik. Пустой — если uvicorn открыт напрямую, без /platform.
     root_path: str = ""
+    demo_synthetic_enabled: bool = True
 
 
 @lru_cache

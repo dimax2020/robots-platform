@@ -8,7 +8,7 @@ import type { EditorMode, EditorTool, PlanSelection } from '~/components/PlanEdi
 import { fetchErrorMessage } from '~/utils/errors'
 import { platformGet, platformSend, usePlatformBase } from '~/composables/usePlatform'
 import { skippedAlerts, usePlatformCompare, type MatchGroup } from '~/composables/usePlatformCompare'
-import { PRELIMINARY, usePlatformEconomy } from '~/composables/usePlatformEconomy'
+import { usePlatformEconomy } from '~/composables/usePlatformEconomy'
 import { Simulation } from '~/sim/engine'
 import { floorBounds } from '~/sim/grid'
 import { autoCount, buildProcess, clearProcess, emptyLayout, fitFloorToOutline, newFloor, normalizeLayout, placedCount, placeProcess, placeShell, processReady, rectOutline, ROLE_KIND, uid } from '~/sim/templates'
@@ -17,7 +17,7 @@ import type { WorkerResponse } from '~/sim/worker'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
-const { project, isDemo, readonly, source, pending, error } = usePlatformEconomy(id)
+const { project, isDemo, readonly, source, pending, error, report: economicReport, load: loadEconomy } = usePlatformEconomy(id)
 const { remainingHit, skipReason } = usePlatformCompare(id)
 useHead({ title: () => `Визуализация · ${project.value?.name ?? 'проект'}` })
 
@@ -108,7 +108,8 @@ const skipped = computed(() => groups.value.flatMap((group) => {
 }))
 const processes = computed<SimProcess[]>(() => groups.value.filter((group) => !skipReason(group)).map((group) => {
   const hit = remainingHit(group)
-  const robot = hit ? { name: hit.name, count: hit.count ?? null, specs: hit.specs ?? [] } : null
+  const calculated = economicReport.value?.fleet.find(row => row.process_code === group.process_code && row.product_id === hit?.product_id && row.included)
+  const robot = hit ? { name: hit.name, count: economicReport.value ? calculated?.count_used ?? null : hit.count ?? null, specs: hit.specs ?? [] } : null
   return buildProcess(group.process_code, group.process_name, robot, site.value, group.layout_items ?? [])
 }))
 const byCode = computed(() => Object.fromEntries(processes.value.map((proc) => [proc.code, proc])))
@@ -352,12 +353,13 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); pause(); w
 /* Загрузка и сохранение. */
 const loadAll = async () => {
   if (import.meta.server || !source.value) return
+  void loadEconomy()
   loading.value = true
   loadError.value = ''
   try {
     platformId.value = id.value
     const [match, stored] = await Promise.all([
-      platformSend<{ groups: GroupWithItems[] }>(`/projects/${platformId.value}/match`, 'POST', { site: source.value.site }),
+      platformSend<{ groups: GroupWithItems[] }>(`/projects/${platformId.value}/match`, 'POST', { site: source.value.site, tasks: source.value.tasks }),
       platformGet<{ layout: Partial<Layout> }>(`/projects/${platformId.value}/layout`),
     ])
     groups.value = match.groups
@@ -771,7 +773,12 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
       <UiButton :to="`/projects/${project.id}/report`" size="lg">К отчёту<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
     </template>
 
-    <UiCallout tone="warn" title="Предварительная оценка">{{ PRELIMINARY }} Модель упрощает движение: роботы не объезжают друг друга, станция обслуживает одного робота за раз, лифт — фиксированное время.</UiCallout>
+    <EconomicContext v-if="economicReport" :report="economicReport">
+      <p>Модель движения упрощена: роботы не объезжают друг друга, станция обслуживает одного робота за раз, лифт — фиксированное время.</p>
+    </EconomicContext>
+    <AssessmentNotice v-else>
+      <p>Модель движения упрощена: роботы не объезжают друг друга, станция обслуживает одного робота за раз, лифт — фиксированное время.</p>
+    </AssessmentNotice>
 
     <section v-if="(pending || loading) && !layout" class="waiting glass"><div class="h3">Собираем схему</div></section>
     <UiCallout v-else-if="loadError || error" tone="danger" title="Схема не открылась">{{ loadError || fetchErrorMessage(error, 'Сервер не ответил.') }}</UiCallout>

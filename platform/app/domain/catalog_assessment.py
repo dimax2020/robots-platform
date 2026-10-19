@@ -40,9 +40,10 @@ class CatalogAssessment:
     issues: dict = field(default_factory=dict)
     reasons: list = field(default_factory=list)
     site_conditions: dict = field(default_factory=dict)
+    demo_synthetic: list = field(default_factory=list)
 
 
-def resolve_catalog(row, metadata=None, *, process_code='', process_name='', sources=None, site=None):
+def resolve_catalog(row, metadata=None, *, process_code='', process_name='', sources=None, site=None, allow_demo=False):
     """Одно представление для runtime и административного предпросмотра."""
     raw_attrs = {k: deepcopy(v) for k, v in (row.attrs or {}).items() if isinstance(v, dict)}
     labels = {k: str(v.get('label') or definitions().get(k, {}).get('label', k)) for k, v in raw_attrs.items()}
@@ -214,4 +215,7 @@ def resolve_catalog(row, metadata=None, *, process_code='', process_name='', sou
         site_conditions['towing_available'] = 'Необходима предусмотренная изготовителем схема перемещения комплекса с тягачом/оператором'
     if re.search(r'(?:требуется|необходим\w*|обязательн\w*)[^.;]{0,35}\bWMS\b', infrastructure, re.I):
         site_conditions['has_wms'] = 'Для применения решения требуется WMS'
-    return CatalogAssessment(facts, values, provenance, issues, errors, site_conditions)
+    catalog = CatalogAssessment(facts, values, provenance, issues, errors, site_conditions)
+    from app.domain.demo_synthetic import apply_supplements
+    catalog.demo_synthetic = apply_supplements(row, catalog, process_code=process_code) if allow_demo else []
+    return catalog

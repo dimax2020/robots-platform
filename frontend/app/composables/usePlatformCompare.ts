@@ -1,8 +1,12 @@
 import type { Ref } from 'vue'
+import type { DemoSyntheticValue } from '~/utils/demoSynthetic'
 import { eligibleForEconomy, includedInTechnicalComparison, automaticChoice, selectionIssue, normalizeCompareStore } from '~/utils/fleetSelection'
 
 export interface RobotSpec { key: string; label: string; unit: string; direction: 'high' | 'low'; value: number }
 export interface MatchHit {
+  uses_demo_synthetic?: boolean
+  demo_synthetic?: DemoSyntheticValue[]
+  vendor_confirmation_fields?: string[]
   product_id: string
   name: string
   slug: string
@@ -17,11 +21,13 @@ export interface MatchHit {
   technical_ready?: boolean
   sizing_ready?: boolean
   economic_ready?: boolean
+  demo_economic_ready?: boolean
+  calculation_mode?: string
   economic_reasons?: { code: string; message: string }[]
   specs?: RobotSpec[]
   sizing?: { model?: string | null; reasons: { code: string; message: string }[] }
 }
-export interface MatchGroup { process_code: string; process_name: string; best_product_id?: string | null; technical_best_product_id?: string | null; hits: MatchHit[] }
+export interface MatchGroup { process_code: string; process_name: string; best_product_id?: string | null; demo_best_product_id?: string | null; calculation_mode?: string; technical_best_product_id?: string | null; hits: MatchHit[] }
 
 interface CompareStore {
   extra: Record<string, string[]>
@@ -33,10 +39,17 @@ interface CompareStore {
 const emptyStore = (): CompareStore => ({ extra: {}, excluded: {}, chosen: {}, confirmed: {} })
 
 export function usePlatformCompare(projectId: Ref<string>) {
-  const store = ref<CompareStore>(emptyStore())
+  // Сравнение и экономика используют один выбор при переходах внутри приложения.
+  const stores = useState<Record<string, CompareStore>>('platform-compare', () => ({}))
+  const storageError = useState<string>('platform-compare-storage-error', () => '')
+  const store = computed({
+    get: () => stores.value[projectId.value] ?? emptyStore(),
+    set: (value: CompareStore) => { stores.value[projectId.value] = value },
+  })
 
   const read = () => {
     if (!import.meta.client || !projectId.value) return
+    if (stores.value[projectId.value]) return
     try {
       store.value = normalizeCompareStore(JSON.parse(localStorage.getItem(`platform-compare:${projectId.value}`) || '{}'))
     } catch {
@@ -45,11 +58,16 @@ export function usePlatformCompare(projectId: Ref<string>) {
   }
 
   read()
-  watch(projectId, read)
+  watch(projectId, read, { flush: 'sync' })
   watch(store, (value) => {
     if (!import.meta.client || !projectId.value) return
-    localStorage.setItem(`platform-compare:${projectId.value}`, JSON.stringify(value))
-  }, { deep: true })
+    try {
+      localStorage.setItem(`platform-compare:${projectId.value}`, JSON.stringify(value))
+      storageError.value = ''
+    } catch {
+      storageError.value = 'Браузер не разрешил сохранить выбор. Он действует в этой вкладке до перезагрузки страницы.'
+    }
+  }, { deep: true, flush: 'sync' })
 
   const listed = (bucket: Record<string, string[]>, process: string) => bucket[process] ?? []
 
@@ -121,7 +139,7 @@ export function usePlatformCompare(projectId: Ref<string>) {
 
   const choices = computed(() => ({ ...store.value.chosen }))
 
-  return { inCompare, toggleCompare, includedHits, chosenId, remainingHit, skipReason, picksFor, skippedOf, choose, isConfirmed, choices }
+  return { inCompare, toggleCompare, includedHits, chosenId, remainingHit, skipReason, picksFor, skippedOf, choose, isConfirmed, choices, storageError }
 }
 
 /** «!» у шага «Подбор» со списком процессов без робота: вместо плашки на странице. */
