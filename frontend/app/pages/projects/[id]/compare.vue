@@ -58,14 +58,26 @@ const optimal = computed(() => {
   if (!best) return null
   return activeGroup.value?.hits.find((hit) => hit.product_id === best) ?? null
 })
+const readonlyProject = computed(() => Boolean(shell.value?.readonly || shell.value?.isDemo))
 /* Процессы слева: у каждого — какой робот идёт в экономику. */
-const rail = computed(() => readyGroups.value.length ? {
+const railBase = computed(() => readyGroups.value.length ? {
   summary: { id: STEP_SUMMARY, label: 'Итог сравнения', to: `/projects/${id.value}/compare?process=${STEP_SUMMARY}`, meta: `выбрано ${groups.value.filter((group) => remainingHit(group)).length} из ${groups.value.length}` },
   items: readyGroups.value.map((group) => {
     const hit = remainingHit(group)
     return { id: group.process_code, label: group.process_name, to: `/projects/${id.value}/compare?process=${group.process_code}`, tone: hit ? 'ok' : 'warn', meta: hit ? hit.name : 'робот не выбран' }
   }),
 } : null)
+/* Первый проход по порядку: дальше следующего процесса и к итогу не прыгаем, пока не дошли. */
+watch([activeCode, railBase], () => {
+  const index = railBase.value?.items.findIndex((item) => item.id === activeCode.value) ?? -1
+  if (index >= 0) pass.reach(index)
+}, { immediate: true })
+const rail = computed(() => {
+  const base = railBase.value
+  if (!base) return null
+  const free = pass.done.value || readonlyProject.value
+  return { ...base, limit: free ? null : pass.reached.value + 1, summaryLocked: !free && pass.reached.value < base.items.length - 1 }
+})
 /* Итог сравнения: какой робот выбран на каждом процессе и кем — платформой или пользователем. */
 const robotsWord = (n: number) => n % 10 === 1 && n % 100 !== 11 ? 'робот' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'робота' : 'роботов'
 const summaryRows = computed<SummaryRow[]>(() => groups.value.map((group) => {

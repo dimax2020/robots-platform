@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhCaretDown, PhCaretLeft, PhCaretRight, PhCheckCircle, PhCircle, PhSquaresFour, PhWarningCircle } from '@phosphor-icons/vue'
+import { PhCaretDown, PhCaretLeft, PhCaretRight, PhCheckCircle, PhCircle, PhLockSimple, PhSquaresFour, PhWarningCircle } from '@phosphor-icons/vue'
 
 /**
  * Процессы шага: итог по объекту сверху и все процессы со статусом и коротким итогом этого шага.
@@ -7,7 +7,11 @@ import { PhCaretDown, PhCaretLeft, PhCaretRight, PhCheckCircle, PhCircle, PhSqua
  * Широкий экран — колонка слева. Узкий — компактная панель «← текущий процесс →», полный список по нажатию.
  */
 export interface RailItem { id: string; label: string; to: string; tone?: string; meta?: string }
-const props = defineProps<{ summary: RailItem; items: RailItem[]; current?: string }>()
+/* limit — до какого процесса можно перейти на первом проходе (дальше — замок); summaryLocked — итог ещё закрыт. */
+const props = defineProps<{ summary: RailItem; items: RailItem[]; current?: string; limit?: number | null; summaryLocked?: boolean }>()
+const isLocked = (item: RailItem) => item.id === props.summary.id
+  ? Boolean(props.summaryLocked)
+  : props.limit != null && props.items.findIndex((row) => row.id === item.id) > props.limit
 
 const index = computed(() => props.items.findIndex((item) => item.id === props.current))
 const progress = computed(() => index.value >= 0 ? `${index.value + 1} из ${props.items.length}` : `${props.items.length}`)
@@ -16,7 +20,10 @@ const order = computed(() => [props.summary, ...props.items])
 const position = computed(() => order.value.findIndex((item) => item.id === props.current))
 const currentItem = computed(() => order.value[position.value] ?? props.summary)
 const prev = computed(() => position.value > 0 ? order.value[position.value - 1] : null)
-const next = computed(() => position.value >= 0 && position.value < order.value.length - 1 ? order.value[position.value + 1] : null)
+const next = computed(() => {
+  const item = position.value >= 0 && position.value < order.value.length - 1 ? order.value[position.value + 1] : null
+  return item && !isLocked(item) ? item : null
+})
 const open = ref(false)
 
 /* Текущий процесс всегда виден: прокручиваем только сам список, страница остаётся на месте. */
@@ -61,13 +68,21 @@ const icon = (tone?: string) => tone === 'ok' ? PhCheckCircle : tone === 'warn' 
         <span class="label">Процессы</span>
         <span class="caption mono">{{ progress }}</span>
       </div>
-      <NuxtLink :to="summary.to" class="r-sum" :class="{ on: summary.id === current }" :aria-current="summary.id === current ? 'page' : undefined" @click="open = false">
+      <span v-if="isLocked(summary)" class="r-sum locked" title="Итог откроется, когда пройдёте все процессы">
+        <PhLockSimple :size="18" weight="bold" />
+        <span class="r-text"><span class="r-name">{{ summary.label }}</span><span class="r-meta">после всех процессов</span></span>
+      </span>
+      <NuxtLink v-else :to="summary.to" class="r-sum" :class="{ on: summary.id === current }" :aria-current="summary.id === current ? 'page' : undefined" @click="open = false">
         <PhSquaresFour :size="18" weight="bold" />
         <span class="r-text"><span class="r-name">{{ summary.label }}</span><span v-if="summary.meta" class="r-meta">{{ summary.meta }}</span></span>
       </NuxtLink>
       <ol class="r-list">
         <li v-for="item in items" :key="item.id">
-          <NuxtLink :to="item.to" class="r-item" :class="[item.tone, { on: item.id === current }]" :aria-current="item.id === current ? 'page' : undefined" :title="item.label" @click="open = false">
+          <span v-if="isLocked(item)" class="r-item locked" :title="`${item.label}: откроется по порядку`">
+            <PhLockSimple :size="16" weight="bold" class="r-ico" />
+            <span class="r-text"><span class="r-name">{{ item.label }}</span><span class="r-meta">по порядку</span></span>
+          </span>
+          <NuxtLink v-else :to="item.to" class="r-item" :class="[item.tone, { on: item.id === current }]" :aria-current="item.id === current ? 'page' : undefined" :title="item.label" @click="open = false">
             <component :is="icon(item.tone)" :size="16" :weight="item.tone === 'ok' || item.tone === 'warn' ? 'fill' : 'bold'" class="r-ico" />
             <span class="r-text"><span class="r-name">{{ item.label }}</span><span v-if="item.meta" class="r-meta">{{ item.meta }}</span></span>
           </NuxtLink>
@@ -89,6 +104,8 @@ const icon = (tone?: string) => tone === 'ok' ? PhCheckCircle : tone === 'warn' 
 .r-sum { background: rgba(15, 20, 19, 0.04); font-weight: 700; color: var(--ink-strong); margin-bottom: 4px; }
 .r-sum svg { color: var(--brand-600); margin-top: 1px; }
 .r-sum:hover, .r-item:hover { background: rgba(255, 255, 255, 0.85); }
+.r-sum.locked, .r-item.locked { cursor: not-allowed; color: var(--ink-faint); background: transparent; }
+.r-sum.locked svg, .r-item.locked .r-ico { color: var(--ink-faint); }
 .r-sum.on, .r-item.on { background: var(--surface-graphite); color: #fff; }
 .r-sum.on svg { color: var(--brand-300); }
 .r-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useProjectProgress } from '~/composables/useStepPass'
 import { PhPencilSimple, PhArrowRight, PhSparkle, PhDownloadSimple, PhUploadSimple } from '@phosphor-icons/vue'
 import { objectTypeLabel, type ObjectType } from '~/data/projects'
 import { fieldSources, labelProcess, processLabel, processesByObject, siteFieldMeta, warehouseDatasetGroups } from '~/data/siteFields'
@@ -38,7 +39,6 @@ const pending = doc.pending
 const error = doc.error
 const live = computed(() => Boolean(project.value))
 const readonly = doc.readonly
-const demos = useDemoProjects()
 const detail = computed(() => doc.record.value
   ? { id: doc.record.value.id, object_type_code: doc.record.value.object_code, site: doc.record.value.site, tasks: doc.record.value.tasks }
   : null)
@@ -139,7 +139,6 @@ watch([detail, () => doc.pending.value], () => {
 }, { immediate: true })
 
 /* «Подставить демо-данные»: параметры опубликованного демо того же типа объекта, иначе значения по умолчанию из полей. */
-const demoSource = computed(() => demos.byObject(objectType.value))
 const demoFilling = ref(false)
 const fillFromDemo = async () => {
   if (readonly.value || demoFilling.value) return
@@ -148,12 +147,12 @@ const fillFromDemo = async () => {
     let values: Record<string, unknown> = {}
     let taskRows: ApiTask[] = []
     let label = ''
-    const demo = demoSource.value
-    if (demo) {
-      const record = await platformGet<{ site: Record<string, unknown>; tasks: Record<string, unknown>[] }>(`/projects/${demo.slug || demo.id}`)
-      values = record.site
-      taskRows = (record.tasks as unknown as ApiTask[]).map((t) => ({ ...emptyTask(t.process_code), ...t, container_types: [...(t.container_types ?? [])] }))
-      label = `демо-объекта «${demo.name}»`
+    /* Площадка демо того же типа и по каждому процессу — объём работ, люди и зарплата: всё, что нужно и подбору, и экономике. */
+    const prefill = await platformGet<{ source: string | null; site: Record<string, unknown>; tasks: Record<string, unknown>[] }>(`/projects/${id.value}/prefill`)
+    if (prefill.source) {
+      values = prefill.site
+      taskRows = (prefill.tasks as unknown as ApiTask[]).map((t) => ({ ...emptyTask(t.process_code), ...t, container_types: [...(t.container_types ?? [])] }))
+      label = `демо-объекта «${prefill.source}»: площадка, объём работ, люди и зарплаты по процессам`
     } else {
       for (const field of formFields.value ?? []) {
         if (field.default !== null && field.default !== undefined && field.default !== '') values[field.key] = field.default
@@ -273,8 +272,8 @@ const setTaskNum = (t: ApiTask, key: keyof ApiTask, raw: string, asInt = false) 
 }
 const fmt = (v: number | null | undefined) => (v == null ? '' : String(v))
 
-/* Люди на процессах: сколько человек сейчас на работе и их зарплата. Это главный вход экономии; хранится в задаче процесса. */
-type StaffKey = 'staff_fte_now' | 'staff_salary_month_rub'
+/* Люди на процессах: объём работы, сколько человек сейчас на ней и их зарплата. Это главный вход экономии; хранится в задаче процесса. */
+type StaffKey = 'staff_fte_now' | 'staff_salary_month_rub' | 'flow_per_day'
 const staffRows = computed(() => processes.value.filter((item) => item.enabled))
 const staffTask = (code: string) => tasks.value.find((task) => task.process_code === code)
 const staffValue = (code: string, key: StaffKey) => staffTask(code)?.[key] ?? null
@@ -437,8 +436,11 @@ const advance = async () => {
     return
   }
   if (!readonly.value && !(await save(true))) return
+  /* Параметры сохранены — открывается подбор. */
+  stepProgress.complete('params')
   await router.push(`/projects/${id.value}/match`)
 }
+const stepProgress = useProjectProgress(id)
 
 /* Ушли с шага по рельсу, не нажав «Дальше»: выбор процессов не теряем. */
 onBeforeRouteLeave(async () => {
@@ -797,14 +799,15 @@ watch(() => tasks.value.length, (n) => {
       <section v-if="part === 'object' && staffRows.length" class="group glass staff">
         <div class="sec-head">
           <div>
-            <div class="h3">Люди на процессах</div>
-            <div class="caption">Сколько человек сейчас делают эту работу и сколько они получают. От этого считается главная экономия. Если пусто, расчёт возьмёт численность роли площадки, а где её нет — экономию не посчитает. Эти же поля есть на шаге экономики.</div>
+            <div class="h3">Работа и люди на процессах</div>
+            <div class="caption">Сколько работы в сутки, сколько человек её делают и сколько они получают. От этого считаются число роботов и экономия. Поменять можно и здесь, и потом на шаге экономики.</div>
           </div>
         </div>
         <div class="staff-list">
-          <div class="staff-row staff-head caption"><span>Процесс</span><span>Человек сейчас, все смены</span><span>Зарплата одного, ₽ в месяц до НДФЛ</span></div>
+          <div class="staff-row staff-head caption"><span>Процесс</span><span>Объём работ в сутки</span><span>Человек сейчас, все смены</span><span>Зарплата одного, ₽ в месяц до НДФЛ</span></div>
           <div v-for="p in staffRows" :key="p.code" class="staff-row">
             <span class="body-sm strong">{{ p.name }}</span>
+            <input class="input input-mono" inputmode="decimal" :disabled="readonly" :value="fmt(staffValue(p.code, 'flow_per_day'))" :placeholder="staffTask(p.code)?.flow_per_hour ? `${staffTask(p.code)!.flow_per_hour} в час` : 'не задано'" :aria-label="`${p.name}: объём работ в сутки`" @input="setStaffValue(p.code, p.name, 'flow_per_day', ($event.target as HTMLInputElement).value)">
             <input class="input input-mono" inputmode="decimal" :disabled="readonly" :value="fmt(staffValue(p.code, 'staff_fte_now'))" placeholder="не задано" @input="setStaffValue(p.code, p.name, 'staff_fte_now', ($event.target as HTMLInputElement).value)">
             <input class="input input-mono" inputmode="decimal" :disabled="readonly" :value="fmt(staffValue(p.code, 'staff_salary_month_rub'))" placeholder="не задано" @input="setStaffValue(p.code, p.name, 'staff_salary_month_rub', ($event.target as HTMLInputElement).value)">
           </div>
@@ -876,7 +879,7 @@ watch(() => tasks.value.length, (n) => {
 .task { padding: 18px 20px 20px; display: grid; gap: 14px; }
 .staff { margin-top: var(--space-5); }
 .staff-list { display: grid; gap: 6px; }
-.staff-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: center; }
+.staff-row { display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr)); gap: 12px; align-items: center; }
 .staff-head { padding-bottom: 4px; border-bottom: 1px solid rgba(15, 20, 19, 0.08); }
 @media (max-width: 720px) {
   .staff-row { grid-template-columns: 1fr 1fr; }

@@ -842,6 +842,62 @@ def layout_files_in_use(db: Session) -> set[str]:
     return used
 
 
+def _template_demo(db: Session, project: ProjectRow) -> ProjectRow | None:
+    """Демо, чьи условия расчёта берёт проект: само демо или опубликованное демо того же типа объекта."""
+    from app.domain.demo_synthetic import enabled, manifest
+    if not enabled():
+        return None
+    known = list(manifest()['projects'])
+    if project.is_demo:
+        return project if project.slug in known else None
+    return db.scalar(select(ProjectRow).where(
+        ProjectRow.is_demo.is_(True), ProjectRow.object_type_id == project.object_type_id,
+        ProjectRow.slug.in_(known)).order_by(ProjectRow.slug))
+
+
+def template_plan(db: Session, project: ProjectRow) -> dict | None:
+    """Условия расчёта проекта: у демо — свои; у обычного проекта — условия демо того же типа объекта.
+
+    Без них новый склад, даже с теми же параметрами, что у демо, остаётся без количества и цены у роботов:
+    подбор пустой, экономика не считается. Условия демо только заполняют пробелы — всё, что ввёл
+    пользователь, сильнее (так устроен project_inputs).
+    """
+    from app.domain.demo_synthetic import manifest, project_plan
+    plan = project_plan(project)
+    if plan or project.is_demo:
+        return plan
+    demo = _template_demo(db, project)
+    return deepcopy(manifest()['projects'][demo.slug]) if demo is not None else None
+
+
+def project_prefill(db: Session, project_id: UUID) -> dict:
+    """Готовые данные для формы параметров: площадка демо того же типа и по каждому процессу — объём работ,
+    сколько людей и их зарплата. Пользователь видит их сразу на вводе данных и правит там же,
+    а не встречает впервые в экономике."""
+    from app.domain.demo_synthetic import project_inputs
+    project = db.get(ProjectRow, project_id)
+    if project is None:
+        raise KeyError(str(project_id))
+    demo = _template_demo(db, project)
+    plan = template_plan(db, project)
+    if demo is None or plan is None:
+        return {'source': None, 'site': {}, 'tasks': []}
+    site, _ = _split_site(demo.site or {})
+    site, tasks, _ = project_inputs(plan, _public_site(site), [])
+    burden = site.get('payroll_burden') or 1.302
+    average = site.get('staff_salary_year_rub')
+    out = []
+    for task in tasks:
+        row = {key: value for key, value in task.items() if not key.startswith('__')}
+        # Своей ставки у процесса нет — показываем среднюю по площадке: её же возьмёт расчёт.
+        year = row.pop('staff_salary_year_rub', None) or (average if row.get('staff_fte_now') else None)
+        # В форме — зарплата одного человека в месяц до НДФЛ; в условиях демо — год со взносами.
+        if year and not row.get('staff_salary_month_rub'):
+            row['staff_salary_month_rub'] = round(float(year) / 12 / float(burden) / 100) * 100
+        out.append(row)
+    return {'source': demo.name, 'site': site, 'tasks': out}
+
+
 def run_match(db: Session, project_id: UUID, site: dict | None = None, tasks: list | None = None, *, _prepared=False, _input_groups=None) -> dict:
     project = db.get(ProjectRow, project_id)
     if project is None:
@@ -856,8 +912,8 @@ def run_match(db: Session, project_id: UUID, site: dict | None = None, tasks: li
         .where(ProjectProcessRow.project_id == project.id, ProjectProcessRow.enabled.is_(True))
         .order_by(ProcessRow.name)
     ))
-    from app.domain.demo_synthetic import project_plan, project_inputs
-    plan = project_plan(project)
+    from app.domain.demo_synthetic import project_inputs
+    plan = template_plan(db, project)
     inputs = _input_groups or []
     if plan and not _prepared:
         values, tasks, inputs = project_inputs(plan, values, tasks)
@@ -1319,8 +1375,8 @@ def project_economy(
     active_overrides = dict(overrides)
     standard = economy_standards(db)
     load = overrides.get("load_factor", standard.get("load_factor", NORM_BY_KEY["load_factor"].value))
-    from app.domain.demo_synthetic import project_plan, project_inputs
-    plan = project_plan(project)
+    from app.domain.demo_synthetic import project_inputs
+    plan = template_plan(db, project)
     input_groups = []
     if plan:
         site, use_tasks, input_groups = project_inputs(plan, site, use_tasks)

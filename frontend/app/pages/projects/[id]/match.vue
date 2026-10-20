@@ -49,8 +49,9 @@ const nextGroup = computed(() => {
   return index >= 0 ? groups.value[index + 1] : undefined
 })
 const onSummary = computed(() => activeCode.value === STEP_SUMMARY)
+const readonlyProject = computed(() => Boolean(shell.value?.readonly || shell.value?.isDemo))
 /* Процессы слева: у каждого — сколько роботов подошло. */
-const rail = computed(() => groups.value.length ? {
+const railBase = computed(() => groups.value.length ? {
   summary: { id: STEP_SUMMARY, label: 'Итог подбора', to: `/projects/${id.value}/match?process=${STEP_SUMMARY}`, meta: `подобрано ${groups.value.filter((group) => passOf(group) > 0).length} из ${groups.value.length}` },
   items: groups.value.map((group) => ({
     id: group.process_code,
@@ -60,6 +61,17 @@ const rail = computed(() => groups.value.length ? {
     meta: passOf(group) ? `подходят ${passOf(group)} из ${group.hits.length}` : group.hits.length ? 'нет подходящих' : 'нет роботов в каталоге',
   })),
 } : null)
+/* Первый проход по порядку: дальше следующего процесса и к итогу не прыгаем, пока не дошли. */
+watch([activeCode, railBase], () => {
+  const index = railBase.value?.items.findIndex((item) => item.id === activeCode.value) ?? -1
+  if (index >= 0) pass.reach(index)
+}, { immediate: true })
+const rail = computed(() => {
+  const base = railBase.value
+  if (!base) return null
+  const free = pass.done.value || readonlyProject.value
+  return { ...base, limit: free ? null : pass.reached.value + 1, summaryLocked: !free && pass.reached.value < base.items.length - 1 }
+})
 /* Итог подбора: все процессы разом — сколько роботов подошло, лучший и сколько в сравнении. */
 /* Подписи итога — те же слова, что у оценки робота на подборе. */
 const SUMMARY_LABEL: Record<string, string> = { pass: 'подходят', check: 'уточнить', fail: 'не подходят' }

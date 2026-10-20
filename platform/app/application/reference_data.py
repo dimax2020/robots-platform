@@ -66,6 +66,16 @@ def seed_users(db: Session) -> None:
     seed_integrator_account(db)
 
 
+def seed_demo_cabinets(db: Session) -> None:
+    """Заявки вендора, журнал подбора и запросы интегратору для показа.
+
+    Только после всех миграций: seed_users вызывают и старые миграции, а на их схеме нет новых колонок,
+    поэтому сюда наполнение кабинетов не встраиваем. Нужны демо-проекты: до их появления — пропуск.
+    """
+    from app.application.demo_cabinets import seed_cabinets
+    seed_cabinets(db)
+
+
 def seed_vendor_account(db: Session) -> None:
     """Учётка вендора и пустой профиль. Уже подтверждённые поля повторный запуск не затирает."""
     from app.infrastructure.db.models import VendorProfileRow
@@ -133,6 +143,7 @@ def seed_reference(db: Session) -> None:
     assign_missing_types(db)
     seed_demo_projects(db)
     db.commit()
+    seed_demo_cabinets(db)
 
 
 # Демо-объекты платформы: постоянный адрес, название и тип объекта. Параметры берутся из полей объекта.

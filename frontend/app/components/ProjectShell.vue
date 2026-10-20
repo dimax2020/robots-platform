@@ -2,6 +2,7 @@
 import { PhArrowLeft } from '@phosphor-icons/vue'
 import { type Project, objectTypeLabel } from '~/data/projects'
 import type { RailItem } from '~/components/ProcessRail.vue'
+import { STEP_ORDER, useProjectProgress } from '~/composables/useStepPass'
 const props = defineProps<{
   project: Project
   current: string
@@ -14,8 +15,20 @@ const props = defineProps<{
   currentSub?: string
   alerts?: Record<string, { title: string; items: string[]; note: string }>
   /** Процессы шага слева: итог и все процессы. Когда задано, заголовок и содержимое встают справа от списка. */
-  rail?: { summary: RailItem; items: RailItem[] } | null
+  rail?: { summary: RailItem; items: RailItem[]; limit?: number | null; summaryLocked?: boolean } | null
 }>()
+/* Первый проход: шаг, до которого ещё не дошли, по прямой ссылке не открывается — возвращаем на последний открытый.
+   What-if и визуализация засчитываются, когда их открыли: дальше идёт следующий шаг. */
+const progress = useProjectProgress(computed(() => props.project.id))
+onMounted(() => {
+  if (props.project.readonly || props.project.isDemo) return
+  if (!progress.isOpen(props.current)) {
+    const last = STEP_ORDER[progress.open.value - 1] ?? 'params'
+    void navigateTo(`/projects/${props.project.id}/${last}`, { replace: true })
+    return
+  }
+  if (props.current === 'what-if' || props.current === 'plan') progress.complete(props.current)
+})
 const placeLabel = computed(() => {
   const object = objectTypeLabel[props.project.objectType] || props.project.objectType
   const industry = props.project.industry
@@ -39,7 +52,7 @@ const placeLabel = computed(() => {
       <ProjectSteps :project="project" :current="current" :substages="substages" :current-sub="currentSub" :alerts="alerts" />
     </div>
     <div :class="{ 'with-rail': rail }">
-      <ProcessRail v-if="rail" class="no-print" :summary="rail.summary" :items="rail.items" :current="currentSub" />
+      <ProcessRail v-if="rail" class="no-print" :summary="rail.summary" :items="rail.items" :current="currentSub" :limit="rail.limit" :summary-locked="rail.summaryLocked" />
       <div class="shell-body">
         <div class="shell-title no-print" v-reveal="1">
           <div>

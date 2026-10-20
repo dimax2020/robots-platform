@@ -43,6 +43,7 @@ from app.infrastructure.db.taxonomy_repo import (
     process_setup,
     project_access,
     project_economy,
+    project_prefill,
     project_view,
     robot_attributes,
     run_match,
@@ -671,6 +672,13 @@ def economy_project(project_key: str, body: EconomyIn | None = None, user: Sessi
     with session_factory()() as db:
         project = _readable(db, project_key, user)
         return project_economy(db, project.id, body.site, body.choices, body.tasks, body.preview, body.picks)
+
+
+@app.get("/api/v1/projects/{project_key}/prefill", tags=["Проекты"], summary="Готовые данные для формы: площадка и процессы демо того же типа объекта")
+def prefill(project_key: str, user: SessionUser | None = Depends(optional_user)) -> dict:
+    with session_factory()() as db:
+        project = _readable(db, project_key, user)
+        return project_prefill(db, project.id)
 
 
 @app.get("/api/v1/projects/{project_key}/layout", tags=["Схема"], summary="Схема расстановки проекта")

@@ -87,13 +87,25 @@ const railMeta = (item: EconProcess) => {
   if (saving == null) return ''
   return `${saving >= 0 ? '+' : '−'}${millions(Math.abs(saving))} в год${item.profitable ? '' : ' · невыгоден'}`
 }
-const rail = computed(() => report.value && processList.value.length ? {
+const readonlyProject = computed(() => readonly.value || isDemo.value)
+const railBase = computed(() => report.value && processList.value.length ? {
   summary: { id: 'total', label: 'Общая картина', to: stageTo('total'), meta: buy.value?.payback.value != null ? `окупится за ${yearsText(buy.value.payback.value)}` : 'итог по объекту' },
   items: processList.value.map((item) => {
     const tone = toneOf(item)
     return { id: item.process_code, label: item.process_name, to: stageTo(item.process_code), tone: tone === 'ok' ? 'ok' : tone === 'off' ? 'off' : 'warn', meta: railMeta(item) }
   }),
 } : null)
+/* Первый проход по порядку: дальше следующего процесса и к итогу не прыгаем, пока не дошли. */
+watch([view, railBase], () => {
+  const index = railBase.value?.items.findIndex((item) => item.id === view.value) ?? -1
+  if (index >= 0) pass.reach(index)
+}, { immediate: true })
+const rail = computed(() => {
+  const base = railBase.value
+  if (!base) return null
+  const free = pass.done.value || readonlyProject.value
+  return { ...base, limit: free ? null : pass.reached.value + 1, summaryLocked: !free && pass.reached.value < base.items.length - 1 }
+})
 const substages = computed(() => [
   ...processList.value.map((item) => ({ id: item.process_code, label: item.process_name, to: stageTo(item.process_code), tone: toneOf(item) })),
   { id: 'total', label: 'Общая картина', to: stageTo('total') },

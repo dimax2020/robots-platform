@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { PhLockSimple } from '@phosphor-icons/vue'
 import { steps, type Project } from '~/data/projects'
+import { useProjectProgress } from '~/composables/useStepPass'
 
 const props = defineProps<{
   project: Project
@@ -11,6 +13,15 @@ const props = defineProps<{
   alerts?: Record<string, { title: string; items: string[]; note: string }>
 }>()
 
+/* Первый проход: шаг открывается, когда пройден предыдущий. Демо и чужие проекты не блокируются.
+   До монтирования всё открыто, чтобы страница с сервера не мигала замками. */
+const progress = useProjectProgress(computed(() => props.project.id))
+const lockable = computed(() => !props.project.readonly && !props.project.isDemo)
+const alive = ref(false)
+onMounted(() => { alive.value = true })
+const locked = (code: string) => alive.value && lockable.value && !progress.isOpen(code)
+const openCount = computed(() => lockable.value && alive.value ? progress.open.value : props.project.step)
+const lockHint = (i: number) => `Сначала пройдите «${steps[i - 1]?.label ?? ''}»`
 const tip = ref<{ code: string; left: number } | null>(null)
 const showTip = (code: string, event: Event) => {
   const li = (event.currentTarget as HTMLElement).closest('li')
@@ -36,8 +47,12 @@ const subShift = computed(() => shown.value.items.length
   <nav class="steps" :style="subShift" aria-label="Шаги расчёта">
     <ol>
       <!-- project.step из mapProject — индекс рельса с 1, поэтому done/next сравниваем с i+1. Номер шага тот же, что в кабинете проекта. -->
-      <li v-for="(s, i) in steps" :key="s.code" :class="{ done: i + 1 < project.step, cur: s.path === current, next: i + 1 === project.step }">
-        <NuxtLink :to="`/projects/${project.id}/${s.path}`" :aria-current="s.path === current ? 'step' : undefined">
+      <li v-for="(s, i) in steps" :key="s.code" :class="{ done: i + 1 < openCount, cur: s.path === current, next: i + 1 === openCount, locked: locked(s.code) }">
+        <span v-if="locked(s.code)" class="lk" :title="lockHint(i)" aria-disabled="true">
+          <span class="dot"><PhLockSimple :size="12" weight="bold" /></span>
+          <span class="t">{{ s.label }}</span>
+        </span>
+        <NuxtLink v-else :to="`/projects/${project.id}/${s.path}`" :aria-current="s.path === current ? 'step' : undefined">
           <span class="dot">{{ i + 1 }}</span>
           <span class="t">{{ s.label }}</span>
           <span
@@ -80,12 +95,13 @@ const subShift = computed(() => shown.value.items.length
 /* Шаги — стрелки слева направо: правый край заострён, левый вырезан под предыдущую стрелку. */
 .steps ol { --tip: 14px; display: flex; align-items: center; gap: 4px; width: 100%; padding: 4px; border-radius: 14px; background: rgba(15, 20, 19, 0.05); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.04); overflow-x: auto; }
 li { flex: 1; min-width: 0; }
-li > a {
+li > a, li > .lk {
   display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 calc(var(--tip) + 8px) 0 calc(var(--tip) + 8px);
   clip-path: polygon(0 0, calc(100% - var(--tip)) 0, 100% 50%, calc(100% - var(--tip)) 100%, 0 100%, var(--tip) 50%);
   background: rgba(255, 255, 255, 0.55); font-size: 14px; font-weight: 600; color: var(--ink-muted); white-space: nowrap;
   transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
 }
+li > .lk { color: var(--ink-faint); background: rgba(255, 255, 255, 0.3); cursor: not-allowed; }
 li:first-child > a { padding-left: 10px; border-radius: 10px 0 0 10px; clip-path: polygon(0 0, calc(100% - var(--tip)) 0, 100% 50%, calc(100% - var(--tip)) 100%, 0 100%); }
 li > a:hover, li > a:focus-visible { background: #fff; color: var(--ink-strong); outline: none; }
 .dot { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 8px; background: rgba(15, 20, 19, 0.06); font-family: var(--font-mono); font-size: 12px; font-weight: 700; flex: none; }
