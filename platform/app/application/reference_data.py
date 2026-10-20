@@ -24,9 +24,11 @@ from app.infrastructure.db.models import (
 )
 
 DEMO_PASSWORD = "demo-2026"
-DEMO_USERS = (("guest", "guest"), ("user", "user"), ("admin", "admin"), ("ronavi", "vendor"))
+DEMO_USERS = (("guest", "guest"), ("user", "user"), ("admin", "admin"), ("ronavi", "vendor"), ("integrator", "integrator"))
 # Демо-вендор берётся из живого каталога: у ООО "Ронави Роботикс" уже есть карточки.
 VENDOR_DEMO = ("ronavi", 'ООО "Ронави Роботикс"', "Ронави Роботикс")
+# Учебный интегратор. Реквизиты выдуманы и в каталог роботов не пишутся.
+INTEGRATOR_DEMO = ("integrator", 'ООО "ПромРобот Интеграция"', "ПромРобот")
 
 SEED_DIR = Path(__file__).resolve().parents[2] / "seed"
 EXTRA_GROUP = "Дополнительно"
@@ -61,6 +63,7 @@ def seed_users(db: Session) -> None:
         db.add(AppUserRow(id=uuid4(), login=login, password_hash=hasher.hash(DEMO_PASSWORD), role=role))
     db.flush()
     seed_vendor_account(db)
+    seed_integrator_account(db)
 
 
 def seed_vendor_account(db: Session) -> None:
@@ -83,6 +86,39 @@ def seed_vendor_account(db: Session) -> None:
         about="Складские роботы Ronavi. Карточки уже стоят в каталоге, правки из кабинета публикуются после проверки.",
         website="https://ronavi.ru",
         city="Москва",
+    ))
+    db.flush()
+
+
+def seed_integrator_account(db: Session) -> None:
+    """Учётка интегратора и карточка компании. Уже заполненный профиль повторный запуск не затирает."""
+    from app.infrastructure.db.models import IntegratorProfileRow
+
+    bind = db.get_bind()
+    if bind is None or not sa_inspect(bind).has_table("integrator_profile"):
+        return
+    login, company, brand = INTEGRATOR_DEMO
+    user = db.scalar(select(AppUserRow).where(AppUserRow.login == login))
+    if user is None or user.role != "integrator":
+        return
+    if db.get(IntegratorProfileRow, user.id) is not None:
+        return
+    db.add(IntegratorProfileRow(
+        user_id=user.id,
+        company_name=company,
+        brand=brand,
+        about="Внедряем складских роботов и производственные ячейки. Берём проект после подбора и готовим предложение по запуску на площадке.",
+        website="https://promrobot.example",
+        email="hello@promrobot.example",
+        phone="+7 495 000-00-00",
+        city="Москва",
+        address="Москва, ул. Примерная, 12",
+        inn="7700000000",
+        ogrn="1000000000000",
+        regions="Москва и область",
+        contact_name="Анна Соколова",
+        experience_years=8,
+        specializations=["Склад", "Производство"],
     ))
     db.flush()
 

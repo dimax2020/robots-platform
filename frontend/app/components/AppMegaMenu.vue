@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { PhArrowRight, PhArrowUpRight, PhX, PhScales, PhPlus, PhPlay, PhLockSimple, PhTreeStructure, PhIdentificationCard, PhRobot, PhListChecks, PhChartPie } from '@phosphor-icons/vue'
+import { PhArrowRight, PhArrowUpRight, PhX, PhScales, PhPlus, PhPlay, PhLockSimple, PhTreeStructure, PhIdentificationCard, PhRobot, PhListChecks, PhChartPie, PhChatCircle } from '@phosphor-icons/vue'
 import { availabilityLabel, availabilityTone, formatRub } from '~/data/catalog'
 import { cardToProduct, platformGet, type PlatformPage } from '~/composables/usePlatform'
 import { objectTypeLabel, objectTypeImage, steps, type ObjectType } from '~/data/projects'
 import { adminNav, adminOverview } from '~/data/adminNav'
 import { demoObjectType, demoPath, useDemoProjects } from '~/composables/useDemoProjects'
 
-export type MenuId = 'how' | 'catalog' | 'projects' | 'compare' | 'coop' | 'admin' | 'vendor'
+export type MenuId = 'how' | 'catalog' | 'projects' | 'compare' | 'coop' | 'admin' | 'vendor' | 'integrators' | 'integrator'
 defineProps<{ menu: MenuId }>()
 
 const { role } = useRole()
@@ -230,6 +230,29 @@ const adminItems = [adminOverview, ...adminNav.flatMap((group) => group.items)]
       </div>
     </template>
 
+    <!-- ================= Интегратор ================= -->
+    <template v-else-if="menu === 'integrator'">
+      <NuxtLink to="/integrator" class="adm">
+        <PhIdentificationCard :size="22" weight="duotone" class="adm-ic" />
+        <span class="row-t">Профиль</span>
+        <span class="row-s">Название, логотип, контакты и документы компании.</span>
+      </NuxtLink>
+      <NuxtLink to="/integrator/requests" class="adm">
+        <PhListChecks :size="22" weight="duotone" class="adm-ic" />
+        <span class="row-t">Запросы</span>
+        <span class="row-s">Проекты заказчиков: посмотреть, ответить или отклонить.</span>
+      </NuxtLink>
+      <NuxtLink to="/integrator/chat" class="adm">
+        <PhChatCircle :size="22" weight="duotone" class="adm-ic" />
+        <span class="row-t">Чат</span>
+        <span class="row-s">Переписка по проекту. Файлы и история сохраняются.</span>
+      </NuxtLink>
+      <div class="foot">
+        <span class="caption">Детали проекта заказчика нельзя передавать третьим лицам.</span>
+        <NuxtLink to="/integrator" class="fl">Открыть кабинет <PhArrowRight :size="12" weight="bold" /></NuxtLink>
+      </div>
+    </template>
+
     <!-- ================= Админка ================= -->
     <template v-else>
       <NuxtLink v-for="a in adminItems" :key="a.to" :to="a.to" class="adm">
@@ -251,8 +274,8 @@ const adminItems = [adminOverview, ...adminNav.flatMap((group) => group.items)]
 .mm-projects { grid-template-columns: 1.2fr 1.2fr 1fr; }
 .mm-compare { grid-template-columns: 1.6fr 1fr; }
 .mm-admin, .mm-vendor { grid-template-columns: repeat(4, 1fr); gap: var(--space-3); }
-.mm-vendor { grid-template-columns: repeat(3, 1fr); }
-.mm-admin .foot, .mm-vendor .foot { grid-column: 1 / -1; }
+.mm-vendor, .mm-integrator { grid-template-columns: repeat(3, 1fr); }
+.mm-admin .foot, .mm-vendor .foot, .mm-integrator .foot { grid-column: 1 / -1; }
 
 .col { display: grid; gap: 4px; align-content: start; min-width: 0; }
 .col-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 0 10px 8px; }

@@ -68,6 +68,7 @@ app = FastAPI(
         "Снаружи адрес начинается с `/platform`. "
         "Ручки `/admin` требуют cookie `platform_session` и роль admin: её выдаёт вход. "
         "Каталог открыт без сессии. Свой проект читает и меняет владелец; "
+        "интегратор только читает проект, который ему отправили; "
         "опубликованное демо открывается всем, а правит его только администратор."
     ),
     openapi_url="/api/v1/openapi.json",
@@ -88,6 +89,7 @@ app = FastAPI(
         {"name": "Админка · продукты", "description": "Ручные правки карточек. Следующий импорт их не затирает."},
         {"name": "Админка · демо", "description": "Учебные объекты: публикация и адрес."},
         {"name": "Вендор", "description": "Кабинет производителя. Изменения ждут решения администратора."},
+        {"name": "Интегратор", "description": "Кабинет интегратора и отправка проекта заказчиком. Каталог вендора не меняет."},
         {"name": "Админка · вендоры", "description": "Подтверждение, отклонение и возврат заявок вендора."},
     ],
 )
@@ -96,6 +98,9 @@ app.include_router(admin_catalog.router)
 app.include_router(admin_objects.router)
 app.include_router(admin_products.router)
 app.include_router(vendor.router)
+from app.api.integrator import router as integrator_router
+
+app.include_router(integrator_router)
 
 from app.api.auth import router as auth_router
 
@@ -131,6 +136,8 @@ def _writable(db, key: str, user: SessionUser | None):
     except KeyError:
         raise HTTPException(404, "Проект не найден") from None
     if not can_edit:
+        if user.role == "integrator":
+            raise HTTPException(403, "Проект заказчика открыт только для просмотра.")
         raise HTTPException(403, "Демо-объект только для просмотра. Скопируйте его в свои проекты, чтобы менять.")
     return project
 
@@ -603,7 +610,8 @@ def read_project(project_key: str, user: SessionUser | None = Depends(optional_u
     with session_factory()() as db:
         project = _readable(db, project_key, user)
         view = project_view(db, project.id)
-        view["can_edit"] = bool(user) and (user.role == "admin" or (not project.is_demo and user.role != "guest"))
+        # Интегратор открывает чужой проект только чтобы посмотреть отчёт, не чтобы править его.
+        view["can_edit"] = bool(user) and user.role != "integrator" and (user.role == "admin" or (not project.is_demo and user.role != "guest"))
         return view
 
 
@@ -621,6 +629,8 @@ def copy(project_key: str, user: SessionUser = Depends(require_user)) -> dict:
     """Копия доступна владельцу, администратору и любому вошедшему — для опубликованного демо."""
     with session_factory()() as db:
         project = _readable(db, project_key, user)
+        if user.role == "integrator" and project.owner_id != user.id:
+            raise HTTPException(403, "Проект заказчика нельзя копировать себе.")
         return copy_project(db, project.id, owner_id=user.id)
 
 
