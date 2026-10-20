@@ -252,7 +252,7 @@ onMounted(async () => {
     <section v-else class="stack">
       <p v-if="!cards.length" class="body-sm muted">Своих роботов пока нет. Нажмите «Добавить».</p>
       <div v-else class="grid grid-cards">
-        <VendorRobotCard v-for="robot in cards" :key="robot.slug" :robot="robot" :open="draft.openSlug === robot.slug" @toggle="toggle(robot.slug)">
+        <VendorRobotCard v-for="robot in cards" :key="robot.slug" compact :robot="robot" :open="draft.openSlug === robot.slug" @toggle="toggle(robot.slug)">
           <VendorRobotEditor
             v-if="productOf(robot.slug)"
             v-model:name="draft.editName"

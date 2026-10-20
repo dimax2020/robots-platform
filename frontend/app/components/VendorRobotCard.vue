@@ -2,18 +2,22 @@
 import { PhMapPin } from '@phosphor-icons/vue'
 import { availabilityLabel, availabilityTone, formatRub, type Availability } from '~/data/catalog'
 import { stateLabel, type AnalyticsRobot } from '~/data/analytics'
+import { photoFor } from '~/data/placeholders'
 
-const props = defineProps<{ robot: AnalyticsRobot; open?: boolean }>()
+const props = defineProps<{ robot: AnalyticsRobot; open?: boolean; compact?: boolean }>()
 const emit = defineEmits<{ toggle: [] }>()
 
 const known = computed(() => props.robot.availability && props.robot.availability in availabilityLabel)
+const photo = computed(() => props.compact
+  ? photoFor(props.robot.image_url, props.robot.name, props.robot.processes[0]?.code)
+  : props.robot.image_url)
 const tone = computed(() => (props.robot.state === 'in' ? 'ok' : props.robot.state === 'note' ? 'warn' : 'danger') as 'ok' | 'warn' | 'danger')
 </script>
 
 <template>
-  <article class="card-r glass" :class="{ open }" :id="`robot-${robot.slug}`">
-    <button type="button" class="media" :aria-expanded="open" :aria-label="robot.name" @click="emit('toggle')">
-      <img v-if="robot.image_url" :src="robot.image_url" :alt="robot.name">
+  <article class="card-r glass" :class="{ open, compact }" :id="`robot-${robot.slug}`">
+    <button v-if="!open" type="button" class="media" :aria-expanded="false" :aria-label="robot.name" @click="emit('toggle')">
+      <img v-if="photo" :src="photo" :alt="robot.name">
       <span class="badges">
         <UiBadge :tone="tone">{{ stateLabel[robot.state] }}</UiBadge>
         <UiBadge v-if="known" :tone="availabilityTone[robot.availability as Availability]">{{ availabilityLabel[robot.availability as Availability] }}</UiBadge>
@@ -55,7 +59,8 @@ const tone = computed(() => (props.robot.state === 'in' ? 'ok' : props.robot.sta
 .card-r:hover { transform: translateY(-3px); box-shadow: inset 0 1px 0 var(--glass-stroke), 0 0 0 1px var(--glass-stroke-outer), var(--shadow-lg); }
 .media { position: relative; display: block; width: 100%; aspect-ratio: 4 / 3; margin: 0; padding: 0; border: 0; border-radius: 18px; overflow: hidden; background: #e9eeec; cursor: pointer; }
 .card-r .media { margin: 8px; width: calc(100% - 16px); }
-.media img { width: 100%; height: 100%; object-fit: cover; }
+/* Закрытая карточка показывает робота целиком. В раскрытой кадра нет. */
+.media img { width: 100%; height: 100%; object-fit: contain; }
 .badges { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
 .body { display: grid; gap: 8px; padding: 8px 16px 16px; align-content: start; text-align: left; }
 .name { color: var(--ink-strong); text-align: left; background: none; border: 0; padding: 0; cursor: pointer; }

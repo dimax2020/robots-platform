@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PhCaretDown, PhCaretRight } from '@phosphor-icons/vue'
 import type { AnalyticsRobot, MatchEvent, VendorBoard } from '~/data/analytics'
 import type { RobotProduct } from '~/composables/useRobotDraft'
 import { useRobotDraft } from '~/composables/useRobotDraft'
@@ -14,6 +15,8 @@ const products = ref<RobotProduct[]>([])
 const processes = ref<{ code: string; name: string }[]>([])
 const failure = ref('')
 const onlyGaps = ref(true)
+// Вводы заказчика спрятаны, пока строку не откроют. Иначе список параметров занимает весь экран.
+const showInputs = ref(false)
 
 const draft = useRobotDraft(async () => { await load() })
 const shown = computed(() => {
@@ -83,15 +86,46 @@ onMounted(() => { void load().catch((err) => { failure.value = fetchErrorMessage
       </div>
 
       <section v-if="board.reasons.length" class="glass glass-xl a-panel">
-        <div class="h3">Почему подбор не сложился</div>
+        <div class="h3">Ошибки подбора</div>
         <div v-for="item in board.reasons" :key="item.text" class="reason">
           <span class="body-sm">{{ item.text }}</span>
           <span class="mono-sm">{{ item.count }}</span>
         </div>
       </section>
 
+      <section class="stack">
+        <div class="a-head">
+          <div>
+            <div class="h3">Карточки, которые стоит дополнить</div>
+            <p class="body-sm muted">Откройте карточку, впишите пустые поля и отправьте на проверку.</p>
+          </div>
+          <button type="button" class="mode" :class="{ on: onlyGaps }" @click="onlyGaps = !onlyGaps">{{ onlyGaps ? 'Показать все' : 'Только с пробелами' }}</button>
+        </div>
+        <p v-if="!shown.length" class="body-sm muted">{{ onlyGaps ? 'Пробелов нет: все роботы могут участвовать в подборе.' : 'Своих карточек пока нет.' }}</p>
+        <div v-else class="grid grid-cards">
+          <VendorRobotCard v-for="robot in shown" :key="robot.slug" compact :robot="robot" :open="draft.openSlug === robot.slug" @toggle="toggle(robot)">
+            <VendorRobotEditor
+              v-if="productOf(robot.slug)"
+              v-model:name="draft.editName"
+              v-model:summary="draft.editSummary"
+              v-model:price="draft.editPrice"
+              v-model:processes="draft.editProcesses"
+              v-model:attrs="draft.editAttrs"
+              :choices="processes"
+              :gaps="robot.gaps"
+              :busy="draft.busy"
+              @submit="draft.send()"
+            />
+          </VendorRobotCard>
+        </div>
+      </section>
+
       <section class="glass glass-xl a-panel">
-        <div class="h3">Что вводил заказчик, когда робот не подошёл</div>
+        <button type="button" class="fold-btn" :aria-expanded="showInputs" @click="showInputs = !showInputs">
+          <component :is="showInputs ? PhCaretDown : PhCaretRight" :size="14" weight="bold" />
+          <span class="h3">Что вводил заказчик, когда робот не подошёл</span>
+        </button>
+        <template v-if="showInputs">
         <p v-if="!board.events.length" class="body-sm muted">Пока таких подборов нет. Строка появится, когда заказчик откроет подбор и ваша модель в нём поучаствует.</p>
         <article v-for="(event, index) in board.events" :key="`${index}-${event.at}`" class="event">
           <div class="a-head">
@@ -109,33 +143,7 @@ onMounted(() => { void load().catch((err) => { failure.value = fetchErrorMessage
             <UiButton v-for="item in targets(event)" :key="item.slug" size="sm" variant="secondary" @click="follow(item.slug)">Дополнить «{{ item.name }}»</UiButton>
           </div>
         </article>
-      </section>
-
-      <section class="stack">
-        <div class="a-head">
-          <div>
-            <div class="h3">Карточки, которые стоит дополнить</div>
-            <p class="body-sm muted">Откройте карточку, впишите пустые поля и отправьте на проверку.</p>
-          </div>
-          <button type="button" class="mode" :class="{ on: onlyGaps }" @click="onlyGaps = !onlyGaps">{{ onlyGaps ? 'Показать все' : 'Только с пробелами' }}</button>
-        </div>
-        <p v-if="!shown.length" class="body-sm muted">{{ onlyGaps ? 'Пробелов нет: все роботы могут участвовать в подборе.' : 'Своих карточек пока нет.' }}</p>
-        <div v-else class="grid grid-cards">
-          <VendorRobotCard v-for="robot in shown" :key="robot.slug" :robot="robot" :open="draft.openSlug === robot.slug" @toggle="toggle(robot)">
-            <VendorRobotEditor
-              v-if="productOf(robot.slug)"
-              v-model:name="draft.editName"
-              v-model:summary="draft.editSummary"
-              v-model:price="draft.editPrice"
-              v-model:processes="draft.editProcesses"
-              v-model:attrs="draft.editAttrs"
-              :choices="processes"
-              :gaps="robot.gaps"
-              :busy="draft.busy"
-              @submit="draft.send()"
-            />
-          </VendorRobotCard>
-        </div>
+        </template>
       </section>
     </template>
   </div>
@@ -150,6 +158,8 @@ onMounted(() => { void load().catch((err) => { failure.value = fetchErrorMessage
 .mode { min-height: 40px; padding: 8px 16px; border-radius: 12px; font-weight: 700; color: var(--ink-body); background: rgba(15, 20, 19, 0.05); }
 .mode.on { background: var(--surface-graphite); color: var(--ink-on-graphite); }
 .jump { margin-left: 8px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.fold-btn { display: inline-flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; text-align: left; }
+.fold-btn .h3 { margin: 0; }
 @media (max-width: 900px) {
   .stats { grid-template-columns: 1fr 1fr; }
 }

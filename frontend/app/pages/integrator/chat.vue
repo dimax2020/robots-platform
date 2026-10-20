@@ -6,7 +6,7 @@ import type { ThreadCard } from '~/data/integrator'
 definePageMeta({ layout: 'integrator', middleware: 'integrator', pageTransition: false })
 useHead({ title: 'Кабинет интегратора · Чат' })
 
-interface Profile { nda_accepted: boolean; nda_text: string }
+interface Profile { nda_accepted: boolean; nda_text: string; nda_law_title: string; nda_law_url: string }
 interface RequestCard {
   id: string
   project_id: string
@@ -54,10 +54,15 @@ onMounted(() => { void load().catch((err) => { error.value = fetchErrorMessage(e
     <AdminHead label="Кабинет интегратора" title="Чат" lead="Переписка с заказчиком по его проекту. История сохраняется." />
     <UiCallout v-if="error" tone="danger">{{ error }}</UiCallout>
     <section v-if="profile && !profile.nda_accepted" class="glass glass-xl a-panel">
-      <div class="h3">Неразглашение деталей проекта</div>
+      <div class="h3">Неразглашение проекта заказчика</div>
       <p class="body">{{ profile.nda_text }}</p>
-      <UiButton :disabled="busy" @click="accept">Принимаю и открываю чат</UiButton>
+      <a class="law" :href="profile.nda_law_url" target="_blank" rel="noopener noreferrer">{{ profile.nda_law_title }}</a>
+      <UiButton :disabled="busy" @click="accept">Принимаю, открыть чат</UiButton>
     </section>
     <IntegrationChat v-else-if="profile" :threads="threads" empty="Когда появится запрос, переписка откроется здесь." />
   </div>
 </template>
+
+<style scoped>
+.law { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+</style>

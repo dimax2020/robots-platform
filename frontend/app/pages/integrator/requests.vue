@@ -6,7 +6,7 @@ import { statusLabel } from '~/data/integrator'
 definePageMeta({ layout: 'integrator', middleware: 'integrator', pageTransition: false })
 useHead({ title: 'Кабинет интегратора · Запросы' })
 
-interface Profile { nda_accepted: boolean; nda_text: string }
+interface Profile { nda_accepted: boolean; nda_text: string; nda_law_title: string; nda_law_url: string }
 interface RequestCard {
   id: string
   project_id: string
@@ -83,9 +83,10 @@ onMounted(() => { void load().catch((err) => { error.value = fetchErrorMessage(e
     <UiCallout v-else-if="notice" tone="ok">{{ notice }}</UiCallout>
 
     <section v-if="profile && !profile.nda_accepted" class="glass glass-xl a-panel">
-      <div class="h3">Неразглашение деталей проекта</div>
+      <div class="h3">Неразглашение проекта заказчика</div>
       <p class="body">{{ profile.nda_text }}</p>
-      <UiButton :disabled="busy === 'nda'" @click="accept">Принимаю и открываю запросы</UiButton>
+      <a class="law" :href="profile.nda_law_url" target="_blank" rel="noopener noreferrer">{{ profile.nda_law_title }}</a>
+      <UiButton :disabled="busy === 'nda'" @click="accept">Принимаю, открыть проекты</UiButton>
     </section>
 
     <p v-else-if="profile && !rows.length" class="body-sm muted">Пока никто не отправил проект. Когда заказчик нажмёт «Отправить интегратору» в отчёте, карточка появится здесь.</p>
@@ -117,3 +118,7 @@ onMounted(() => { void load().catch((err) => { error.value = fetchErrorMessage(e
     </article>
   </div>
 </template>
+
+<style scoped>
+.law { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+</style>

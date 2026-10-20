@@ -166,7 +166,7 @@ onMounted(() => { void load().catch((err) => { error.value = fetchErrorMessage(e
   <div class="admin-page">
     <AdminHead label="Кабинет интегратора" :title="profile?.company_name || 'Профиль'" lead="Так вас видит заказчик, когда выбирает, кому отправить проект." />
     <UiCallout v-if="profile && !profile.nda_accepted" tone="warn">
-      Перед запросами и чатом примите уведомление о неразглашении.
+      Перед просмотром проектов заказчика примите уведомление о неразглашении.
       <NuxtLink to="/integrator/requests" class="jump">Открыть уведомление</NuxtLink>
     </UiCallout>
     <UiCallout v-if="error" tone="danger">{{ error }}</UiCallout>

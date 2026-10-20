@@ -100,7 +100,7 @@ onMounted(() => { void load().catch((err) => { error.value = fetchErrorMessage(e
       <div class="h3">{{ group.title }}</div>
       <div class="grid grid-cards">
         <article v-for="item in group.items" :key="item.id" class="card-r glass" :class="{ open: openRequest === item.id }">
-          <button type="button" class="media" :aria-expanded="openRequest === item.id" :aria-label="item.title" @click="openRequest = openRequest === item.id ? '' : item.id">
+          <button v-if="openRequest !== item.id" type="button" class="media" :aria-expanded="false" :aria-label="item.title" @click="openRequest = item.id">
             <img :src="photoFor(item.image_url, item.title)" :alt="item.title">
             <span class="badges">
               <UiBadge :tone="item.status === 'approved' ? 'ok' : item.status === 'rejected' ? 'danger' : item.status === 'revision' ? 'warn' : 'info'">{{ statusLabel[item.status] || item.status }}</UiBadge>
@@ -135,8 +135,9 @@ onMounted(() => { void load().catch((err) => { error.value = fetchErrorMessage(e
 <style scoped>
 .card-r { display: grid; grid-template-rows: auto 1fr; border-radius: var(--radius-xl); overflow: hidden; height: 100%; }
 .card-r.open { grid-column: 1 / -1; height: auto; }
+/* Пока заявка закрыта, картинка целиком. В раскрытой карточке кадра нет. */
 .media { position: relative; display: grid; place-items: center; aspect-ratio: 4 / 3; margin: 8px; border: 0; border-radius: 18px; overflow: hidden; background: #e9eeec; cursor: pointer; }
-.media img { width: 100%; height: 100%; object-fit: cover; }
+.media img { width: 100%; height: 100%; object-fit: contain; }
 .letter { font-size: 48px; font-weight: 700; color: var(--ink-muted); }
 .badges { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
 .body { display: grid; gap: 8px; padding: 8px 16px 16px; align-content: start; text-align: left; }

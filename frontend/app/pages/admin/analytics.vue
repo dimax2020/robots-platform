@@ -43,7 +43,6 @@ const query = ref('')
 const vendorQuery = ref('')
 const onlyFix = ref(true)
 const vendorSort = ref<'more' | 'less'>('more')
-const openReasons = ref(false)
 const openProblems = ref(false)
 const openVendors = ref(false)
 const openVendor = ref('')
@@ -163,26 +162,21 @@ onMounted(() => { void load().catch((err) => { failure.value = fetchErrorMessage
 
       <section class="fold">
         <div class="bar">
-          <button type="button" class="fold-btn" :aria-expanded="openReasons" @click="openReasons = !openReasons">
-            <component :is="openReasons ? PhCaretDown : PhCaretRight" :size="14" weight="bold" />
-            <span class="h3">Почему подбор оставался пустым</span>
-            <span class="count">{{ data.reasons.length }}</span>
-          </button>
+          <span class="h3">Почему подбор оставался пустым</span>
+          <span class="count">{{ data.reasons.length }}</span>
         </div>
-        <div v-if="openReasons" class="scroller short">
-          <p v-if="!data.reasons.length" class="body-sm muted">Пустых подборов пока не было.</p>
-          <div v-else class="grid grid-cards">
-            <article v-for="item in data.reasons" :key="item.text" class="card-r glass reason-card">
-              <div class="body">
-                <div class="label">Причина</div>
-                <p class="reason-title">{{ item.text }}</p>
-                <dl class="specs">
-                  <div><dt>Сколько раз</dt><dd>{{ item.count }}</dd></div>
-                  <div><dt>Доля причин</dt><dd>{{ shareOf(item.count) }}</dd></div>
-                </dl>
-              </div>
-            </article>
-          </div>
+        <p v-if="!data.reasons.length" class="body-sm muted">Пустых подборов пока не было.</p>
+        <div v-else class="grid grid-cards">
+          <article v-for="item in data.reasons" :key="item.text" class="card-r glass reason-card">
+            <div class="body">
+              <div class="label">Причина</div>
+              <p class="reason-title">{{ item.text }}</p>
+              <dl class="specs">
+                <div><dt>Сколько раз</dt><dd>{{ item.count }}</dd></div>
+                <div><dt>Доля причин</dt><dd>{{ shareOf(item.count) }}</dd></div>
+              </dl>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -199,7 +193,7 @@ onMounted(() => { void load().catch((err) => { failure.value = fetchErrorMessage
           <p v-if="!problems.length" class="body-sm muted">Таких роботов нет.</p>
           <div v-else class="grid grid-cards">
             <article v-for="robot in problems" :key="robot.slug" class="card-r glass" :class="{ open: openProblem === robot.slug }">
-              <button type="button" class="media" :aria-expanded="openProblem === robot.slug" @click="openProblem = openProblem === robot.slug ? '' : robot.slug">
+              <button v-if="openProblem !== robot.slug" type="button" class="media" :aria-expanded="false" @click="openProblem = robot.slug">
                 <img :src="photoFor(robot.image_url, robot.name, robot.processes[0]?.code)" :alt="robot.name">
                 <span class="badges"><UiBadge :tone="tone(robot.state)">{{ stateLabel[robot.state] }}</UiBadge></span>
               </button>
@@ -241,7 +235,7 @@ onMounted(() => { void load().catch((err) => { failure.value = fetchErrorMessage
           <p v-if="!vendors.length" class="body-sm muted">{{ onlyFix ? 'Сейчас у всех вендоров карточки заполнены.' : 'Вендоров пока нет.' }}</p>
           <div v-else class="grid grid-cards">
             <article v-for="vendor in vendors" :key="vendor.manufacturer" class="card-r glass" :class="{ open: openVendor === vendor.manufacturer }">
-              <button type="button" class="media" :aria-expanded="openVendor === vendor.manufacturer" @click="openVendor = openVendor === vendor.manufacturer ? '' : vendor.manufacturer">
+              <button v-if="openVendor !== vendor.manufacturer" type="button" class="media" :aria-expanded="false" @click="openVendor = vendor.manufacturer">
                 <img v-if="vendor.logo_url" :src="vendor.logo_url" :alt="vendor.company">
                 <span v-else class="letter">{{ vendor.company.slice(0, 1) }}</span>
                 <span class="badges">
@@ -314,7 +308,6 @@ onMounted(() => { void load().catch((err) => { failure.value = fetchErrorMessage
 .seek { width: min(280px, 100%); }
 .sorts { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
 .scroller { max-height: 920px; overflow: auto; padding-right: 4px; }
-.scroller.short { max-height: 340px; }
 .reason { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start; }
 .reason-card { height: auto; }
 .reason-title { margin: 0; font-size: 15px; font-weight: 700; line-height: 1.35; color: var(--ink-strong); }
@@ -328,7 +321,8 @@ onMounted(() => { void load().catch((err) => { failure.value = fetchErrorMessage
 .card-r { display: grid; grid-template-rows: auto 1fr; border-radius: var(--radius-xl); overflow: hidden; height: 100%; }
 .card-r.open { grid-column: 1 / -1; height: auto; }
 .media { position: relative; display: grid; place-items: center; aspect-ratio: 4 / 3; margin: 8px; border: 0; border-radius: 18px; overflow: hidden; background: #e9eeec; cursor: pointer; }
-.media img { width: 100%; height: 100%; object-fit: cover; }
+/* В закрытой карточке картинка целиком. В раскрытой её нет. */
+.media img { width: 100%; height: 100%; object-fit: contain; }
 .letter { font-size: 48px; font-weight: 700; color: var(--ink-muted); }
 .badges { position: absolute; left: 10px; top: 10px; display: flex; gap: 6px; }
 .body { display: grid; gap: 8px; padding: 8px 16px 16px; align-content: start; text-align: left; }
