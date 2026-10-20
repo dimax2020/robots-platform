@@ -192,9 +192,12 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, 
     <UiCallout v-else-if="error" tone="danger" title="Не удалось загрузить проект">
       {{ fetchErrorMessage(error, 'Сервер не ответил.') }}
     </UiCallout>
-    <section v-else-if="loadingMatch || pending" class="waiting glass">
-      <div class="h3">Собираем сравнение</div>
-    </section>
+    <StepLoading
+      v-else-if="loadingMatch || pending"
+      label="Сравнение"
+      title="Собираем сравнение"
+      :stages="['Загружаем подбор', 'Собираем характеристики роботов', 'Отмечаем лучшие значения']"
+    />
     <UiCallout v-else-if="matchError" tone="danger" title="Сравнение не открылось">{{ matchError }}</UiCallout>
     <StepSummary v-else-if="onSummary" :stats="summaryStats" :rows="summaryRows" />
     <section v-else-if="!activeGroup" class="empty glass">
@@ -281,6 +284,8 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, 
     </template>
   </ProjectShell>
 
+  <!-- Пока проект грузится — загрузка, а не «не найден»: на первом показе данных ещё нет всегда. -->
+  <section v-else-if="pending" class="container opening"><StepLoading label="Проект" title="Открываем проект" :timer="false" /></section>
   <section v-else class="container gone">
     <UiCallout tone="danger" title="Проект не найден">Нет ни сохранённого расчёта, ни демо-макета с таким адресом.</UiCallout>
     <UiButton to="/projects">К списку проектов</UiButton>
@@ -349,4 +354,5 @@ th.head.sel { border-radius: 16px 16px 0 0; box-shadow: inset 1.5px 0 0 var(--br
 .legend .dot { width: 10px; height: 10px; border-radius: 3px; background: var(--state-ok); }
 .call-actions { margin-top: 10px; }
 .gone { padding-top: var(--space-12); display: grid; gap: var(--space-4); justify-items: start; }
+.opening { padding-top: var(--space-8); padding-bottom: var(--space-8); }
 </style>

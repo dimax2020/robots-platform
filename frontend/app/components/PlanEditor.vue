@@ -30,6 +30,8 @@ const props = defineProps<{
   processes: Record<string, SimProcess>
   visibility: Record<string, Visibility>
   highlight: string
+  /** Названия всех процессов объекта: подпись зоны процесса без робота в расчёте — словами, а не кодом. */
+  names?: Record<string, string>
   calibrateMeters: number
   selection: PlanSelection[]
   focusRobot: number | null
@@ -419,7 +421,7 @@ function render() {
     planLayer.add(node)
     if (scale >= 3) {
       const item = props.processes[zone.process]?.items.find((row) => row.key === (zone.item ?? 'zone'))
-      planLayer.add(new K.Text({ x: zone.x + 0.5, y: zone.y + 0.4, text: item?.label ?? props.processes[zone.process]?.name ?? zone.process, fontSize: 12 / scale, fontFamily: 'Manrope', fontStyle: '600', fill: tone, opacity: fade, listening: false }))
+      planLayer.add(new K.Text({ x: zone.x + 0.5, y: zone.y + 0.4, text: item?.label ?? props.processes[zone.process]?.name ?? props.names?.[zone.process] ?? zone.process, fontSize: 12 / scale, fontFamily: 'Manrope', fontStyle: '600', fill: tone, opacity: fade, listening: false }))
     }
   }
   for (const block of f.blocks) {

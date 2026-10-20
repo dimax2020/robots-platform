@@ -2,12 +2,15 @@
 import { skippedAlerts } from '~/composables/usePlatformCompare'
 import { PhArrowRight, PhArrowCounterClockwise, PhCaretDown, PhFloppyDisk } from '@phosphor-icons/vue'
 import {
-  figValue,
   millions,
+  rentPaybackText,
   PARAM_GROUPS,
   PROCESS_PARAM_KEYS,
+  signedMillions,
   subsidyKey,
   usePlatformEconomy,
+  withPlan,
+  yearsText,
   type EconParam,
   type EconReport,
 } from '~/composables/usePlatformEconomy'
@@ -24,6 +27,10 @@ const PROCESS_KEYS = new Set<string>(PROCESS_PARAM_KEYS)
 const draft = ref<Record<string, number>>({})
 const processDraft = ref<Record<string, Record<string, number>>>({})
 const saved = ref<Record<string, number>>({})
+/* Правки платформы и проекта, которые не допущения: число роботов, исключённые процессы, выработка. Их не двигают
+   ползунками и не считают «своими значениями», но с ними what-if считает то же, что шаг «Экономика». */
+const STRUCTURAL = /^(count:|off:|rate:|auto)/
+const fixed = ref<Record<string, number>>({})
 const standard = ref<EconReport | null>(null)
 const params = ref<EconParam[]>([])
 const saving = ref(false)
@@ -61,15 +68,21 @@ const boot = async () => {
   await load()
   if (mine !== bootToken || !report.value) return
   saved.value = { ...report.value.saved_overrides }
-  const split = splitOverrides(report.value.active_overrides ?? report.value.saved_overrides)
+  const base = report.value.active_overrides ?? report.value.saved_overrides
+  const structural = Object.fromEntries(Object.entries(base).filter(([key]) => STRUCTURAL.test(key)))
+  const plan = report.value.plan
+  const planned = !base.auto && plan?.changes.length
+  fixed.value = planned ? withPlan(structural, plan!.changes) : structural
+  const split = splitOverrides(Object.fromEntries(Object.entries(base).filter(([key]) => !STRUCTURAL.test(key))))
   draft.value = { ...split.global }
   processDraft.value = split.by
   params.value = report.value.params
   started = true
   initializing.value = false
   applyTune()
+  if (planned) void load({ ...preview.value })
   try {
-    standard.value = await request({})
+    standard.value = await request({ ...fixed.value })
   } catch {
     standard.value = null
   }
@@ -80,7 +93,8 @@ watch([() => JSON.stringify(source.value ?? null), () => JSON.stringify(choices.
   started = false
   void boot()
 })
-const preview = computed(() => flatten(draft.value, processDraft.value))
+const own = computed(() => flatten(draft.value, processDraft.value))
+const preview = computed(() => ({ ...fixed.value, ...own.value }))
 watch(preview, (value) => {
   if (!started) return
   if (timer) clearTimeout(timer)
@@ -123,7 +137,7 @@ const resetOne = (item: EconParam, scope: 'process' | 'site') => {
   draft.value = next
 }
 const resetAll = () => { draft.value = {}; processDraft.value = {} }
-const changed = computed(() => Object.keys(preview.value).length)
+const changed = computed(() => Object.keys(own.value).length)
 const dirty = computed(() => JSON.stringify(sorted(preview.value)) !== JSON.stringify(sorted(saved.value)))
 const sorted = (value: Record<string, number>) => Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
 
@@ -195,6 +209,37 @@ const pct = (item: EconParam, scope: 'process' | 'site') => `${Math.min(100, Mat
 const digits = (item: EconParam) => (item.step < 1 ? (item.step < 0.1 ? 2 : 1) : 0)
 const num = (value: number, d: number) => value.toLocaleString('ru-RU', { maximumFractionDigits: d, minimumFractionDigits: d })
 
+/* Итог при допущениях: покупка всего парка или выбранного процесса, рядом — она же по стандарту платформы. */
+const purchaseNow = computed(() => robotScenarios.value.find((item) => item.key === 'purchase') ?? null)
+const purchaseWas = computed(() => baseOf('purchase') ?? null)
+const fleetBuy = computed(() => report.value?.scenarios.find((item) => item.key === 'purchase') ?? null)
+const fleetRent = computed(() => report.value?.scenarios.find((item) => item.key === 'raas') ?? null)
+const netOf = (item: { cashflow?: { cumulative: number }[] } | null | undefined) => item?.cashflow?.at(-1)?.cumulative ?? null
+interface Headline { key: string; label: string; value: string; was: string; delta: string; tone: '' | 'good' | 'bad' }
+const headline = computed<Headline[]>(() => {
+  const now = purchaseNow.value
+  if (!now) return []
+  const was = changed.value ? purchaseWas.value : null
+  const horizon = report.value?.horizon_years ?? 5
+  const money = (value: number | null | undefined) => signedMillions(value ?? null)
+  const diff = (a: number | null | undefined, b: number | null | undefined, higherIsBetter: boolean, format: (v: number) => string, eps: number) => {
+    if (a == null || b == null || Math.abs(a - b) < eps) return { delta: '', tone: '' as const }
+    const better = higherIsBetter ? a > b : a < b
+    return { delta: `${a > b ? '+' : '−'}${format(Math.abs(a - b))}`, tone: better ? 'good' as const : 'bad' as const }
+  }
+  const rows: Headline[] = []
+  const pay = diff(now.payback.value, was?.payback.value, false, (v) => yearsText(v), 0.05)
+  rows.push({ key: 'payback', label: 'Окупаемость', value: now.payback.value != null ? yearsText(now.payback.value) : 'нет', was: was ? (was.payback.value != null ? yearsText(was.payback.value) : 'нет') : '', ...pay })
+  const eff = diff(now.effect.value, was?.effect.value, true, (v) => millions(v), 50_000)
+  rows.push({ key: 'effect', label: 'Экономия в год', value: millions(now.effect.value), was: was ? millions(was.effect.value) : '', ...eff })
+  const net = diff(netOf(now), netOf(was), true, (v) => millions(v), 50_000)
+  rows.push({ key: 'net', label: `Итог за ${horizon} лет`, value: money(netOf(now)), was: was ? money(netOf(was)) : '', ...net })
+  const npv = diff(now.npv?.value, was?.npv?.value, true, (v) => millions(v), 50_000)
+  rows.push({ key: 'npv', label: 'NPV', value: money(now.npv?.value), was: was ? money(was.npv?.value) : '', ...npv })
+  return rows
+})
+const standardBuy = computed(() => changed.value && !shownProcess.value ? standard.value?.scenarios.find((item) => item.key === 'purchase') ?? null : null)
+const expert = ref(false)
 const shownProcess = computed(() => report.value?.processes?.find((item) => item.process_code === processCode.value) ?? null)
 const robotScenarios = computed(() => shownProcess.value?.scenarios?.length ? shownProcess.value.scenarios : (report.value?.scenarios ?? []))
 const baseOf = (key: string) => {
@@ -203,22 +248,6 @@ const baseOf = (key: string) => {
     : standard.value?.scenarios
   return rows?.find((item) => item.key === key)
 }
-const paybackDelta = (key: string) => {
-  const now = robotScenarios.value.find((item) => item.key === key)?.payback.value
-  const was = baseOf(key)?.payback.value
-  if (now == null || was == null || Math.abs(now - was) < 0.05) return ''
-  return `${now > was ? '+' : '−'}${num(Math.abs(now - was), 1)} года к стандарту`
-}
-const effectDelta = (key: string) => {
-  const now = robotScenarios.value.find((item) => item.key === key)?.effect.value
-  const was = baseOf(key)?.effect.value
-  if (now == null || was == null || Math.abs(now - was) < 50_000) return ''
-  return `${now > was ? '+' : '−'}${millions(Math.abs(now - was))} к стандарту`
-}
-
-const sens = computed(() => report.value?.sensitivity ?? [])
-const sensMax = computed(() => Math.max(1, ...sens.value.map((item) => Math.abs(item.effect_high - item.effect_low))))
-const purchase = computed(() => robotScenarios.value.find((item) => item.key === 'purchase'))
 </script>
 
 <template>
@@ -240,7 +269,12 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
 
     <UiCallout v-if="isDemo && !readonly" tone="info" title="Демо-объект">Вы правите демо как администратор: сохранённые коэффициенты увидят все после публикации.</UiCallout>
 
-    <section v-if="(pending || loading) && !report" class="waiting glass"><div class="h3">Считаем сценарии</div></section>
+    <StepLoading
+      v-if="(pending || loading) && !report"
+      label="What-if"
+      title="Считаем сценарии"
+      :stages="['Загружаем допущения проекта', 'Считаем покупку и аренду', 'Считаем стандарт платформы для сравнения']"
+    />
     <UiCallout v-else-if="(failure || error) && !report" tone="danger" title="Сценарии не посчитались">{{ failure || fetchErrorMessage(error, 'Сервер не ответил.') }}</UiCallout>
     <div v-else-if="report" class="wi">
       <section class="knobs glass">
@@ -306,59 +340,73 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
       </section>
 
       <div class="out">
+        <!-- Итог при ваших допущениях: четыре цифры и разница со стандартом платформы. -->
         <section class="res glass-graphite glass-graphite-solid">
           <div class="between">
-            <span class="label">{{ shownProcess ? `Процесс «${shownProcess.process_name}»` : 'Сценарии при этих допущениях' }}</span>
+            <span class="label">{{ shownProcess ? `Процесс «${shownProcess.process_name}»` : 'Итог при ваших допущениях' }}</span>
             <span v-if="loading" class="caption live">пересчёт</span>
           </div>
+          <p class="caption res-sub">{{ changed ? `Покупка роботов · сравнение со стандартом платформы, изменено ${changed}` : 'Покупка роботов · все допущения стандартные. Подвиньте параметр слева — здесь появится разница.' }}</p>
+          <div class="big4">
+            <div v-for="item in headline" :key="item.key" class="b4">
+              <span class="caption">{{ item.label }}</span>
+              <span class="mono-lg" :class="item.tone">{{ item.value }}</span>
+              <span v-if="item.delta" class="caption delta" :class="item.tone">{{ item.delta }} · стандарт {{ item.was }}</span>
+            </div>
+          </div>
+          <p v-if="purchaseNow?.verdict" class="body-sm verdict">{{ purchaseNow.verdict }}</p>
           <p v-if="shownProcess" class="caption process-reason">{{ shownProcess.reason }}</p>
           <div class="rows">
             <div v-for="item in robotScenarios" :key="item.key" class="srow">
-              <div class="s-name"><span class="h4">{{ item.title }}</span><span class="caption">{{ item.subtitle }}</span></div>
-              <div class="s-cell">
-                <span class="caption">Окупаемость</span>
-                <span class="mono-lg">{{ item.key === 'asis' ? '—' : item.payback.value != null ? figValue(item.payback.value, 'лет') : report?.status === 'incomplete' ? 'не определена' : 'нет' }}</span>
-                <span v-if="paybackDelta(item.key)" class="caption delta">{{ paybackDelta(item.key) }}</span>
-              </div>
-              <div class="s-cell">
-                <span class="caption">Эффект в год</span>
-                <span class="mono-md">{{ item.key === 'asis' ? 'база' : millions(item.effect.value) }}</span>
-                <span v-if="effectDelta(item.key)" class="caption delta">{{ effectDelta(item.key) }}</span>
-              </div>
-              <div class="s-cell">
-                <span class="caption">CAPEX</span>
-                <span class="mono-md">{{ millions(item.capex.value) }}</span>
-              </div>
-              <div class="s-cell">
-                <span class="caption">TCO за {{ report.horizon_years }} лет</span>
-                <span class="mono-md">{{ millions(item.tco.value) }}</span>
-              </div>
+              <div class="s-name"><span class="h4">{{ item.title }}</span></div>
+              <div class="s-cell"><span class="caption">Вложения</span><span class="mono-md">{{ item.key === 'asis' ? '—' : millions(item.capex.value) }}</span></div>
+              <div class="s-cell"><span class="caption">Экономия в год</span><span class="mono-md">{{ item.key === 'asis' ? 'база' : millions(item.effect.value) }}</span></div>
+              <div class="s-cell"><span class="caption">Окупаемость</span><span class="mono-md">{{ item.key === 'asis' ? '—' : item.key === 'raas' ? `${rentPaybackText(item)}${(item.capex.value ?? 0) > 0 ? ' · внедрение' : ''}` : item.payback.value != null ? yearsText(item.payback.value) : 'нет' }}</span></div>
+              <div class="s-cell"><span class="caption">NPV</span><span class="mono-md">{{ item.key === 'asis' ? '0' : signedMillions(item.npv?.value ?? null) }}</span></div>
             </div>
-          </div>
-          <div v-if="purchase" class="interp">
-            <div class="h4">{{ purchase.verdict }}</div>
-            <p class="body-sm">Пороги из ТЗ: до 3 лет — целесообразно, 3–5 лет — анализ рисков, больше 5 лет — отдельное обоснование.</p>
           </div>
         </section>
 
-        <section class="sens glass">
+        <!-- Деньги по годам: покупка и аренда сейчас, пунктиром — покупка при стандарте. -->
+        <section v-if="fleetBuy?.cashflow?.length" class="glass card">
           <div class="k-in">
-            <div><div class="h3">Чувствительность покупки</div><div class="caption">Весь парк: как меняются эффект в год и срок окупаемости, если параметр меньше или больше на 20%</div></div>
-            <div class="sens-list">
-              <div v-for="item in sens" :key="item.key" class="sens-row">
-                <span class="body-sm" :class="{ 'cost-accent': isAccent(item.key, item.label) }">{{ item.label }}</span>
-                <span class="sens-bar"><span :style="{ width: `${(Math.abs(item.effect_high - item.effect_low) / sensMax) * 100}%` }" /></span>
-                <span class="mono-sm sens-v">
-                  {{ millions(item.effect_low) }} … {{ millions(item.effect_high) }}
-                  <span class="caption block">окупаемость {{ item.payback_low != null ? num(item.payback_low, 1) : 'нет' }} … {{ item.payback_high != null ? num(item.payback_high, 1) : 'нет' }}</span>
-                </span>
-              </div>
-            </div>
+            <div><div class="h3">Деньги по годам</div><div class="caption">Весь парк, накоплено с начала: старт в минусе на вложения, пересечение нуля — окупаемость.{{ standardBuy ? ' Пунктир — покупка при стандартных допущениях.' : '' }}</div></div>
+            <EconCashChart :scenarios="[fleetBuy, ...(fleetRent ? [fleetRent] : [])]" picked="purchase" :ghost="standardBuy" />
+          </div>
+        </section>
+
+        <section v-if="fleetBuy" class="glass card">
+          <div class="k-in">
+            <button type="button" class="ex-head" :aria-expanded="expert" @click="expert = !expert">
+              <span><span class="h4">Показатели для экономиста</span><span class="caption block">NPV, IRR, PI, дисконтированная окупаемость, EAC, вероятность окупиться — весь парк</span></span>
+              <PhCaretDown :size="14" weight="bold" class="g-caret" :class="{ up: expert }" />
+            </button>
+            <EconMetrics
+              v-if="expert"
+              :buy="fleetBuy"
+              :asis="report.scenarios.find((item) => item.key === 'asis') ?? null"
+              :discount="report.discount"
+              :chance="report.chance"
+              :interval="report.interval"
+              :breakeven="report.breakeven ?? []"
+              :sensitivity="report.sensitivity"
+              :horizon="report.horizon_years"
+            />
+          </div>
+        </section>
+
+        <!-- Надёжность: что будет, если пойдёт хуже, запас прочности и что сильнее всего двигает результат. -->
+        <section v-if="report.sensitivity?.length || report.stress?.length" class="glass card">
+          <div class="k-in">
+            <div><div class="h3">Насколько надёжен результат</div><div class="caption">Весь парк при ваших допущениях. Диапазоны — из источников нормативов, без «±20%».</div></div>
+            <EconRisk :interval="report.interval" :breakeven="report.breakeven ?? []" :sensitivity="report.sensitivity" :stress="report.stress ?? []" :chance="report.chance" :horizon="report.horizon_years" />
           </div>
         </section>
       </div>
     </div>
   </ProjectShell>
+  <!-- Пока проект грузится — загрузка, а не «не найден»: на первом показе данных ещё нет всегда. -->
+  <section v-else-if="pending" class="container opening"><StepLoading label="Проект" title="Открываем проект" :timer="false" /></section>
   <section v-else class="container gone">
     <UiCallout tone="danger" title="Проект не найден">Нет сохранённого расчёта с таким адресом.</UiCallout>
   </section>
@@ -415,22 +463,31 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
 .interp { display: grid; gap: 6px; padding-top: var(--space-4); border-top: 1px solid rgba(255, 255, 255, 0.1); }
 .interp .h4 { color: var(--brand-300); }
 .interp p { margin: 0; }
-.sens-list { display: grid; gap: 12px; }
-.sens-row { display: grid; grid-template-columns: 190px 1fr 220px; gap: 14px; align-items: center; }
-.sens-bar { height: 8px; border-radius: 4px; background: rgba(15, 20, 19, 0.06); overflow: hidden; }
-.sens-bar span { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--brand-400), var(--brand-600)); transition: width var(--dur-mid) var(--ease); }
-.sens-v { color: var(--ink-strong); text-align: right; }
 .block { display: block; }
 @media (max-width: 1100px) {
   .wi { grid-template-columns: 1fr; }
   .out { position: static; }
   .srow { grid-template-columns: 1fr 1fr; }
   .s-name { grid-column: 1 / -1; }
-  .sens-row { grid-template-columns: 1fr; }
-  .sens-v { text-align: left; }
-}
+    }
 .g-sum { display: inline-flex; align-items: center; gap: 6px; }
 .g-sum.changed { color: var(--brand-700); font-weight: 700; }
 .g-caret { color: var(--ink-faint); transition: transform var(--dur-fast) var(--ease); }
 .g-caret.up { transform: rotate(180deg); }
+.res-sub { margin: 4px 0 0; color: var(--ink-muted-graphite); }
+.big4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: 14px; }
+.b4 { display: grid; gap: 2px; align-content: start; padding: 12px 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.06); }
+.b4 .caption { color: var(--ink-muted-graphite); }
+.b4 .mono-lg { font-size: 22px; font-weight: 700; color: #fff; white-space: nowrap; }
+.b4 .good { color: var(--brand-300) !important; }
+.b4 .bad { color: #ff8a80 !important; }
+.verdict { margin: 12px 0 0; color: var(--ink-on-graphite); }
+.card { border-radius: var(--radius-xl); }
+.ex-head { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 12px; text-align: left; }
+.ex-head:hover .h4 { color: var(--link); }
+.ex-head .h4 { margin: 0; }
+.block { display: block; }
+@media (max-width: 1300px) { .big4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.srow .s-name .h4 { color: var(--ink-on-graphite); }
+.opening { padding-top: var(--space-8); padding-bottom: var(--space-8); }
 </style>

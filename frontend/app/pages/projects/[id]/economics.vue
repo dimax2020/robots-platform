@@ -4,6 +4,7 @@ import { PhArrowRight, PhCaretDown, PhProhibit, PhStorefront, PhUser } from '@ph
 import {
   millions,
   monthsText,
+  rentPaybackText,
   PARAM_GROUPS,
   PRELIMINARY,
   rubles,
@@ -309,7 +310,7 @@ const openParam = ref<string | null>(null)
 /* Покупка или аренда. */
 const compareRows = computed(() => {
   const cols = [scenarioOf('asis'), buy.value, rent.value]
-  const pay = (item: EconScenario | null) => !item || item.key === 'asis' ? '—' : item.key === 'raas' ? 'не нужна' : item.payback.value != null ? yearsText(item.payback.value) : 'нет'
+  const pay = (item: EconScenario | null) => !item || item.key === 'asis' ? '—' : item.key === 'raas' ? `${rentPaybackText(item)}${(item.capex.value ?? 0) > 0 ? ' · внедрение' : ''}` : item.payback.value != null ? yearsText(item.payback.value) : 'нет'
   return {
     cols,
     rows: [
@@ -324,6 +325,16 @@ const compareRows = computed(() => {
   }
 })
 const switchOpen = ref(false)
+/* Индексация аренды по договору: в постоянных ценах важна только часть сверх инфляции. */
+const rentGrowth = computed(() => {
+  const value = report.value?.params.find((item) => item.key === 'raas_growth_pct')?.value
+  const inflation = report.value?.params.find((item) => item.key === 'inflation_target_pct')?.value ?? 4
+  if (value == null) return ''
+  const real = ((1 + value / 100) / (1 + inflation / 100) - 1) * 100
+  const fmt = (n: number) => n.toLocaleString('ru-RU', { maximumFractionDigits: 1 })
+  if (Math.abs(real) < 0.05) return `Платёж аренды индексируется на ${fmt(value)}% в год — на уровне инфляции, поэтому в постоянных ценах он не растёт.`
+  return `Платёж аренды индексируется на ${fmt(value)}% в год: в постоянных ценах он ${real > 0 ? 'дорожает' : 'дешевеет'} на ${fmt(Math.abs(real))}% в год, к ${report.value?.horizon_years ?? 5}-му году — на ${fmt(Math.abs(((1 + real / 100) ** ((report.value?.horizon_years ?? 5) - 1) - 1) * 100))}%.`
+})
 const switchText = computed(() => {
   const fig = report.value?.switch
   if (!fig) return ''
@@ -394,7 +405,13 @@ const inactiveOpen = ref(false)
       Вы правите демо как администратор: параметры и коэффициенты сохраняются в проект и после публикации станут видны всем.
     </UiCallout>
 
-    <section v-if="(pending || loading) && !report" class="waiting glass"><div class="h3">Считаем экономику</div></section>
+    <StepLoading
+      v-if="(pending || loading) && !report"
+      label="Экономика"
+      title="Считаем экономику"
+      :stages="['Подбираем роботов по процессам', 'Считаем людей и операции на каждом процессе', 'Считаем вложения, налоги и деньги по годам', 'Ищем лучший состав и проверяем надёжность']"
+    />
+    <span v-if="loading && report" class="recalc" role="status">Пересчитываем…</span>
     <UiCallout v-else-if="failure || error" tone="danger" title="Экономика не посчиталась">{{ failure || fetchErrorMessage(error, 'Сервер не ответил.') }}</UiCallout>
     <template v-else-if="report && buy && viewProcess">
       <UiCallout v-if="editError" tone="danger">{{ editError }}</UiCallout>
@@ -604,6 +621,7 @@ const inactiveOpen = ref(false)
               <button type="button" class="reset" @click="switchOpen = !switchOpen">{{ switchOpen ? 'скрыть расчёт' : 'как посчитано' }}</button>
             </div>
             <EconFormula v-if="switchOpen && report.switch" :fig="report.switch" />
+            <p v-if="rentGrowth" class="caption">{{ rentGrowth }} <NuxtLink :to="`/projects/${project.id}/what-if`" class="reset">Изменить в what-if</NuxtLink></p>
             <table class="cmp">
               <thead><tr><th /><th v-for="col in compareRows.cols" :key="col?.key">{{ col?.title }}</th></tr></thead>
               <tbody>
@@ -686,6 +704,8 @@ const inactiveOpen = ref(false)
       <p class="caption prelim">{{ report.disclaimer ?? PRELIMINARY }}<template v-if="readonly"> В демо изменения действуют до перезагрузки страницы.</template></p>
     </template>
   </ProjectShell>
+  <!-- Пока проект грузится — загрузка, а не «не найден»: на первом показе данных ещё нет всегда. -->
+  <section v-else-if="pending" class="container opening"><StepLoading label="Проект" title="Открываем проект" :timer="false" /></section>
   <section v-else class="container gone">
     <UiCallout tone="danger" title="Проект не найден">Нет сохранённого расчёта с таким адресом.</UiCallout>
   </section>
@@ -713,6 +733,8 @@ const inactiveOpen = ref(false)
 .tabs-wrap :deep(.tabs) { min-width: 940px; }
 .q-lead { margin: calc(var(--space-2) * -1) 0 calc(var(--space-2) * -1); max-width: 100ch; }
 
+.recalc { position: fixed; right: 24px; bottom: 24px; z-index: 50; padding: 10px 16px; border-radius: 999px; background: var(--surface-graphite); color: #fff; font-size: 13px; font-weight: 700; box-shadow: 0 8px 24px rgba(15, 20, 19, 0.25); animation: recalc 1.2s ease-in-out infinite; }
+@keyframes recalc { 50% { opacity: 0.7; } }
 .stage-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
 .p-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .tally { white-space: nowrap; color: var(--ink-muted); margin-right: 6px; }
@@ -787,4 +809,5 @@ const inactiveOpen = ref(false)
   .coef-btn :deep(.badge) { display: none; }
   .coef-body { padding-left: 14px; grid-template-columns: 1fr; }
 }
+.opening { padding-top: var(--space-8); padding-bottom: var(--space-8); }
 </style>

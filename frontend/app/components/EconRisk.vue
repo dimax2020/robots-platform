@@ -37,7 +37,8 @@ const points = computed(() => props.breakeven.map((item) => {
 
 const TOP = 8
 const showAll = ref(false)
-const rows = computed(() => props.sensitivity.filter((item) => item.npv_low != null && item.npv_high != null))
+/* Параметры, которые результат почти не двигают (меньше 0,5% разброса), не показываем: они только шумят. */
+const rows = computed(() => props.sensitivity.filter((item) => item.npv_low != null && item.npv_high != null && (item.share ?? 1) >= 0.005))
 const shown = computed(() => showAll.value ? rows.value : rows.value.slice(0, TOP))
 const center = computed(() => props.interval?.npv ?? rows.value[0]?.npv ?? 0)
 const span = computed(() => {

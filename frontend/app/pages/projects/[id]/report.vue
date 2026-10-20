@@ -1,210 +1,72 @@
 <script setup lang="ts">
-import { PhPrinter, PhFileXls, PhFileCsv, PhArrowRight, PhFlask } from '@phosphor-icons/vue'
-import { objectTypeImage, objectTypeLabel } from '~/data/projects'
-import { downloadText, toCsv, toExcelXml, pickReportSheets } from '~/utils/exportTables'
+import { PhFilePdf, PhFileXls } from '@phosphor-icons/vue'
+import { objectTypeImage } from '~/data/projects'
+import { photoFor } from '~/data/placeholders'
+import { downloadText, toExcelXml } from '~/utils/exportTables'
 import { fetchErrorMessage } from '~/utils/errors'
-import { useProjectReport } from '~/composables/useProjectReport'
-import { figValue, millions, SOURCE_TONE } from '~/composables/usePlatformEconomy'
-import { isAccent } from '~/utils/accent'
-import { formatDemoValue, formatOrigin } from '~/utils/demoSynthetic'
+import { REPORT_NOTE, useReportData } from '~/composables/useReportData'
 
+/**
+ * Итоговый отчёт (ТЗ 3.7). Обложка с фото, краткая часть для руководителя и приложения для экономиста.
+ * Документ свёрстан под A4: на экране он такой же, как в PDF, поэтому при печати ничего не съезжает.
+ * Excel — те же разделы таблицами, чтобы экономист мог пересчитать.
+ */
 const route = useRoute()
 const id = computed(() => route.params.id as string)
-const doc = useProjectReport(id)
+const doc = useReportData(id)
 const project = computed(() => doc.project.value)
 useHead({ title: () => `Отчёт · ${project.value?.name ?? 'проект'}` })
 
-const coverSrc = computed(() => project.value ? objectTypeImage[project.value.objectType] : objectTypeImage.warehouse)
-/* Одна фраза про объект. Цифры площадки идут следом, под картинкой первого листа. */
-const objectAbout = computed(() => {
-  const row = project.value
-  if (!row) return ''
-  const industry = row.industry ? `, отрасль ${row.industry}` : ''
-  return `${objectTypeLabel[row.objectType]} «${row.name}»${industry}. Параметры, по которым собран подбор.`
+const mode = ref<'brief' | 'full'>('brief')
+const cover = computed(() => project.value ? objectTypeImage[project.value.objectType] : objectTypeImage.warehouse)
+/* Параметры объекта на обложке — самые узнаваемые, не больше восьми. */
+const COVER_KEYS = ['Площадь', 'Смен в сутки', 'Длительность смены', 'Рабочих дней в году', 'Общая численность персонала склада', 'Бюджет на роботизацию', 'Объём приёмки', 'Объём отгрузки']
+const coverParams = computed(() => {
+  const picked = doc.siteRows.value.filter((row) => COVER_KEYS.includes(row.label))
+  return (picked.length >= 4 ? picked : doc.siteRows.value).slice(0, 8)
 })
-const coverTitle = ref<HTMLElement | null>(null)
 
-const printing = ref(false)
-const fitCoverTitle = () => {
-  if (printing.value) return
-  const el = coverTitle.value
-  if (!el) return
-  el.style.fontSize = ''
-  const max = 42
-  const min = 16
-  let size = max
-  el.style.whiteSpace = 'nowrap'
-  el.style.fontSize = `${size}px`
-  while (size > min && el.scrollWidth > el.clientWidth + 1) {
-    size -= 1
-    el.style.fontSize = `${size}px`
-  }
-}
-
-const print = () => {
-  if (!import.meta.client) return
+const print = async (kind: 'brief' | 'full') => {
+  if (!import.meta.client || !doc.ready.value) return
+  mode.value = kind
+  await nextTick()
   const prev = document.title
-  document.title = project.value?.name ?? 'Отчёт'
-  printing.value = true
-  if (coverTitle.value) {
-    coverTitle.value.style.fontSize = ''
-    coverTitle.value.style.whiteSpace = ''
-  }
+  document.title = `${project.value?.name ?? 'Отчёт'} — ${kind === 'brief' ? 'кратко' : 'полный отчёт'}`
   const restore = () => {
-    printing.value = false
     document.title = prev
-    fitCoverTitle()
     window.removeEventListener('afterprint', restore)
   }
   window.addEventListener('afterprint', restore)
   window.print()
 }
-
-watch(() => [project.value?.name, doc.ready.value], () => nextTick(fitCoverTitle))
-
-onMounted(() => {
-  nextTick(fitCoverTitle)
-  if (typeof ResizeObserver === 'undefined') return
-  const box = coverTitle.value?.parentElement
-  if (!box) return
-  const ro = new ResizeObserver(() => fitCoverTitle())
-  ro.observe(box)
-  onBeforeUnmount(() => ro.disconnect())
-})
-
-const blocked = computed(() => !doc.ready.value)
-const blockTitle = computed(() => {
-  const step = doc.missing.value[0]
-  return step ? `${step.text} Выгрузка пустого файла не стартует.` : 'Отчёт ещё не собран.'
-})
-
-const exportTables = (kind: 'xlsx' | 'csv') => {
-  if (blocked.value || !project.value) return
-  /* В файл попадают обложка и только отмеченные разделы. Снятая галочка лист не создаёт. */
-  const sheets = pickReportSheets(doc.sheets.value, {
-    match: showMatch.value,
-    economy: showEconomy.value,
-    whatif: showWhatIf.value,
-  })
-  if (!sheets.length) return
-  const stem = doc.stem.value
-  if (kind === 'csv') downloadText(`${stem}.csv`, 'text/csv;charset=utf-8', toCsv(sheets, doc.disclaimer.value))
-  else downloadText(`${stem}.xls`, 'application/vnd.ms-excel', toExcelXml(sheets, doc.disclaimer.value))
+const exportExcel = () => {
+  if (!doc.ready.value || !doc.sheets.value.length) return
+  downloadText(`${doc.stem.value}_расчёт.xls`, 'application/vnd.ms-excel', toExcelXml(doc.sheets.value, REPORT_NOTE))
 }
-
-const sourceText = (source: string) => ({ norm: 'стандарт', project: 'значение проекта', site: 'площадка', card: 'карточка', fleet: 'парк', calc: 'расчёт' } as Record<string, string>)[source] ?? source
-/* Чувствительность как «торнадо»: полоса — куда уходит годовой эффект покупки при сдвиге допущения на ±20%,
-   центр — текущий эффект. Шкала общая для всех строк, самые влиятельные допущения сверху. */
-const paybackText = (value: number | null) => value == null ? 'не окупается' : figValue(value, 'лет')
-const plainNum = (value: number) => value.toLocaleString('ru-RU', { maximumFractionDigits: Math.abs(value) < 10 ? 2 : 1 })
-const signedMillions = (value: number) => `${value > 0 ? '+' : value < 0 ? '−' : ''}${millions(Math.abs(value))}`
-const sensRows = computed(() => {
-  const rows = doc.econ.value?.sensitivity ?? []
-  const spread = Math.max(1, ...rows.flatMap((row) => [Math.abs(row.effect_low - row.effect), Math.abs(row.effect_high - row.effect)]))
-  const segment = (value: number, base: number) => {
-    const edge = 50 + ((value - base) / spread) * 50
-    return { left: `${Math.min(edge, 50)}%`, width: `${Math.max(Math.abs(edge - 50), 0.6)}%`, good: value >= base }
-  }
-  return [...rows]
-    .sort((a, b) => Math.abs(b.effect_high - b.effect_low) - Math.abs(a.effect_high - a.effect_low))
-    .map((row) => {
-      const low = paybackText(row.payback_low)
-      const high = paybackText(row.payback_high)
-      return {
-        key: row.key,
-        label: row.label,
-        now: figValue(row.value, row.unit),
-        range: `${plainNum(row.low_value)} … ${plainNum(row.high_value)}`,
-        down: segment(row.effect_low, row.effect),
-        up: segment(row.effect_high, row.effect),
-        ends: [
-          { key: 'down', text: `−20%: ${signedMillions(row.effect_low - row.effect)}`, value: row.effect_low },
-          { key: 'up', text: `+20%: ${signedMillions(row.effect_high - row.effect)}`, value: row.effect_high },
-        ].sort((a, b) => a.value - b.value),
-        payback: low === high ? low : `${low} … ${high}`,
-      }
-    })
+const capexRows = computed(() => {
+  const labels = [...new Set([...doc.statement.value.buyCapex, ...doc.statement.value.rentCapex].map((line) => line.label))]
+  return labels.map((label) => [label, doc.statement.value.buyCapex.find((line) => line.label === label)?.value ?? '—', doc.statement.value.rentCapex.find((line) => line.label === label)?.value ?? '—'])
 })
-const sensBase = computed(() => {
-  const row = doc.econ.value?.sensitivity[0]
-  return row ? { effect: millions(row.effect), payback: paybackText(row.payback) } : null
+const opexRows = computed(() => {
+  const labels = [...new Set([...doc.statement.value.buyOpex, ...doc.statement.value.rentOpex].map((line) => line.label))]
+  return labels.map((label) => [label, doc.statement.value.buyOpex.find((line) => line.label === label)?.value ?? '—', doc.statement.value.rentOpex.find((line) => line.label === label)?.value ?? '—'])
 })
-
-const chartLabel = (value: number) => (value / 1_000_000).toLocaleString('ru-RU', { maximumFractionDigits: 0 })
-const robotGloss = computed(() => {
-  const seen = new Set<string>()
-  const rows: { label: string; note: string }[] = []
-  for (const robot of doc.robots.value) {
-    for (const item of robot.fig?.vars ?? []) {
-      const note = item.note?.trim()
-      if (!note) continue
-      const key = `${item.label}\u0000${note}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      rows.push({ label: item.label, note })
-    }
-  }
-  return rows
-})
-
-/* Подбор, экономика и what-if включаются галочками. Снятая галочка убирает раздел и из экрана, и из печати. */
-const KIND_LABEL: Record<string, string> = {
-  asis: 'Без роботизации',
-  purchase: 'Покупка',
-  raas: 'Аренда',
+/* Фото робота не загрузилось — ставим заглушку процесса, чтобы в PDF не было битой картинки. */
+const onImageError = (event: Event, process: string) => {
+  const img = event.target as HTMLImageElement
+  const fallback = photoFor(null, '', process)
+  if (img.src !== fallback) img.src = fallback
 }
-const showMatch = ref(true)
-/* Формулы и what-if человек включает сам. При открытии отчёта их нет. */
-const showEconomy = ref(false)
-const showWhatIf = ref(false)
-const visibleScenarios = computed(() => doc.scenarios.value)
-const visibleAdvice = computed(() => {
-  const report = doc.econ.value
-  if (!report) return null
-  const rows = report.scenarios.filter((item) => item.tco.value != null)
-  const ranked = rows.slice().sort((left, right) => (left.tco.value ?? 0) - (right.tco.value ?? 0))
-  const winner = ranked[0]
-  if (!winner) return null
-  const next = ranked[1]
-  const gap = next?.tco.value != null && winner.tco.value != null ? next.tco.value - winner.tco.value : null
-  const versus = next && gap != null
-    ? `За ${report.horizon_years} лет это ${millions(winner.tco.value)}, на ${millions(gap)} меньше, чем «${KIND_LABEL[next.key] || next.title}».`
-    : `За ${report.horizon_years} лет это ${millions(winner.tco.value)}.`
-  return {
-    headline: `Выгоднее «${KIND_LABEL[winner.key] || winner.title}»`,
-    detail: versus,
-    rows: ranked.map((item) => ({
-      key: item.key,
-      title: KIND_LABEL[item.key] || item.title,
-      tco: millions(item.tco.value),
-      gap: item.key === winner.key || winner.tco.value == null || item.tco.value == null ? (item.key === winner.key ? 'минимум' : '—') : `+${millions(item.tco.value - winner.tco.value)}`,
-      effect: item.key === 'asis' ? 'база' : millions(item.effect.value),
-      payback: item.key === 'asis' ? '—' : (item.payback.value != null ? figValue(item.payback.value, 'лет') : 'нет'),
-      winner: item.key === winner.key,
-    })),
-  }
-})
-const chartMax = computed(() => Math.max(1, ...doc.chart.value.years.flatMap((row) => row.bars.map((bar) => bar.value))))
-const formulaBlocks = computed(() => doc.formulas.value)
-const showWhatIfBlock = computed(() => showWhatIf.value && (doc.paramGroups.value.length > 0 || (doc.econ.value?.sensitivity.length ?? 0) > 0))
-const sec = computed(() => {
-  const ids: string[] = []
-  if (showMatch.value) ids.push('summary', 'robots', 'processes')
-  if (showEconomy.value && formulaBlocks.value.length) {
-    const at = showMatch.value ? 1 : 0
-    ids.splice(at, 0, 'formulas')
-  }
-  if (showWhatIfBlock.value) ids.push('whatif')
-  if (doc.limits.value.length) ids.push('limits')
-  const out: Record<string, string> = {}
-  ids.forEach((key, index) => { out[key] = String(index + 1).padStart(2, '0') })
-  return out
-})
-const showAll = () => {
-  showMatch.value = true
-  showEconomy.value = true
-  showWhatIf.value = true
-}
+const SCEN_ROWS = [
+  { key: 'capex', label: 'Вложения (CAPEX)' },
+  { key: 'cost', label: 'Затраты в год (OPEX и оставшийся ФОТ)' },
+  { key: 'change', label: 'Изменение затрат к базе' },
+  { key: 'effect', label: 'Годовой эффект' },
+  { key: 'payback', label: 'Срок окупаемости' },
+  { key: 'roi', label: 'ROI за горизонт' },
+  { key: 'tco', label: 'TCO за горизонт' },
+  { key: 'npv', label: 'NPV' },
+] as const
 </script>
 
 <template>
@@ -213,786 +75,422 @@ const showAll = () => {
     :project="project"
     current="report"
     title="Отчёт"
-    lead="Отметьте, что включить в отчёт: подбор, формулы и what-if."
+    lead="Кратко — обложка и два листа для руководителя. Полностью — с приложениями: подбор, парк, статьи затрат, формулы, надёжность, схема и источники. Excel — расчётные таблицы."
     dense
   >
     <template v-if="!doc.closed.value" #actions>
-      <UiButton variant="secondary" class="no-print" :disabled="blocked" :title="blocked ? blockTitle : undefined" @click="print">
-        <template #icon><PhPrinter :size="16" weight="bold" /></template>Печать в PDF
-      </UiButton>
-      <UiButton variant="secondary" class="no-print" :disabled="blocked" :title="blocked ? blockTitle : undefined" @click="exportTables('xlsx')">
-        <template #icon><PhFileXls :size="16" weight="duotone" /></template>Excel
-      </UiButton>
-      <UiButton variant="secondary" class="no-print" :disabled="blocked" :title="blocked ? blockTitle : undefined" @click="exportTables('csv')">
-        <template #icon><PhFileCsv :size="16" weight="duotone" /></template>CSV
-      </UiButton>
+      <div class="modes no-print" role="radiogroup" aria-label="Вид отчёта">
+        <button type="button" role="radio" :aria-checked="mode === 'brief'" :class="{ on: mode === 'brief' }" @click="mode = 'brief'">Кратко</button>
+        <button type="button" role="radio" :aria-checked="mode === 'full'" :class="{ on: mode === 'full' }" @click="mode = 'full'">Полностью</button>
+      </div>
+      <UiButton variant="secondary" class="no-print" :disabled="!doc.ready.value" @click="print('brief')"><template #icon><PhFilePdf :size="16" weight="duotone" /></template>PDF кратко</UiButton>
+      <UiButton variant="secondary" class="no-print" :disabled="!doc.ready.value" @click="print('full')"><template #icon><PhFilePdf :size="16" weight="duotone" /></template>PDF полный</UiButton>
+      <UiButton class="no-print" :disabled="!doc.ready.value" @click="exportExcel"><template #icon><PhFileXls :size="16" weight="duotone" /></template>Excel</UiButton>
     </template>
 
-    <UiCallout v-if="doc.role.value === 'guest'" class="no-print" tone="info">Это демо-отчёт. Гость может открыть и распечатать его, сохранения собственного проекта у гостя нет.</UiCallout>
-    <UiCallout v-if="doc.closed.value" class="no-print" tone="info" title="Урезанный путь">Экраны экономики, what-if, плана и отчёта для аэропорта и медучреждения в MVP не собираются. Доступны параметры, подбор и сравнение.</UiCallout>
-    <UiCallout v-for="step in doc.missing.value" :key="step.id" class="no-print" tone="warn" :title="`Не пройден шаг «${step.label}»`">
-      {{ step.text }} <NuxtLink :to="step.to" class="go">Перейти к шагу <PhArrowRight :size="14" weight="bold" /></NuxtLink>
-    </UiCallout>
+    <UiCallout v-if="doc.closed.value" tone="info" title="Отчёт для этого объекта не собирается">Полный путь с экономикой доступен для склада, аэропорта и больницы.</UiCallout>
+    <StepLoading
+      v-else-if="!doc.report.value && !doc.failure.value"
+      label="Отчёт"
+      title="Собираем отчёт"
+      :stages="['Загружаем подбор и выбор роботов', 'Считаем экономику по процессам', 'Готовим выводы, таблицы и формулы']"
+    />
+    <UiCallout v-else-if="doc.failure.value" tone="danger" title="Отчёт не собрался">{{ fetchErrorMessage(doc.failure.value, 'Сервер не ответил.') }}</UiCallout>
 
-    <section v-if="doc.pending.value && !doc.ready.value && !doc.closed.value" class="waiting glass"><div class="h3">Собираем отчёт</div></section>
-    <UiCallout v-else-if="!doc.ready.value && (doc.failure.value || doc.error.value)" class="no-print" tone="danger" title="Отчёт не собрался">{{ doc.failure.value || fetchErrorMessage(doc.error.value, 'Сервер не ответил.') }}</UiCallout>
-
-    <aside v-if="doc.ready.value" class="pick no-print glass">
-      <div class="pick-head">
-        <div class="h3">Конструктор отчёта</div>
-        <button type="button" class="text-btn" @click="showAll">Включить всё</button>
-      </div>
-      <div class="pick-grid">
-        <label class="pick-item" :class="{ on: showMatch }">
-          <input v-model="showMatch" type="checkbox">
-          <span class="box" aria-hidden="true"></span>
-          <span>Подбор</span>
-        </label>
-        <label class="pick-item" :class="{ on: showEconomy }">
-          <input v-model="showEconomy" type="checkbox">
-          <span class="box" aria-hidden="true"></span>
-          <span>Экономика</span>
-        </label>
-        <label class="pick-item" :class="{ on: showWhatIf }">
-          <input v-model="showWhatIf" type="checkbox">
-          <span class="box" aria-hidden="true"></span>
-          <span>What-if</span>
-        </label>
-      </div>
-    </aside>
-
-    <article v-if="doc.ready.value" class="report" v-reveal>
-      <section class="cover">
-        <div class="cover-top">
-          <Logo :size="34" mint wordmark on-graphite />
-          <span class="cover-mark">Предварительная экспресс-оценка</span>
-        </div>
-        <figure class="cover-hero">
-          <img :src="coverSrc" :alt="objectTypeLabel[project.objectType]">
-        </figure>
-        <div class="cover-title">
-          <p class="cover-kicker">{{ objectTypeLabel[project.objectType] }} · {{ project.industry }}</p>
-          <h2 ref="coverTitle" class="cover-h">{{ project.name }}</h2>
-        </div>
-        <div class="cover-object">
-          <p class="cover-about">{{ objectAbout }}</p>
-          <dl v-if="doc.params.value.length" class="cover-params">
-            <div v-for="item in doc.params.value" :key="item.label"><dt>{{ item.label }}</dt><dd>{{ item.value }}</dd></div>
+    <article v-else class="doc">
+      <!-- ОБЛОЖКА: фото объекта на весь верх листа, название, параметры, итог одной строкой. -->
+      <section class="sheet cover">
+        <figure class="c-hero"><img :src="cover" :alt="doc.objectLine.value"></figure>
+        <div class="c-top"><Logo :size="30" mint wordmark on-graphite /><span class="c-mark">Отчёт о роботизации · предварительная оценка</span></div>
+        <div class="c-body">
+          <span class="c-kicker">{{ doc.objectLine.value }}</span>
+          <h1 class="c-title">{{ project.name }}</h1>
+          <div class="c-verdict" :class="doc.verdict.value.tone">
+            <strong>{{ doc.verdict.value.title }}</strong>
+            <span v-if="doc.kpis.value.length">{{ doc.kpis.value[0]!.label }} {{ doc.kpis.value[0]!.value }} · {{ doc.kpis.value[1]!.label.toLowerCase() }} {{ doc.kpis.value[1]!.value }} · {{ doc.kpis.value[3]!.label.toLowerCase() }} {{ doc.kpis.value[3]!.value }}</span>
+          </div>
+          <dl class="c-params">
+            <div v-for="row in coverParams" :key="row.label"><dt>{{ row.label }}</dt><dd>{{ row.value }}</dd></div>
           </dl>
+          <footer class="c-foot">
+            <span>Дата расчёта: {{ doc.today }}</span>
+            <span>Горизонт: {{ doc.horizon.value }} лет</span>
+            <span>Процессов в расчёте: {{ doc.inTotal.value.length }}</span>
+          </footer>
         </div>
-        <footer class="cover-foot">
-          <span>{{ doc.today.value }}</span>
-          <span>каталог {{ project.catalogVersion }}</span>
-          <span>модель {{ project.modelVersion }}</span>
-        </footer>
       </section>
 
-      <div class="r-in">
-        <AssessmentNotice :report="doc.econ.value" :text="doc.disclaimer.value">
-          <p>Числа, формулы и допущения взяты из расчёта экономики и what-if.</p>
-        </AssessmentNotice>
+      <!-- ЛИСТ 1. Заключение, цифры, сравнение сценариев, что роботизировать. -->
+      <section class="sheet">
+        <header class="s-head"><span class="kicker">Краткий отчёт · 1</span><span class="muted small">{{ project.name }}</span></header>
+        <h2>Заключение</h2>
+        <div class="verdict" :class="doc.verdict.value.tone">
+          <strong>{{ doc.verdict.value.title }}</strong>
+          <span>{{ doc.verdict.value.why }}</span>
+          <span v-if="doc.tzVerdict.value" class="small">Интерпретация по порогам ТЗ: {{ doc.tzVerdict.value }}</span>
+        </div>
+        <div class="kpis">
+          <div v-for="item in doc.kpis.value" :key="item.label" class="kpi">
+            <span class="k-label">{{ item.label }}</span>
+            <span class="k-value">{{ item.value }}</span>
+            <span class="k-note">{{ item.note }}</span>
+          </div>
+        </div>
 
-        <section v-if="doc.demoSynthetic.value.length" class="synthetic-summary">
-          <h3>Синтетические допущения DEV</h3>
-          <p class="synthetic-legend"><PhFlask :size="16" weight="duotone" aria-hidden="true" /> — синтетическое значение, требующее проверки. Происхождение и пояснения приведены в приложении А.</p>
-          <div v-for="group in doc.demoSynthetic.value" :key="`${group.process_code}:${group.product_id}:${group.name}`">
-            <h4>{{ group.name }} · {{ group.process_name }}</h4>
-            <p>Включён в экономический парк: {{ group.included_in_economy ? 'да' : 'нет' }}</p>
-            <table class="table">
-              <thead><tr><th>Характеристика</th><th>Значение</th></tr></thead>
-              <tbody>
-                <tr v-for="item in group.fields" :key="item.key">
-                  <td>{{ item.label }}</td><td>{{ formatDemoValue(item.value) }} {{ item.unit }}<SyntheticMarker v-if="item.origin === 'demo_synthetic'" :origin="item.origin" :explanation="item.explanation" /></td>
-                </tr>
-              </tbody>
+        <h2>Сравнение сценариев</h2>
+        <table class="tbl scen">
+          <colgroup><col style="width: 34%"><col style="width: 22%"><col style="width: 22%"><col style="width: 22%"></colgroup>
+          <thead><tr><th>Показатель</th><th v-for="col in doc.scenarioTable.value" :key="col.key" class="num" :class="{ best: col.best }">{{ col.title }}<span v-if="col.best" class="tag">выгоднее</span></th></tr></thead>
+          <tbody>
+            <tr v-for="row in SCEN_ROWS" :key="row.key">
+              <th>{{ row.label }}</th>
+              <td v-for="col in doc.scenarioTable.value" :key="col.key" class="num" :class="{ best: col.best }">{{ col[row.key] }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="small muted">Горизонт {{ doc.horizon.value }} лет. Окупаемость аренды — срок, за который вернутся её собственные вложения во внедрение на площадке: роботов при аренде покупать не нужно. {{ doc.rentLine.value }}</p>
+
+        <h2>Что роботизировать</h2>
+        <table class="tbl">
+          <colgroup><col style="width: 30%"><col style="width: 30%"><col style="width: 13%"><col style="width: 14%"><col style="width: 13%"></colgroup>
+          <thead><tr><th>Процесс</th><th>Робот</th><th class="num">Вложения</th><th class="num">Экономия в год</th><th class="num">Окупаемость</th></tr></thead>
+          <tbody>
+            <tr v-for="row in doc.plan.value" :key="row.code"><td>{{ row.name }}</td><td>{{ row.robot }}</td><td class="num">{{ row.capex }}</td><td class="num">{{ row.saving }}</td><td class="num">{{ row.payback }}</td></tr>
+            <tr v-if="!doc.plan.value.length"><td colspan="5" class="muted">Ни один процесс не окупается при текущих данных.</td></tr>
+          </tbody>
+        </table>
+        <p v-if="doc.outOfTotal.value.length" class="small muted">Не вошли в итог: {{ doc.outOfTotal.value.map((item) => item.process_name).join(', ') }}.</p>
+      </section>
+
+      <!-- ЛИСТ 2. Деньги, чувствительность, риски, что уточнить. -->
+      <section class="sheet">
+        <header class="s-head"><span class="kicker">Краткий отчёт · 2</span><span class="muted small">{{ project.name }}</span></header>
+        <h2>Деньги по годам</h2>
+        <div class="chart"><EconCashChart v-if="doc.buy.value" :scenarios="[doc.buy.value, ...(doc.rent.value ? [doc.rent.value] : [])]" picked="purchase" /></div>
+
+        <h2>Чувствительность сценариев</h2>
+        <table class="tbl">
+          <colgroup><col style="width: 28%"><col style="width: 24%"><col style="width: 24%"><col style="width: 24%"></colgroup>
+          <thead><tr><th>Параметр</th><th>Диапазон</th><th class="num">NPV покупки</th><th class="num">NPV аренды</th></tr></thead>
+          <tbody><tr v-for="row in doc.sensitivityBoth.value" :key="row.label"><th>{{ row.label }}</th><td class="small">{{ row.range }}</td><td class="num">{{ row.buy }}</td><td class="num">{{ row.rent }}</td></tr></tbody>
+        </table>
+
+        <h2>Риски</h2>
+        <div v-if="doc.risk.value" class="risk">
+          <div><span class="k-label">Вероятность окупиться</span><span class="r-value">{{ doc.risk.value.chance }}</span></div>
+          <div><span class="k-label">NPV, разброс</span><span class="r-value">{{ doc.risk.value.interval }}</span></div>
+          <div><span class="k-label">Если всё пойдёт плохо сразу</span><span class="r-value">{{ doc.risk.value.worst }}</span></div>
+          <div><span class="k-label">Запас по цене · по ставке</span><span class="r-value">{{ doc.risk.value.price }} · {{ doc.risk.value.rate }}</span></div>
+        </div>
+
+        <template v-if="doc.fixes.value.length">
+          <h2>Что платформа поправила сама</h2>
+          <ul class="list small"><li v-for="(item, index) in doc.fixes.value" :key="index">{{ item }}</li></ul>
+        </template>
+        <p class="note">{{ REPORT_NOTE }} Дата расчёта: {{ doc.today }}.</p>
+      </section>
+
+      <template v-if="mode === 'full'">
+        <!-- А. Объект. -->
+        <section class="sheet">
+          <h2 class="ap"><span>А</span>Параметры объекта и процессы</h2>
+          <div class="two">
+            <table v-for="(half, index) in [doc.siteRows.value.slice(0, Math.ceil(doc.siteRows.value.length / 2)), doc.siteRows.value.slice(Math.ceil(doc.siteRows.value.length / 2))]" :key="index" class="tbl kv small-tbl">
+              <colgroup><col style="width: 58%"><col style="width: 42%"></colgroup>
+              <tbody><tr v-for="row in half" :key="row.label"><th>{{ row.label }}</th><td>{{ row.value }}</td></tr></tbody>
             </table>
           </div>
+          <p class="small"><b>В работе:</b> {{ doc.processList.value.filter((item) => item.enabled).map((item) => item.name).join(', ') || '—' }}.</p>
+          <p v-if="doc.processList.value.some((item) => !item.enabled)" class="small muted"><b>Не выбраны:</b> {{ doc.processList.value.filter((item) => !item.enabled).map((item) => item.name).join(', ') }}.</p>
         </section>
 
-        <section v-if="showMatch && visibleAdvice" class="advice" :class="{ asis: visibleAdvice.rows.find((row) => row.winner)?.key === 'asis' }">
-          <p class="advice-kicker">Что выгоднее</p>
-          <h3>{{ visibleAdvice.headline }}</h3>
-          <p>{{ visibleAdvice.detail }}</p>
-          <table class="table advice-table">
-            <thead>
-              <tr><th>Сценарий</th><th class="num">TCO</th><th class="num">К лучшему</th><th class="num">Эффект</th><th class="num">Окупаемость</th></tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in visibleAdvice.rows" :key="row.key" :class="{ best: row.winner }">
-                <td><b>{{ row.title }}</b></td>
-                <td class="num">{{ row.tco }}</td>
-                <td class="num">{{ row.gap }}</td>
-                <td class="num">{{ row.effect }}</td>
-                <td class="num">{{ row.payback }}</td>
-              </tr>
-            </tbody>
+        <!-- Б. Подбор и состав парка. -->
+        <section class="sheet">
+          <h2 class="ap"><span>Б</span>Выбранные решения и состав парка</h2>
+          <table class="tbl">
+            <colgroup><col style="width: 26%"><col style="width: 28%"><col style="width: 10%"><col style="width: 24%"><col style="width: 12%"></colgroup>
+            <thead><tr><th>Процесс</th><th>Робот</th><th class="num">Кол-во</th><th>Выбор</th><th class="num">Подходят</th></tr></thead>
+            <tbody><tr v-for="row in doc.selection.value" :key="row.name" :class="{ dim: !!row.reason }"><td>{{ row.name }}</td><td>{{ row.robot }}</td><td class="num">{{ row.count }}</td><td>{{ row.how }}</td><td class="num">{{ row.candidates }}</td></tr></tbody>
           </table>
-        </section>
-
-        <section v-if="showMatch && visibleScenarios.length" class="r-sec">
-          <header class="sec-head">
-            <span class="sec-n">{{ sec.summary }}</span>
-            <div>
-              <h3 class="sec-title">Сводка сценариев</h3>
-              <p class="sec-lead">Один парк в трёх режимах владения. Ниже — те же величины, что на экране экономики.</p>
-            </div>
-          </header>
-          <p v-if="doc.payroll.value" class="base">{{ doc.payroll.value.label }}: <b>{{ doc.payroll.value.value }}</b> в год. От этой суммы считаются эффект и сравнение затрат.</p>
-          <div class="scenes">
-            <article v-for="s in visibleScenarios" :key="s.key" class="scene" :class="[s.key, { best: visibleAdvice?.rows.find((row) => row.winner)?.key === s.key }]">
-              <div class="scene-top">
-                <div>
-                  <h4 class="scene-name">{{ s.title }}</h4>
-                  <p class="scene-sub">{{ s.subtitle }}</p>
-                </div>
-                <span v-if="s.highlight" class="scene-band">ниже TCO</span>
-              </div>
-              <dl class="metrics">
-                <div v-for="cell in s.metrics" :key="cell.label"><dt>{{ cell.label }}</dt><dd>{{ cell.value }}</dd></div>
-              </dl>
-              <p v-if="s.verdict" class="scene-verdict">{{ s.verdict }}</p>
-              <p v-if="s.note" class="note">{{ s.note }}</p>
-            </article>
-          </div>
-          <table class="table scenes-print">
-            <thead>
-              <tr>
-                <th>Сценарий</th>
-                <th class="num">CAPEX</th>
-                <th class="num">Затраты в год</th>
-                <th class="num">Эффект</th>
-                <th class="num">Окуп.</th>
-                <th class="num">TCO</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="s in visibleScenarios" :key="`p-${s.key}`" :class="{ best: visibleAdvice?.rows.find((row) => row.winner)?.key === s.key }">
-                <td><b>{{ s.title }}</b><div class="caption">{{ s.subtitle }}</div></td>
-                <td class="num">{{ s.capex }}</td>
-                <td class="num">{{ s.opex }}</td>
-                <td class="num">{{ s.effect }}</td>
-                <td class="num">{{ s.metrics[3]?.value }}</td>
-                <td class="num">{{ s.metrics[4]?.value }}</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <div v-if="doc.chart.value.years.length" class="chart">
-            <div class="label">Затраты нарастающим итогом</div>
-            <p class="note">CAPEX + (OPEX + оставшийся ФОТ) × год, млн ₽. Без роботизации: ФОТ × год. Горизонт {{ doc.chart.value.horizon }} лет.</p>
-            <div class="tco-rows">
-              <div v-for="row in doc.chart.value.years" :key="row.year" class="tco-row">
-                <span class="y">{{ row.year }} г.</span>
-                <span class="tco-bars">
-                  <span v-for="bar in row.bars" :key="bar.key" class="tb" :class="bar.key" :style="{ width: `${Math.max(2, (bar.value / chartMax) * 100)}%` }"><i>{{ chartLabel(bar.value) }}</i></span>
-                </span>
-              </div>
-            </div>
-            <div class="legend">
-              <span><i class="sw asis" /> Без роботизации</span>
-              <span><i class="sw purchase" /> Покупка</span>
-              <span><i class="sw raas" /> Аренда</span>
-            </div>
-          </div>
-        </section>
-
-        <section v-if="showEconomy && formulaBlocks.length" class="r-sec">
-          <header class="sec-head">
-            <span class="sec-n">{{ sec.formulas }}</span>
-            <div>
-              <h3 class="sec-title">Формулы и подстановка</h3>
-              <p class="sec-lead">Каждая величина экономики: формула, числа и источник. Список строится по ответу расчёта, а не по фиксированному набору статей.</p>
-            </div>
-          </header>
-          <article v-for="block in formulaBlocks" :key="block.key" class="formula-block">
-            <h4>{{ block.title }}</h4>
-            <div class="formula-grid">
-              <template v-for="(part, index) in block.parts" :key="`${block.key}-${part.title}-${index}`">
-                <div v-if="part.total" class="formula-tile">
-                  <div class="formula-line-h" :class="{ 'cost-accent': isAccent(part.total.key, part.total.label) }"><span>{{ part.total.label }}</span><b>{{ figValue(part.total.value, part.total.unit) }}</b></div>
-                  <EconFormula dense :fig="part.total" />
-                </div>
-                <div v-for="line in part.lines" :key="line.key" class="formula-tile">
-                  <div class="formula-line-h" :class="{ 'cost-accent': isAccent(line.key, line.label) }"><span>{{ line.label }}</span><b>{{ line.included ? figValue(line.value, line.unit) : 'не входит' }}</b></div>
-                  <EconFormula dense :fig="line" />
-                </div>
-              </template>
-            </div>
-          </article>
-        </section>
-
-        <section v-if="showMatch" class="r-sec">
-          <header class="sec-head">
-            <span class="sec-n">{{ sec.robots }}</span>
-            <div>
-              <h3 class="sec-title">Роботы парка</h3>
-              <p class="sec-lead">Один выбранный робот на процесс: фото, количество и числовые ТТХ. Формула робота появляется вместе с разделом «Экономика».</p>
-            </div>
-          </header>
-          <ul v-if="robotGloss.length" class="robot-gloss">
-            <li v-for="item in robotGloss" :key="`${item.label}-${item.note}`"><b>{{ item.label }}.</b> {{ item.note }}</li>
-          </ul>
-          <div v-if="doc.robots.value.length" class="robots">
-            <article v-for="robot in doc.robots.value" :key="robot.key" class="robot">
-              <img :src="robot.image" :alt="robot.name">
-              <div class="robot-body">
-                <p class="caption">{{ robot.process }}</p>
-                <h4>{{ robot.name }}</h4>
-                <p class="robot-meta">{{ robot.count }} · {{ robot.price }}<span v-if="robot.cost !== '—'"> · парк {{ robot.cost }}</span></p>
-                <dl v-if="robot.specs.length" class="specs">
-                  <div v-for="spec in robot.specs" :key="spec.label"><dt>{{ spec.label }}</dt><dd>{{ spec.value }}<SyntheticMarker v-if="spec.synthetic" :origin="spec.synthetic.origin" :explanation="spec.synthetic.explanation" /></dd></div>
-                </dl>
-                <p v-else class="note">В карточке нет числовых ТТХ.</p>
-                <p v-if="robot.note" class="note">{{ robot.note }}</p>
-                <EconFormula v-if="showEconomy && robot.fig" mini brief :fig="robot.fig" />
+          <p v-for="reason in doc.selectionReasons.value" :key="reason" class="small muted">Робот не выбран: {{ reason.charAt(0).toLowerCase() + reason.slice(1) }}</p>
+          <h3>Состав парка</h3>
+          <div class="fleet">
+            <article v-for="robot in doc.fleetCards.value" :key="robot.key" class="robot" :class="{ out: !robot.inTotal }">
+              <img :src="robot.image" :alt="robot.name" @error="onImageError($event, robot.key.split(':')[0] ?? '')">
+              <div class="r-body">
+                <span class="small muted">{{ robot.process }}{{ robot.inTotal ? '' : ' · не в итоге' }}</span>
+                <strong>{{ robot.name }}</strong>
+                <span class="small mono">{{ robot.count }} · {{ robot.price }} · парк {{ robot.cost }}</span>
+                <span v-if="robot.specs.length" class="small">{{ robot.specs.join(' · ') }}</span>
+                <span v-for="note in robot.notes" :key="note" class="small muted">{{ note }}</span>
               </div>
             </article>
           </div>
-          <p v-else class="note">В расчёт не вошёл ни один робот.</p>
         </section>
 
-        <section v-if="showMatch && doc.processes.value.length" class="r-sec">
-          <header class="sec-head">
-            <span class="sec-n">{{ sec.processes }}</span>
-            <div>
-              <h3 class="sec-title">Экономика по процессам</h3>
-              <p class="sec-lead">Эффект и затраты по каждому процессу: доля ФОТ, покупка и аренда.</p>
-            </div>
-          </header>
-          <table class="table proc-table">
-            <thead>
-              <tr>
-                <th>Процесс</th>
-                <th class="num">Доля ФОТ</th>
-                <th class="num">CAPEX</th>
-                <th class="num">Эффект</th>
-                <th class="num">Окуп.</th>
-                <th class="num">TCO покупки</th>
-                <th class="num">TCO аренды</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in doc.processes.value" :key="row.key" :class="{ best: row.profitable }">
-                <td><b>{{ row.name }}</b><div class="caption">{{ row.robot }}{{ row.included ? '' : ' · не в расчёте' }}</div><div class="caption">{{ row.reason }}</div></td>
-                <td class="num">{{ row.share }}</td>
-                <td class="num">{{ row.capex }}</td>
-                <td class="num">{{ row.effect }}</td>
-                <td class="num">{{ row.payback }}</td>
-                <td class="num">{{ row.tcoPurchase }}</td>
-                <td class="num">{{ row.tcoRaas }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </section>
-
-        <section v-if="showWhatIfBlock" class="r-sec">
-          <header class="sec-head">
-            <span class="sec-n">{{ sec.whatif }}</span>
-            <div>
-              <h3 class="sec-title">What-if</h3>
-              <p class="sec-lead">Допущения расчёта и то, как годовой эффект покупки меняется, если сдвинуть каждое из них на 20%.</p>
-            </div>
-          </header>
-          <div v-for="group in doc.paramGroups.value" :key="group.id" class="assume">
-            <div class="label">{{ group.label }}</div>
-            <article v-for="item in group.items" :key="item.key" class="assume-row">
-              <div class="assume-h">
-                <UiTex :tex="item.symbol" class="assume-sym" />
-                <span class="strong" :class="{ 'cost-accent': isAccent(item.key, item.label) }">{{ item.label }}</span>
-                <b>{{ item.value.toLocaleString('ru-RU') }} {{ item.unit }}<SyntheticMarker v-if="item.origin === 'demo_synthetic'" :origin="item.origin" :explanation="item.rationale" /></b>
-                <UiBadge :tone="SOURCE_TONE[item.source]" size="sm">{{ sourceText(item.source) }}</UiBadge>
-              </div>
-              <dl>
-                <div><dt>Стандарт</dt><dd>{{ item.standard.toLocaleString('ru-RU') }} {{ item.unit }}</dd></div>
-                <div><dt>Диапазон</dt><dd>{{ item.min.toLocaleString('ru-RU') }} … {{ item.max.toLocaleString('ru-RU') }}</dd></div>
-                <div v-if="item.overridden"><dt>Для проекта</dt><dd>значение заменено</dd></div>
-              </dl>
-              <p v-if="item.origin !== 'demo_synthetic'">{{ item.rationale }}</p>
-              <p v-if="item.origin !== 'demo_synthetic'" class="note">{{ formatOrigin(item.origin) }}</p>
-            </article>
-          </div>
-          <template v-if="doc.processes.value.some((item) => item.suggestions.length)">
-            <article v-for="row in doc.processes.value.filter((item) => item.suggestions.length)" :key="`${row.key}-fix`" class="proc-fix">
-              <h4>{{ row.name }}: что меняет окупаемость</h4>
-              <ul>
-                <li v-for="hint in row.suggestions" :key="hint.key">{{ hint.label }}: {{ hint.change }}. Эффект {{ hint.effect }}, окупаемость {{ hint.payback }}.</li>
-              </ul>
-            </article>
-          </template>
-          <template v-if="doc.econ.value?.sensitivity.length">
-          <p v-if="sensBase" class="base">Сейчас эффект покупки <b>{{ sensBase.effect }}</b> в год, окупаемость: <b>{{ sensBase.payback }}</b>. Это центральная линия на полосах.</p>
-          <table class="table sens-table">
-            <thead>
-              <tr>
-                <th>Допущение</th>
-                <th class="num">−20% … +20%</th>
-                <th>Изменение эффекта в год</th>
-                <th class="num">Окупаемость</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in sensRows" :key="row.key">
-                <td><b :class="{ 'cost-accent': isAccent(row.key, row.label) }">{{ row.label }}</b><div class="caption">сейчас {{ row.now }}</div></td>
-                <td class="num">{{ row.range }}</td>
-                <td>
-                  <span class="tornado" aria-hidden="true">
-                    <i :class="row.down.good ? 'good' : 'bad'" :style="{ left: row.down.left, width: row.down.width }" />
-                    <i :class="row.up.good ? 'good' : 'bad'" :style="{ left: row.up.left, width: row.up.width }" />
-                    <em />
-                  </span>
-                  <span class="tornado-v"><span v-for="end in row.ends" :key="end.key">{{ end.text }}</span></span>
-                </td>
-                <td class="num">{{ row.payback }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <div class="legend"><span><i class="sw good" /> эффект растёт</span><span><i class="sw bad" /> эффект падает</span><span><i class="sw mid" /> текущий эффект</span></div>
-          </template>
-        </section>
-
-        <section v-if="doc.limits.value.length" class="r-sec">
-          <header class="sec-head">
-            <span class="sec-n">{{ sec.limits }}</span>
-            <div><h3 class="sec-title">Оговорки расчёта</h3></div>
-          </header>
-          <ol class="limits">
-            <li v-for="(line, index) in doc.limits.value" :key="index"><span class="n">{{ index + 1 }}</span><span>{{ line }}</span></li>
-          </ol>
-        </section>
-
-        <details v-if="doc.demoSynthetic.value.length" class="synthetic-appendix">
-          <summary>Приложение А. Происхождение и пояснения синтетических значений</summary>
-          <div class="appendix-body">
-            <div v-for="group in doc.demoSynthetic.value" :key="`${group.process_code}:${group.product_id}:${group.name}`" class="appendix-group">
-              <h4>{{ group.name }} · {{ group.process_name }}</h4>
-              <p>Включён в экономический парк: {{ group.included_in_economy ? 'да' : 'нет' }}</p>
-              <table class="table">
-                <thead><tr><th>Характеристика</th><th>Значение</th><th>Происхождение и пояснение</th></tr></thead>
-                <tbody>
-                  <tr v-for="item in group.fields" :key="item.key">
-                    <td>{{ item.label }}</td><td>{{ formatDemoValue(item.value) }} {{ item.unit }}</td>
-                    <td>{{ formatOrigin(item.origin) }} · {{ item.explanation }}<br>{{ item.requires_vendor_confirmation ? 'Требуется подтверждение вендора.' : 'Требуется проверка параметров и оценки.' }}</td>
-                  </tr>
-                </tbody>
+        <!-- В. Экономика по процессам. -->
+        <section class="sheet">
+          <h2 class="ap"><span>В</span>Экономика по процессам</h2>
+          <p class="small muted">Каждый процесс — как если бы роботизировали только его. Люди уходят по доле операций, которую забирают роботы, целыми ставками в каждой смене.</p>
+          <div class="cards">
+            <div v-for="card in doc.processCards.value" :key="card.code" class="card" :class="card.tone">
+              <div class="c-head"><strong>{{ card.name }}</strong><span class="badge">{{ card.status }}</span></div>
+              <table class="tbl kv small-tbl">
+                <colgroup><col style="width: 42%"><col style="width: 58%"></colgroup>
+                <tbody><tr v-for="[label, value] in card.rows" :key="label"><th>{{ label }}</th><td>{{ value }}</td></tr></tbody>
               </table>
+              <p v-if="card.note" class="small c-note">{{ card.note }}</p>
             </div>
           </div>
-        </details>
+        </section>
 
-        <footer class="r-foot">
-          <p>Отчёт сформирован платформой подбора роботизированных решений. Кейс ФЦ БАС, хакатон «Лидеры цифровой трансформации», 2026. Версия каталога {{ project.catalogVersion }}, версия расчётной модели {{ project.modelVersion }}.</p>
-        </footer>
-      </div>
+        <!-- Г, Д. CAPEX и OPEX по статьям, деньги по годам и показатели. -->
+        <section class="sheet">
+          <h2 class="ap"><span>Г</span>CAPEX и OPEX по статьям</h2>
+          <p class="small">ФОТ на роботизируемых операциях до роботизации — <b>{{ doc.statement.value.payroll }}</b> в год, после — <b>{{ doc.statement.value.payrollAfter }}</b>. Вложения и расходы — без НДС.</p>
+          <table class="tbl">
+            <colgroup><col style="width: 50%"><col style="width: 25%"><col style="width: 25%"></colgroup>
+            <thead><tr><th>Статья</th><th class="num">Покупка</th><th class="num">Аренда</th></tr></thead>
+            <tbody>
+              <tr class="total"><th>CAPEX, один раз</th><td class="num">{{ doc.statement.value.buyCapexTotal }}</td><td class="num">{{ doc.statement.value.rentCapexTotal }}</td></tr>
+              <tr v-for="row in capexRows" :key="`c-${row[0]}`"><td class="indent">{{ row[0] }}</td><td class="num">{{ row[1] }}</td><td class="num">{{ row[2] }}</td></tr>
+              <tr class="total"><th>OPEX в год</th><td class="num">{{ doc.statement.value.buyOpexTotal }}</td><td class="num">{{ doc.statement.value.rentOpexTotal }}</td></tr>
+              <tr v-for="row in opexRows" :key="`o-${row[0]}`"><td class="indent">{{ row[0] }}</td><td class="num">{{ row[1] }}</td><td class="num">{{ row[2] }}</td></tr>
+            </tbody>
+          </table>
+
+          <h2 class="ap"><span>Д</span>Деньги по годам и показатели</h2>
+          <table v-if="doc.cashTable.value" class="tbl cash">
+            <thead><tr><th v-for="cell in doc.cashTable.value.head" :key="cell" :class="{ num: cell !== 'млн ₽' }">{{ cell }}</th></tr></thead>
+            <tbody><tr v-for="row in doc.cashTable.value.body" :key="row[0]" :class="{ total: row[0] === 'Накоплено' || row[0] === 'Поток года' }"><th>{{ row[0] }}</th><td v-for="(cell, index) in row.slice(1)" :key="index" class="num">{{ cell }}</td></tr></tbody>
+          </table>
+          <table class="tbl">
+            <colgroup><col style="width: 32%"><col style="width: 24%"><col style="width: 44%"></colgroup>
+            <thead><tr><th>Показатель</th><th class="num">Значение</th><th>Что значит</th></tr></thead>
+            <tbody><tr v-for="row in doc.metrics.value" :key="row[0]"><th>{{ row[0] }}</th><td class="num wrap">{{ row[1] }}</td><td class="small">{{ row[2] }}</td></tr></tbody>
+          </table>
+        </section>
+
+        <!-- Е. Формулы и подстановка (ТЗ 3.5.8). -->
+        <section class="sheet">
+          <h2 class="ap"><span>Е</span>Формулы и подстановка</h2>
+          <p class="small muted">Каждая величина — формула, числа и источник каждой переменной.</p>
+          <template v-for="group in doc.formulas.value" :key="group.title">
+            <h3>{{ group.title }}</h3>
+            <div class="formulas">
+              <div v-for="fig in group.figs" :key="`${group.title}-${fig.key}`" class="f-tile">
+                <div class="f-head"><span>{{ fig.label }}</span></div>
+                <EconFormula dense brief :fig="fig" />
+              </div>
+            </div>
+          </template>
+        </section>
+
+        <!-- Ж. Надёжность. -->
+        <section class="sheet">
+          <h2 class="ap"><span>Ж</span>Надёжность расчёта</h2>
+          <h3>Если пойдёт хуже</h3>
+          <table class="tbl">
+            <colgroup><col style="width: 26%"><col style="width: 16%"><col style="width: 18%"><col style="width: 40%"></colgroup>
+            <thead><tr><th>Сценарий</th><th class="num">NPV</th><th class="num">Окупаемость</th><th>Что меняется</th></tr></thead>
+            <tbody><tr v-for="row in doc.stress.value" :key="row[0]"><th>{{ row[0] }}</th><td class="num">{{ row[1] }}</td><td class="num">{{ row[2] }}</td><td class="small">{{ row[3] }}</td></tr></tbody>
+          </table>
+          <h3>Запас прочности — при каком значении NPV станет нулём</h3>
+          <table class="tbl">
+            <colgroup><col style="width: 34%"><col style="width: 22%"><col style="width: 30%"><col style="width: 14%"></colgroup>
+            <thead><tr><th>Параметр</th><th class="num">Сейчас</th><th class="num">Безубыточность</th><th class="num">Запас</th></tr></thead>
+            <tbody><tr v-for="row in doc.breakeven.value" :key="row[0]"><th>{{ row[0] }}</th><td class="num wrap">{{ row[1] }}</td><td class="num wrap">{{ row[2] }}</td><td class="num">{{ row[3] }}</td></tr></tbody>
+          </table>
+          <h3>Что сильнее всего двигает результат покупки</h3>
+          <table class="tbl">
+            <colgroup><col style="width: 30%"><col style="width: 26%"><col style="width: 30%"><col style="width: 14%"></colgroup>
+            <thead><tr><th>Параметр</th><th>Диапазон</th><th class="num">NPV</th><th class="num">Доля</th></tr></thead>
+            <tbody><tr v-for="row in doc.tornado.value" :key="row[0]"><th>{{ row[0] }}</th><td class="small">{{ row[1] }}</td><td class="num">{{ row[2] }}</td><td class="num">{{ row[3] }}</td></tr></tbody>
+          </table>
+          <p class="small muted">Диапазоны — из источников нормативов, а где их нет — по уровню достоверности: закон ±5%, данные ±10%, оценка ±20%, допущение ±35%.</p>
+        </section>
+
+        <!-- З. Схема объекта (ТЗ 3.7.4). -->
+        <section v-if="doc.floors.value.length" class="sheet">
+          <h2 class="ap"><span>З</span>Схема объекта</h2>
+          <p class="small muted">Расстановка из шага «Визуализация»: рабочие зоны, точки погрузки и выгрузки, зарядка. Прогон смены с роботами — на шаге визуализации.</p>
+          <template v-for="floor in doc.floors.value" :key="floor.id">
+            <h3>{{ floor.name }}</h3>
+            <PlanSketch :floor="floor" :colors="doc.colors.value" :names="doc.names.value" />
+          </template>
+        </section>
+
+        <!-- И. Допущения и источники. -->
+        <section class="sheet">
+          <h2 class="ap"><span>И</span>Допущения и источники данных</h2>
+          <p class="small">
+            <template v-if="doc.changed.value.length">Изменены в проекте: {{ doc.changed.value.map((item) => item.label.toLowerCase()).join(', ') }}.</template>
+            <template v-else>Своих значений в проекте нет: расчёт на условиях объекта и стандарте платформы.</template>
+            {{ doc.subsidies.value.length ? ` Господдержка: ${doc.subsidies.value.join(', ')}.` : ' Без господдержки.' }}
+          </p>
+          <table class="tbl">
+            <colgroup><col style="width: 34%"><col style="width: 26%"><col style="width: 20%"><col style="width: 20%"></colgroup>
+            <thead><tr><th>Параметр</th><th class="num">Значение</th><th>Источник</th><th>Примечание</th></tr></thead>
+            <tbody><tr v-for="row in doc.assumptions.value" :key="row[0]"><th>{{ row[0] }}</th><td class="num wrap">{{ row[1] }}</td><td class="small">{{ row[2] }}</td><td class="small">{{ row[3] }}</td></tr></tbody>
+          </table>
+          <h3>Источники данных</h3>
+          <ol class="list small"><li v-for="(item, index) in doc.sources.value" :key="index">{{ item }}</li></ol>
+        </section>
+
+        <!-- К. Методика, аренда, ограничения. -->
+        <section class="sheet">
+          <h2 class="ap"><span>К</span>Методика, модель аренды и ограничения</h2>
+          <h3>Как считали</h3>
+          <ul class="list small">
+            <li>Количество роботов — по формуле процесса: пиковая потребность в операциях на эффективную производительность робота с учётом готовности и резерва.</li>
+            <li>Экономия — люди, чью работу забирают роботы: выработка робота за год против выработки человека, доля операций, целые ставки в каждой смене. Без данных о людях экономия по процессу не считается.</li>
+            <li>CAPEX: оборудование, инфраструктура, ПО, интеграция, пусконаладка, обучение, резерв. OPEX: сервис, лицензии, электроэнергия, связь, расходные материалы, ремонт, персонал эксплуатации (диспетчеры).</li>
+            <li>Сокращение — по ТК РФ: 2 месяца уведомления, выплаты до 2 средних заработков без страховых взносов.</li>
+            <li>Налоги: НДС принимается к вычету, налог на прибыль 25%. Амортизация линейная на срок полезного использования; ускоренная — как мера господдержки. Если горизонт длиннее срока службы, парк покупается заново.</li>
+            <li>Деньги во времени — в постоянных ценах; ставка дисконтирования — ключевая ставка Банка России за вычетом цели по инфляции. Финансирование — собственные средства.</li>
+            <li>Состав процессов и число роботов платформа подбирает сама — набор с наибольшим NPV в пределах бюджета. Скидки вендора и господдержка сами в итог не включаются.</li>
+          </ul>
+          <h3>Модель аренды (RaaS)</h3>
+          <ul class="list small">
+            <li>Платёж — фиксированная ставка в процентах от цены робота в месяц; в неё входят сервис, ремонт, расходники и лицензии. Индексация платежа по договору учитывается сверх инфляции.</li>
+            <li>CAPEX аренды — только подготовка площадки: инфраструктура, интеграция, пусконаладка, обучение. Оборудование и ПО — в платеже, то есть в OPEX.</li>
+            <li>Срок договора равен горизонту расчёта, выкуп не предусмотрен. Окупаемость и ROI аренды — для вложений во внедрение; основное сравнение с покупкой — по NPV и годовой стоимости.</li>
+          </ul>
+          <template v-if="doc.limits.value.length">
+            <h3>Ограничения расчёта</h3>
+            <ul class="list small"><li v-for="(item, index) in doc.limits.value" :key="index">{{ item }}</li></ul>
+          </template>
+          <p class="note">{{ REPORT_NOTE }} Дата расчёта: {{ doc.today }}.</p>
+        </section>
+      </template>
+      <p v-else class="more no-print">Приложения — объект, решения и парк, экономика процессов, статьи затрат, формулы, надёжность, схема, допущения и источники — в полном отчёте. <button type="button" class="link" @click="mode = 'full'">Показать полностью</button></p>
     </article>
   </ProjectShell>
   <section v-else class="container gone">
-    <UiCallout tone="danger" title="Проект не найден">Нет сохранённого расчёта с таким адресом.</UiCallout>
+    <StepLoading label="Проект" title="Открываем проект" :timer="false" />
   </section>
 </template>
 
 <style scoped>
-.waiting { padding: var(--space-8); }
-.pick { display: grid; gap: 14px; padding: 18px 20px; margin-bottom: 16px; }
-.pick > * { position: relative; z-index: 1; }
-.pick-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-.pick-grid { display: flex; flex-wrap: wrap; gap: 8px; }
-/* Галочка как пункт меню: серая, пока выключена, графитовая с зелёной отметкой, когда включена. */
-.pick-item {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 42px;
-  padding: 0 16px 0 12px;
-  border-radius: 12px;
-  font-weight: 700;
-  line-height: 1.2;
-  color: var(--ink-body);
-  background: rgba(15, 20, 19, 0.05);
-  box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.08);
-  cursor: pointer;
-}
-.pick-item.on {
-  background: var(--surface-graphite);
-  color: var(--ink-on-graphite);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
-}
-.pick-item input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: 0;
-  opacity: 0;
-}
-.pick-item .box {
-  width: 18px;
-  height: 18px;
-  border-radius: 6px;
-  box-shadow: inset 0 0 0 1.5px currentColor;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-}
-.pick-item.on .box { background: var(--brand-400); box-shadow: none; color: var(--brand-900); }
-.pick-item.on .box::after {
-  content: "";
-  width: 8px;
-  height: 5px;
-  border-left: 2px solid currentColor;
-  border-bottom: 2px solid currentColor;
-  transform: translateY(-1px) rotate(-45deg);
-}
-.pick-item:focus-within { box-shadow: inset 0 0 0 1px var(--focus-ring), 0 0 0 3px rgba(13, 132, 85, 0.18); }
-.pick-lines { display: grid; gap: 12px; }
-.pick-lines summary { font-weight: 700; cursor: pointer; }
-.pick-block { padding-top: 4px; }
-.text-btn { color: var(--brand-700); font-weight: 700; white-space: nowrap; }
-.waiting > * { position: relative; z-index: 1; }
-.gone { padding-top: var(--space-12); }
-.go { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; }
+.gone { padding-top: var(--space-8); }
+.modes { display: inline-flex; padding: 3px; border-radius: 999px; background: rgba(15, 20, 19, 0.06); }
+.modes button { height: 36px; padding: 0 16px; border-radius: 999px; font-size: 14px; font-weight: 700; color: var(--ink-muted); }
+.modes button.on { background: #fff; color: var(--brand-700); box-shadow: 0 1px 3px rgba(15, 20, 19, 0.15); }
 
-.report {
-  width: 100%;
-  overflow: hidden;
-  background: #fff;
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-md);
-  border: 1px solid var(--border-hairline);
-}
+/* Документ — ширина A4 и типографика в пунктах: на экране как на бумаге. */
+.doc { width: 210mm; max-width: 100%; margin: 0 auto; display: grid; gap: 16px; font-size: 10pt; line-height: 1.42; color: #17201d; }
+.sheet { box-sizing: border-box; width: 100%; min-height: 297mm; padding: 15mm 15mm 13mm; background: #fff; border-radius: 6px; box-shadow: 0 4px 24px rgba(15, 20, 19, 0.08), 0 0 0 1px rgba(15, 20, 19, 0.06); display: flex; flex-direction: column; gap: 8px; }
 
-.cover {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 14px;
-  padding: 22px 26px;
-  background:
-    radial-gradient(90% 70% at 88% 0%, rgba(43, 209, 141, 0.18), transparent 55%),
-    linear-gradient(180deg, #1c2421 0%, #121817 100%);
-  color: var(--ink-on-graphite);
-}
-.cover-top { display: flex; justify-content: flex-start; align-items: center; gap: 14px; }
-.cover-mark { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--brand-300); }
-.cover-title { display: grid; gap: 6px; min-width: 0; }
-.cover-kicker { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-muted-graphite); }
-.cover-h {
-  margin: 0;
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: clamp(28px, 2.6vw, 46px);
-  line-height: 1.08;
-  letter-spacing: -0.03em;
-  width: 100%;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.cover-hero { position: relative; margin: 0; height: 220px; min-height: 180px; border-radius: 16px; overflow: hidden; }
-.cover-hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.cover-object { display: grid; gap: 10px; }
-.cover-about { margin: 0; font-size: 14px; line-height: 1.45; color: var(--ink-on-graphite); }
-.cover-params { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 18px; margin: 0; }
-.cover-params > div { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; min-width: 0; }
-.cover-params dt { color: var(--ink-muted-graphite); font-size: 12px; }
-.cover-params dd { margin: 0; text-align: right; color: var(--ink-on-graphite); font-family: var(--font-mono); font-size: 12px; }
-.cover-foot { display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.04em; color: var(--ink-muted-graphite); }
+/* Обложка: фото на весь верх, тёмный блок с названием и параметрами внизу. */
+.cover { position: relative; height: 297mm; padding: 0; overflow: hidden; background: #121817; color: #eef3f1; gap: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.c-hero { position: absolute; inset: 0 0 auto; height: 172mm; margin: 0; }
+.c-hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.c-hero::after { content: ''; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(18, 24, 23, 0.55) 0%, rgba(18, 24, 23, 0) 28%, rgba(18, 24, 23, 0) 62%, #121817 100%); }
+.c-top { position: relative; z-index: 1; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11mm 13mm 0; }
+.c-mark { font-family: var(--font-mono); font-size: 7.5pt; letter-spacing: 0.12em; text-transform: uppercase; color: #8ff0c4; }
+.c-body { position: relative; z-index: 1; margin-top: auto; display: grid; gap: 10px; padding: 0 13mm 12mm; }
+.c-kicker { font-family: var(--font-mono); font-size: 8pt; letter-spacing: 0.1em; text-transform: uppercase; color: #a9b6b1; }
+.c-title { margin: 0; font-family: var(--font-display); font-weight: 700; font-size: 30pt; line-height: 1.05; letter-spacing: -0.02em; color: #fff; }
+.c-verdict { display: grid; gap: 3px; padding: 10px 14px; border-radius: 10px; background: rgba(43, 209, 141, 0.14); border-left: 4px solid #2bd18d; }
+.c-verdict strong { font-size: 15pt; color: #fff; }
+.c-verdict span { font-size: 9.5pt; color: #cfe0d9; }
+.c-verdict.warn { background: rgba(240, 177, 74, 0.16); border-color: #f0b14a; }
+.c-verdict.bad { background: rgba(229, 88, 75, 0.16); border-color: #e5584b; }
+.c-params { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 22px; margin: 4px 0 0; }
+.c-params > div { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+.c-params dt { color: #a9b6b1; font-size: 8.5pt; }
+.c-params dd { margin: 0; text-align: right; font-family: var(--font-mono); font-size: 8.5pt; color: #eef3f1; }
+.c-foot { display: flex; flex-wrap: wrap; gap: 4px 16px; padding-top: 6px; font-family: var(--font-mono); font-size: 7.5pt; color: #8a9893; }
 
-.r-in { padding: 18px 22px 22px; display: grid; gap: 16px; color: var(--ink-body); font-size: clamp(13px, 0.85vw, 15px); line-height: 1.4; }
-.synthetic-legend { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-muted); }
-.synthetic-legend svg { flex: none; color: #956014; }
-.synthetic-appendix { padding: 14px; border: 1px solid var(--border-hairline); border-radius: 12px; }
-.synthetic-appendix > summary { cursor: pointer; font-weight: 700; }
-.synthetic-appendix > summary:focus-visible { outline: 2px solid var(--brand-400); outline-offset: 3px; }
-.appendix-body { margin-top: 16px; display: grid; gap: 16px; }
+.s-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding-bottom: 6px; border-bottom: 2px solid #0d8455; }
+.kicker { font-size: 8pt; letter-spacing: 0.08em; text-transform: uppercase; color: #0d8455; font-weight: 700; }
+h2 { margin: 10px 0 2px; font-size: 13pt; break-after: avoid; page-break-after: avoid; }
+h3 { margin: 8px 0 2px; font-size: 10.5pt; break-after: avoid; page-break-after: avoid; }
+p { margin: 0; }
+.muted { color: #5b6763; }
+.small { font-size: 8.5pt; }
+.mono { font-family: var(--font-mono); }
+.verdict { display: grid; gap: 4px; padding: 10px 14px; border-radius: 8px; border-left: 4px solid #0d8455; background: #ecf7f2; break-inside: avoid; }
+.verdict strong { font-size: 14pt; line-height: 1.2; }
+.verdict.warn { border-color: #d69a2d; background: #fdf4e3; }
+.verdict.bad { border-color: #d0493c; background: #fdeceb; }
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; break-inside: avoid; }
+.kpi { display: grid; gap: 2px; padding: 9px 11px; border-radius: 8px; border: 1px solid #dde5e1; }
+.k-label { font-size: 8pt; color: #5b6763; font-weight: 600; }
+.k-value { font-size: 13.5pt; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.k-note { font-size: 7.5pt; color: #7a8682; }
+.tbl { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 9pt; }
+.tbl th, .tbl td { padding: 4px 6px; border-bottom: 1px solid #e3e9e6; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.tbl thead th { font-size: 8pt; color: #5b6763; font-weight: 700; border-bottom: 1.5px solid #c9d3cf; }
+.tbl tbody th { font-weight: 600; }
+.tbl tr { break-inside: avoid; page-break-inside: avoid; }
+.tbl .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tbl .num.wrap { white-space: normal; }
+.tbl tr.total th, .tbl tr.total td { font-weight: 800; border-top: 1.5px solid #c9d3cf; }
+.tbl tr.dim td { color: #8a9692; }
+.tbl .indent { padding-left: 18px; color: #3d4845; }
+.tbl.scen .best { background: #ecf7f2; }
+.tbl.scen thead th.best { color: #0b6b45; }
+.tag { display: block; font-size: 7pt; text-transform: uppercase; letter-spacing: 0.06em; color: #0d8455; }
+.tbl.cash { font-size: 8pt; }
+.small-tbl { font-size: 8pt; }
+.chart { break-inside: avoid; }
+.risk { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; break-inside: avoid; }
+.risk > div { display: grid; gap: 2px; padding: 7px 10px; border-radius: 8px; border: 1px solid #dde5e1; }
+.r-value { font-weight: 700; font-size: 9.5pt; }
+.list { margin: 0; padding-left: 18px; display: grid; gap: 3px; }
+.list li { break-inside: avoid; }
+.note { margin-top: auto; padding-top: 10px; border-top: 1px solid #e3e9e6; font-size: 7.5pt; color: #7a8682; }
+.ap { display: flex; align-items: baseline; gap: 8px; }
+.ap span { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; background: #0d8455; color: #fff; font-size: 10pt; flex: none; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.fleet { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.robot { display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 10px; padding: 8px; border-radius: 8px; border: 1px solid #dde5e1; break-inside: avoid; page-break-inside: avoid; }
+.robot.out { opacity: 0.6; }
+.robot img { width: 60px; height: 50px; object-fit: contain; border-radius: 6px; background: #eef2f0; }
+.r-body { display: grid; gap: 1px; min-width: 0; }
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.card { padding: 8px 10px; border-radius: 8px; border: 1px solid #dde5e1; border-left: 4px solid #0d8455; break-inside: avoid; page-break-inside: avoid; display: grid; gap: 4px; align-content: start; }
+.card.warn { border-left-color: #d69a2d; }
+.card.bad { border-left-color: #d0493c; }
+.card.off { border-left-color: #b8c2be; }
+.c-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.badge { font-size: 7.5pt; font-weight: 700; color: #3d4845; white-space: nowrap; }
+.c-note { color: #8a5200; }
+.formulas { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.f-tile { padding: 8px 10px; border-radius: 8px; border: 1px solid #dde5e1; break-inside: avoid; page-break-inside: avoid; display: grid; gap: 4px; align-content: start; min-width: 0; overflow: hidden; }
+.f-head { font-weight: 700; font-size: 9pt; }
+.f-tile :deep(.formula) { background: none; box-shadow: none; padding: 0; gap: 4px; }
+.f-tile :deep(.katex) { font-size: 0.8em; }
+.f-tile :deep(.body-sm), .f-tile :deep(.caption), .f-tile :deep(.mono-sm) { font-size: 8pt; }
+/* В отчёте формула компактная: формула, подстановка, переменные с источником; длинные пояснения — на экране экономики. */
+.f-tile :deep(.f-note) { display: none; }
+.f-tile :deep(.f-vars) { gap: 0; }
+.f-tile :deep(.f-var) { padding: 1px 0; }
+.f-tile :deep(.badge) { font-size: 7pt; padding: 0 5px; }
+.more { text-align: center; color: var(--ink-muted); }
+.link { color: var(--link); font-weight: 700; }
 
-.r-sec { display: grid; gap: 8px; }
-.sec-head { display: flex; align-items: flex-start; gap: 10px; }
-.sec-n { font-family: var(--font-mono); font-size: 12px; color: var(--brand-700); }
-.sec-title { margin: 0; font-weight: 700; font-size: clamp(18px, 1.35vw, 24px); line-height: 1.2; letter-spacing: -0.015em; color: var(--ink-strong); }
-.sec-lead { margin: 4px 0 0; color: var(--ink-muted); font-size: clamp(12.5px, 0.85vw, 15px); line-height: 1.35; }
-.note { margin: 0; font-size: 12.5px; line-height: 1.4; color: var(--ink-muted); }
-.base { margin: 0; font-size: 14px; color: var(--ink-body); }
-.base b { font-family: var(--font-mono); font-weight: 600; color: var(--ink-strong); }
-
-.advice {
-  display: grid;
-  gap: 6px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: var(--surface-brand-tint);
-  border: 1px solid #b9e8d0;
-}
-.advice.asis { background: var(--surface-raised); border-color: var(--border-hairline); }
-.advice-kicker { margin: 0; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--brand-700); }
-.advice h3 { margin: 0; font-size: clamp(16px, 1.3vw, 22px); letter-spacing: -0.02em; color: var(--ink-strong); }
-.advice > p { margin: 0; }
-.advice-table { width: 100%; background: #fff; border-radius: 10px; }
-.advice-table tr.best td { background: #e8f7ef; }
-
-.formula-block { display: grid; gap: 8px; }
-.formula-block > h4 { margin: 8px 0 0; font-size: clamp(14px, 1vw, 16px); color: var(--ink-strong); }
-.formula-part { display: grid; gap: 8px; }
-.formula-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-items: stretch; }
-.formula-tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; height: 100%; padding: 8px 10px; border: 1px solid var(--border-hairline); border-radius: 12px; background: var(--surface-raised); }
-.formula-tile :deep(.formula) { flex: 1; align-content: start; background: none; box-shadow: none; padding: 0; gap: 4px; }
-.formula-tile :deep(.f-var) { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; padding: 2px 0; }
-.formula-tile :deep(.f-what) { display: contents; }
-.formula-tile :deep(.f-what .caption) { flex: 1 0 100%; }
-.formula-tile :deep(.f-val) { margin-left: auto; white-space: nowrap; }
-.formula-tile :deep(.body-sm) { font-size: clamp(11.5px, 0.75vw, 13px); line-height: 1.3; }
-.formula-tile :deep(.caption),
-.formula-tile :deep(.mono-sm) { font-size: clamp(11px, 0.7vw, 12px); }
-.formula-tile :deep(.katex) { font-size: 0.82em; }
-.formula-line-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: clamp(12.5px, 0.85vw, 14px); color: var(--ink-strong); }
-.formula-line-h span { min-width: 0; }
-.formula-line-h b { font-family: var(--font-mono); font-weight: 600; text-align: right; }
-.formula-line-h.cost-accent,
-.formula-line-h.cost-accent b { font-weight: 800; }
-
-.proc-table { width: 100%; }
-.proc-table td, .proc-table th { vertical-align: top; }
-.proc-fix { display: grid; gap: 4px; }
-.proc-fix h4 { margin: 0; font-size: 14px; color: var(--ink-strong); }
-.proc-fix ul { margin: 0; padding-left: 18px; font-size: 13px; }
-.assume { display: grid; gap: 0; }
-.assume-row { display: grid; gap: 2px 12px; padding: 6px 0; border: 0; border-bottom: 1px solid var(--border-hairline); border-radius: 0; background: none; }
-.assume-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
-.assume-h b { margin-left: auto; font-family: var(--font-mono); font-weight: 600; font-size: 13px; }
-.assume-sym { color: var(--ink-muted); }
-.assume-row dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px 12px; margin: 0; }
-.assume-row p { margin: 0; font-size: 12.5px; }
-.assume-row dt { color: var(--ink-muted); font-size: 12px; }
-.assume-row dd { margin: 0; font-family: var(--font-mono); font-size: 13px; color: var(--ink-strong); }
-
-.sens-table { width: 100%; }
-.sens-table td { vertical-align: middle; }
-.sens-table th:first-child { width: 28%; }
-.sens-table th:nth-child(3) { width: 40%; }
-.tornado { position: relative; display: block; height: 12px; border-radius: 3px; background: rgba(15, 20, 19, 0.05); }
-.tornado i { position: absolute; top: 2px; bottom: 2px; border-radius: 2px; }
-.tornado i.good, .sw.good { background: var(--brand-600); }
-.tornado i.bad, .sw.bad { background: var(--state-danger); }
-.tornado em { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: var(--ink-strong); }
-.sw.mid { width: 2px; height: 12px; border-radius: 0; background: var(--ink-strong); vertical-align: -2px; }
-.tornado-v { display: flex; justify-content: space-between; gap: 8px; margin-top: 3px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-muted); white-space: nowrap; }
-.robot-body :deep(.formula) { margin-top: 4px; }
-
-.scenes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.scenes-print { display: none; }
-.scene { padding: 14px 16px; border-radius: 14px; border: 1px solid var(--border-hairline); background: var(--surface-raised); display: grid; gap: 10px; align-content: start; }
-.scene.best { background: var(--surface-brand-tint); border-color: #b9e8d0; }
-.scene-top { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
-.scene-name { margin: 0; font-size: clamp(15px, 1.05vw, 18px); font-weight: 700; color: var(--ink-strong); letter-spacing: -0.01em; }
-.scene-sub { margin: 2px 0 0; color: var(--ink-muted); font-size: 12.5px; }
-.scene-band { flex: none; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; padding: 4px 8px; border-radius: 999px; background: var(--brand-ink); color: #fff; }
-.scene-verdict { margin: 0; font-size: 12.5px; line-height: 1.35; color: var(--ink-strong); }
-.metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin: 0; }
-.metrics > div { display: grid; gap: 1px; min-width: 0; }
-.metrics dt { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ink-muted); }
-.metrics dd { margin: 0; font-family: var(--font-mono); font-size: clamp(13px, 0.95vw, 16px); font-weight: 600; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
-
-.chart { display: grid; gap: 8px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--border-hairline); background: var(--surface-raised); }
-.tco-rows { display: grid; gap: 8px; }
-.tco-row { display: grid; grid-template-columns: 42px 1fr; gap: 8px; align-items: center; }
-.tco-bars { display: grid; gap: 2px; }
-.tb { display: flex; align-items: center; justify-content: flex-end; height: 14px; border-radius: 3px; min-width: 28px; }
-.tb i { font-style: normal; font-family: var(--font-mono); font-size: 9px; color: #fff; padding-right: 4px; line-height: 1; }
-.tb.asis, .sw.asis { background: var(--border-strong); }
-.tb.purchase, .sw.purchase { background: var(--brand-600); }
-.tb.raas, .sw.raas { background: var(--state-warn); }
-.legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--ink-muted); }
-.sw, .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
-.y { font-family: var(--font-mono); font-size: 12px; color: var(--ink-muted); }
-
-.books { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
-.book { padding: 14px 16px; border-radius: 14px; border: 1px solid var(--border-hairline); background: #fff; display: grid; gap: 8px; }
-.book.best { background: var(--surface-brand-tint); border-color: #b9e8d0; }
-.book h4 { margin: 0; font-size: 15px; color: var(--ink-strong); }
-.book ul { display: grid; gap: 4px; margin: 0; padding: 0 0 4px; list-style: none; }
-.book li, .book-total { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; font-size: 13px; }
-.book li span { color: var(--ink-body); }
-.book b { font-family: var(--font-mono); font-weight: 600; color: var(--ink-strong); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.book-total { margin: 0; padding-top: 6px; border-top: 1px solid var(--border-hairline); }
-.book-total span { color: var(--ink-muted); font-size: 12px; }
-.book-total.quiet { border-top: 0; padding-top: 0; }
-
-.robot-gloss { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; color: var(--ink-muted); font-size: clamp(12px, 0.75vw, 13px); line-height: 1.35; }
-.robot-gloss b { color: var(--ink-strong); font-weight: 700; }
-.robots { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.robot { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 8px; padding: 8px; border-radius: 12px; border: 1px solid var(--border-hairline); background: var(--surface-raised); align-items: start; }
-.robot img { width: 52px; height: 44px; object-fit: contain; border-radius: 8px; background: #e9eeec; }
-.robot-body { display: grid; gap: 2px; align-content: start; min-width: 0; }
-.robot-body h4 { margin: 0; font-size: clamp(13px, 0.9vw, 15px); color: var(--ink-strong); }
-.robot-meta { margin: 0; font-family: var(--font-mono); font-size: clamp(11px, 0.75vw, 12.5px); color: var(--ink-strong); }
-.specs { display: flex; flex-wrap: wrap; gap: 2px 10px; margin: 2px 0 0; }
-.specs div { display: inline-flex; gap: 4px; align-items: baseline; min-width: 0; }
-.specs dt { font-size: clamp(11px, 0.7vw, 12px); color: var(--ink-muted); }
-.specs dt::after { content: ':'; }
-.specs dd { margin: 0; font-family: var(--font-mono); font-size: clamp(11px, 0.75vw, 12.5px); color: var(--ink-strong); }
-
-.kv { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 20px; margin: 0; }
-.kv > div { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
-.kv dt { color: var(--ink-muted); font-size: 13px; }
-.kv dd { margin: 0; text-align: right; color: var(--ink-strong); font-family: var(--font-mono); font-size: 12.5px; }
-
-.limits { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.limits li { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; font-size: 14px; line-height: 1.45; }
-.n { width: 22px; height: 22px; border-radius: 7px; background: var(--surface-graphite); color: var(--brand-300); display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 11px; }
-.r-foot { padding-top: 4px; border-top: 1px solid var(--border-hairline); display: grid; gap: 4px; font-size: 12.5px; line-height: 1.45; color: var(--ink-muted); }
-.r-foot .strong { color: var(--ink-strong); }
-
-@media (min-width: 1500px) {
-  .robots { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-@media (max-width: 1100px) {
-  .scenes, .books, .formula-grid, .robots { grid-template-columns: 1fr 1fr; }
-  .kv { grid-template-columns: 1fr 1fr; }
-}
-@media (max-width: 800px) {
-  .cover { padding: 20px; gap: 16px; }
-  .cover-hero { height: 180px; min-height: 160px; }
-  .cover-params { grid-template-columns: 1fr; }
-  .r-in { padding: 20px; gap: 22px; }
-  .formula-grid, .scenes, .robots { grid-template-columns: 1fr; }
-}
-
+/* Печать: листы — обычные блоки (Chrome не рвёт страницу между элементами сетки), каждый лист — с новой страницы. */
 @media print {
-  .report {
-    /* Печать доступна до прокрутки до блока с v-reveal. */
-    opacity: 1 !important;
-    transform: none !important;
-    transition: none !important;
-    max-width: none;
-    overflow: visible;
-    box-shadow: none;
-    border: 0;
-    border-radius: 0;
-    background: #fff;
-  }
-  /* Первый лист на всю страницу A4, без белых полей. Картинка забирает свободное место, текст остаётся внизу. */
-  .cover {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    box-sizing: border-box;
-    width: 210mm;
-    height: 297mm;
-    min-height: 297mm;
-    max-height: 297mm;
-    margin: 0;
-    padding: 0;
-    gap: 0;
-    overflow: hidden;
-    border-radius: 0;
-    break-after: page;
-    page-break-after: always;
-    break-inside: avoid;
-    page-break-inside: avoid;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }
-  .cover-hero {
-    position: relative;
-    inset: auto;
-    flex: 1 1 auto;
-    width: 100%;
-    height: auto;
-    min-height: 60mm;
-    margin: 0;
-    border-radius: 0;
-    overflow: hidden;
-    z-index: 0;
-  }
-  .cover-hero::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg, rgba(10, 14, 13, 0.28), rgba(10, 14, 13, 0.55));
-  }
-  .cover-hero img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-  .cover-top, .cover-title, .cover-object, .cover-foot { position: relative; z-index: 1; width: auto; max-width: none; flex: 0 0 auto; }
-  .cover-top { position: absolute; top: 0; left: 0; right: 0; padding: 6mm 10mm 0; }
-  .cover-title, .cover-object, .cover-foot { padding: 3mm 10mm; background: #121817; }
-  .cover-about { font-size: 10px; line-height: 1.3; }
-  .cover-params { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1mm 3mm; }
-  .cover-params dt, .cover-params dd { font-size: 7.5px; line-height: 1.2; overflow-wrap: anywhere; }
-  .cover-h { font-size: 22px !important; line-height: 1.15; white-space: normal !important; overflow: visible !important; overflow-wrap: anywhere; }
-  /* В печать попадает только то, что осталось после галочек: снятые блоки уже не в странице. */
-  .pick, .no-print { display: none !important; }
-  .report, .r-in, .r-sec, .formula-tile, .robot, .cover, img {
-    max-width: 100%;
-  }
-  img { height: auto; object-fit: contain; }
-  /* Сетки и flex Chrome режет по страницам ненадёжно: плитки наезжают на следующий блок.
-     В печати поток блочный, а плитки — строчные блоки: строка из двух плиток переносится целиком. */
-  /* Лист без полей ради обложки в край; поля остальных страниц — отступы тела, повторённые на каждом фрагменте. */
-  .r-in {
-    display: block; padding: 8mm 10mm; font-size: 9.5px; line-height: 1.3; overflow: visible;
-    -webkit-box-decoration-break: clone; box-decoration-break: clone;
-  }
-  .r-in > * + * { margin-top: 5mm; }
-  .synthetic-legend { font-size: 9px; }
-  .synthetic-appendix { break-before: page; padding: 0; border: 0; }
-  .synthetic-appendix::details-content { content-visibility: visible; display: block; }
-  .synthetic-appendix > summary { display: block; font-size: 14px; margin-bottom: 4mm; }
-  .appendix-body { display: block !important; }
-  .appendix-group + .appendix-group { margin-top: 4mm; }
-  .appendix-group h4 { break-after: avoid; }
-  .r-sec, .formula-block, .assume { display: block; }
-  .r-sec > * + * { margin-top: 2.5mm; }
-  .sec-head, .formula-block > h4, .assume > .label, .robot-gloss { break-after: avoid; page-break-after: avoid; }
-  .sec-head { break-inside: avoid; page-break-inside: avoid; }
-  .formula-block > h4 { margin: 4mm 0 2mm; font-size: 12px; }
-  .sec-title { font-size: 13px; }
-  .sec-lead { font-size: 10px; }
-  .advice { display: block; break-inside: avoid; page-break-inside: avoid; }
-  .advice > * + * { margin-top: 2mm; }
-  .advice h3 { font-size: 14px; }
-  .scenes { display: none; }
-  .scenes-print { display: table; }
-
-  .r-in table { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; }
-  .r-in thead { display: table-header-group; }
-  .r-in tr { break-inside: avoid; page-break-inside: avoid; }
-  .r-in th, .r-in td { font-size: 8.5px; line-height: 1.25; padding: 2px 3px; vertical-align: top; overflow-wrap: anywhere; }
-  .r-in td.num, .r-in th.num { white-space: normal; overflow-wrap: anywhere; }
-  .r-in td .caption { font-size: 8.5px; line-height: 1.3; }
-  .scenes-print th:first-child, .proc-table th:first-child { width: 30%; }
-  .scenes-print tr.best td, .advice-table tr.best td, .proc-table tr.best td { background: #e8f7ef; }
-
-  /* Плитки формул разной высоты: две колонки потока укладывают их плотно, без пустот под короткой плиткой. */
-  .formula-grid { display: block; columns: 2; column-gap: 3mm; }
-  .formula-grid:has(> .formula-tile:only-child) { columns: auto; }
-  .formula-tile { display: block; height: auto; margin: 0 0 2mm; padding: 1.5mm; break-inside: avoid; page-break-inside: avoid; overflow: visible; }
-  .formula-tile :deep(.katex) { font-size: 8pt; }
-  .robots { display: block; margin-left: 0; margin-right: 0; }
-  .robot {
-    vertical-align: top; box-sizing: border-box;
-    width: calc(50% - 2mm); height: auto; margin: 0 1mm 2mm;
-    break-inside: avoid; page-break-inside: avoid;
-    overflow: visible;
-  }
-  .robot { display: inline-grid; grid-template-columns: 28px minmax(0, 1fr); padding: 1.5mm; }
-  .robot img { width: 28px; height: 24px; object-fit: cover; }
-
-  .assume-row dl { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .sens-table th:first-child { width: 30%; }
-  .sens-table th:nth-child(3) { width: 38%; }
-  .base { font-size: 11px; }
-  .tornado { height: 9px; }
-  .tornado-v { font-size: 8px; }
-  .assume-row, .proc-fix, .chart, .cover-params > div, .limits li { break-inside: avoid; page-break-inside: avoid; }
-  .chart { display: block; }
-  .chart > * + * { margin-top: 2mm; }
-  .limits { gap: 2px; }
-  .limits li { font-size: 10px; }
-  .n { width: 14px; height: 14px; font-size: 8px; }
-  .note, .r-foot, .legend { font-size: 9px; }
-  .r-foot { break-inside: avoid; }
-  :deep(.callout) { display: none !important; }
-  :deep(.katex-display),
-  :deep(.tex.block) { overflow: visible; max-width: 100%; }
-  :deep(.katex-html) { white-space: normal; overflow-wrap: anywhere; }
-  .cover-hero img { height: 100% !important; object-fit: cover !important; }
+  .doc { display: block; width: 210mm; }
+  .sheet { display: block; min-height: 0; border-radius: 0; box-shadow: none; padding: 13mm 14mm 11mm; }
+  .sheet > * + * { margin-top: 7px; }
+  .sheet + .sheet { break-before: page; page-break-before: always; }
+  .cover { display: flex; height: 297mm; padding: 0; }
+  .cover > * + * { margin-top: 0; }
+  .cover > .c-body { margin-top: auto; }
+  .chart :deep(svg) { max-height: 58mm; }
+  /* Сетки карточек на печати — колонками: Chrome переносит колонки между листами без пустых страниц. */
+  .cards, .formulas, .fleet { display: block; column-count: 2; column-gap: 8px; }
+  .cards > *, .formulas > *, .fleet > * { display: inline-grid; width: 100%; margin: 0 0 8px; box-sizing: border-box; }
+  .note { margin-top: 12px; }
+  .more { display: none; }
+}
+/* Только для экрана: лист A4 при печати уже 860 px, и без «screen» печать получала мобильную вёрстку. */
+@media screen and (max-width: 860px) {
+  .sheet:not(.cover) { min-height: 0; padding: 18px; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cards, .risk, .fleet, .formulas, .two { grid-template-columns: 1fr; }
 }
 </style>

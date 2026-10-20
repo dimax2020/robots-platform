@@ -24,18 +24,9 @@ const statusOrder = ['pass', 'conditional', 'unknown', 'fail'] as const
 const { inCompare, toggleCompare } = usePlatformCompare(id)
 const loadingMatch = ref(true)
 const matchError = ref('')
-const startedAt = ref(0)
-const now = ref(0)
-let clock: ReturnType<typeof setInterval> | undefined
 const ranFor = ref('')
 
 const canRun = computed(() => Boolean(project.value))
-const elapsed = computed(() => {
-  if (!startedAt.value) return '0,0 с'
-  const sec = Math.max(0, now.value - startedAt.value) / 1000
-  return `${sec.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} с`
-})
-
 /* Первый проход — по процессам, в конце итог. Пройденный шаг открывается сразу с итога. */
 const pass = useStepPass(id, 'match')
 const activeCode = computed(() => {
@@ -118,15 +109,6 @@ const countText = (hit: MatchHit | null) => {
   const text = Number.isInteger(value) ? value.toLocaleString('ru-RU') : value.toLocaleString('ru-RU', { maximumFractionDigits: 1 })
   return `${text} шт.`
 }
-const startClock = () => {
-  startedAt.value = Date.now()
-  now.value = startedAt.value
-  clock = setInterval(() => { now.value = Date.now() }, 100)
-}
-const stopClock = () => {
-  if (clock) clearInterval(clock)
-  clock = undefined
-}
 
 const runMatch = async () => {
   if (live.pending.value || !shell.value || ranFor.value === shell.value.id) return
@@ -134,7 +116,6 @@ const runMatch = async () => {
   loadingMatch.value = true
   matchError.value = ''
   groups.value = []
-  startClock()
   try {
     const site = live.site.value
     const result = await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site, tasks: live.tasks.value })
@@ -147,7 +128,6 @@ const runMatch = async () => {
   } catch (err: unknown) {
     matchError.value = fetchErrorMessage(err, 'Не удалось посчитать подбор')
   } finally {
-    stopClock()
     loadingMatch.value = false
   }
 }
@@ -162,7 +142,6 @@ const goNext = () => {
 }
 
 watch([() => shell.value?.id, () => live.pending.value], () => { void runMatch() }, { immediate: true })
-onBeforeUnmount(stopClock)
 </script>
 
 <template>
@@ -193,17 +172,13 @@ onBeforeUnmount(stopClock)
       {{ fetchErrorMessage(error, 'Сервер не ответил. Проверьте, что API запущен.') }}
     </UiCallout>
 
-    <section v-else-if="loadingMatch || pending" class="waiting glass">
-      <div class="wait-copy">
-        <div class="label">Подбор</div>
-        <div class="h3">Считаем решения</div>
-        <p class="body-sm muted">Когда расчёт закончится, откроются роботы первого процесса.</p>
-      </div>
-      <div class="timer">
-        <span class="display-3">{{ elapsed }}</span>
-        <span class="caption">идёт расчёт</span>
-      </div>
-    </section>
+    <StepLoading
+      v-else-if="loadingMatch || pending"
+      label="Подбор"
+      title="Подбираем роботов"
+      :stages="['Загружаем параметры объекта', 'Проверяем роботов каталога по требованиям процессов', 'Считаем, сколько роботов нужно', 'Сортируем: подходит, с допущениями, уточнить']"
+      hint="Когда расчёт закончится, откроются роботы первого процесса."
+    />
 
     <UiCallout v-else-if="matchError" tone="danger" title="Подбор не посчитался">{{ matchError }}</UiCallout>
 
@@ -263,6 +238,8 @@ onBeforeUnmount(stopClock)
     </template>
   </ProjectShell>
 
+  <!-- Пока проект грузится — загрузка, а не «не найден»: на первом показе данных ещё нет всегда. -->
+  <section v-else-if="pending" class="container opening"><StepLoading label="Проект" title="Открываем проект" :timer="false" /></section>
   <section v-else class="container gone">
     <UiCallout tone="danger" title="Проект не найден">Нет ни сохранённого расчёта, ни демо-макета с таким адресом.</UiCallout>
     <UiButton to="/projects">К списку проектов</UiButton>
@@ -270,11 +247,6 @@ onBeforeUnmount(stopClock)
 </template>
 
 <style scoped>
-.waiting { display: flex; justify-content: space-between; align-items: center; gap: var(--space-6); padding: var(--space-6); }
-.waiting > * { position: relative; z-index: 1; }
-.wait-copy { display: grid; gap: 6px; max-width: 52ch; }
-.timer { display: grid; justify-items: end; gap: 4px; }
-.timer .display-3 { font-variant-numeric: tabular-nums; }
 .tally { display: flex; align-items: center; gap: 14px; padding: 14px 20px; border-radius: 16px; }
 .tally > * { position: relative; z-index: 1; }
 .tally-ico { width: 40px; height: 40px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: var(--surface-brand-tint); color: var(--brand-700); flex: none; }
@@ -319,9 +291,8 @@ onBeforeUnmount(stopClock)
 .call-actions { margin-top: 10px; }
 .gone { padding-top: var(--space-12); display: grid; gap: var(--space-4); justify-items: start; }
 @media (max-width: 1100px) {
-  .waiting { display: grid; }
   .hit { grid-template-columns: 96px minmax(0, 1fr); min-height: 108px; }
   .thumb { width: 96px; height: 72px; }
-  .timer { justify-items: start; }
 }
+.opening { padding-top: var(--space-8); padding-bottom: var(--space-8); }
 </style>

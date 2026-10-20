@@ -540,3 +540,26 @@ def test_other_manual_costs_leave_with_the_people():
     assert story["other_month"] == 200_000
     assert story["released"] == 9
     assert story["payroll_now"] - story["payroll_after"] == pytest.approx(9 * 1_440_000)
+
+
+def test_cashflow_separates_money_and_owned_equipment():
+    # Деньги и стоимость своей техники — отдельно: в последний год их сумма даёт накопленный итог.
+    buy = _buy(calculate([_row("pallet_transport", 1_000_000, 2)], _SITE, standard=_QUIET))
+    rows = buy["cashflow"]
+    capex = buy["capex"]["value"]
+    assert rows[0]["asset_rub"] == pytest.approx(capex * 4 / 5)
+    assert rows[-1]["cash_cumulative"] + rows[-1]["asset_rub"] == pytest.approx(rows[-1]["cumulative"])
+    assert rows[1]["cash_cumulative"] == pytest.approx(rows[1]["cumulative"])
+
+
+def test_rent_payment_grows_faster_than_inflation():
+    # Индексация 10% при цели по инфляции 4%: в постоянных ценах платёж дорожает на 1,1 / 1,04 − 1 ≈ 5,77% в год.
+    standard = {**_QUIET, "inflation_target_pct": 4, "raas_growth_pct": 10}
+    rent = _rent(calculate([_row("pallet_transport", 1_000_000, 2)], _SITE, standard=standard))
+    flat = _rent(calculate([_row("pallet_transport", 1_000_000, 2)], _SITE, standard={**standard, "raas_growth_pct": 4}))
+    growth = 1.1 / 1.04 - 1
+    payment = 2 * 1_000_000 * 0.02 * 12
+    assert rent["cashflow"][0]["opex_rub"] == pytest.approx(flat["cashflow"][0]["opex_rub"])
+    assert rent["cashflow"][2]["opex_rub"] - flat["cashflow"][2]["opex_rub"] == pytest.approx(-payment * ((1 + growth) ** 2 - 1))
+    assert rent["npv"]["value"] < flat["npv"]["value"]
+    assert rent["tco"]["value"] > flat["tco"]["value"]

@@ -83,6 +83,11 @@ export interface EconScenario {
   eac?: EconFig
   tco: EconFig
   cashflow?: EconCashRow[]
+  /** Аренда: окупаемость и ROI вложений во внедрение на площадке — для сравнения сценариев по единым показателям. */
+  implementation_payback?: number | null
+  implementation_roi?: number | null
+  /** Стоимость своей техники и внедрения сразу после покупки — база износа. */
+  asset_start?: number
   years: { year: number; cost_rub: number; net_rub: number }[]
   verdict: string
 }
@@ -102,6 +107,10 @@ export interface EconCashRow {
   cf_rub: number
   cumulative: number
   discounted: number
+  /** Стоимость своей техники на конец года, по износу. */
+  asset_rub?: number
+  /** Накоплено деньгами, без стоимости техники. */
+  cash_cumulative?: number
 }
 
 /** Высвобождение процесса: откуда численность, какую долю берут роботы, сколько людей уходит. */
@@ -287,6 +296,10 @@ export interface EconSensitivity {
   npv?: number | null
   npv_low?: number | null
   npv_high?: number | null
+  /** NPV аренды на тех же границах параметра: чувствительность для каждого сценария. */
+  rent_npv?: number | null
+  rent_npv_low?: number | null
+  rent_npv_high?: number | null
   level?: 'A' | 'B' | 'C' | 'D'
   range_note?: string
   /** Доля в разбросе NPV: квадрат размаха к сумме квадратов. */
@@ -653,4 +666,10 @@ export const withPlan = (overrides: Record<string, number>, changes: EconPlanCha
   }
   next.auto = 1
   return next
+}
+
+/** Срок окупаемости аренды: своих вложений — только внедрение на площадке, окупаемость считается для них. */
+export const rentPaybackText = (item: EconScenario) => {
+  if ((item.capex.value ?? 0) <= 0) return 'сразу: вложений нет'
+  return item.implementation_payback != null ? yearsText(item.implementation_payback) : 'не окупается'
 }

@@ -815,6 +815,8 @@ watch(() => tasks.value.length, (n) => {
     </template>
   </ProjectShell>
 
+  <!-- Пока проект грузится — загрузка, а не «не найден»: на первом показе данных ещё нет всегда. -->
+  <section v-else-if="pending" class="container opening"><StepLoading label="Проект" title="Открываем проект" :timer="false" /></section>
   <section v-else class="container missing">
     <UiCallout tone="danger" title="Проект не найден">Нет ни сохранённого расчёта, ни демо-макета с таким адресом.</UiCallout>
     <UiButton to="/projects">К списку проектов</UiButton>
@@ -898,4 +900,5 @@ watch(() => tasks.value.length, (n) => {
   .proc-layout { grid-template-columns: 1fr; }
   .proc-nav { position: static; }
 }
+.opening { padding-top: var(--space-8); padding-bottom: var(--space-8); }
 </style>

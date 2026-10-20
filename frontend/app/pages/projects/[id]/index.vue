@@ -303,6 +303,11 @@ const togglePublish = async () => {
       </aside>
     </div>
   </section>
+  <section v-else-if="doc.pending.value" class="container cab"><StepLoading label="Проект" title="Открываем проект" :timer="false" /></section>
+  <section v-else class="container cab">
+    <UiCallout tone="danger" title="Проект не найден">Нет сохранённого расчёта с таким адресом.</UiCallout>
+    <UiButton to="/projects">К списку проектов</UiButton>
+  </section>
 </template>
 
 <style scoped>

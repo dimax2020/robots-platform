@@ -79,6 +79,10 @@ NORMS: tuple[Norm, ...] = (
     Norm("raas_rate_pct", "raas", "Ставка аренды", r"k_{\text{RaaS}}", 2.2, "% цены робота в месяц",
          "Выведено из демо: аренда дороже покупки на 19 млн ₽ в год при оборудовании 71,4 млн ₽, это около 26,6% в год или 2,2% в месяц. "
          "В ставку входят сервис, ремонт, расходники и лицензии.", "Демо-проект склада", 0.5, 6, 0.1),
+    Norm("raas_growth_pct", "raas", "Рост платежа аренды", r"g_{\text{RaaS}}", 4.0, "% в год",
+         "Насколько в год дорожает арендный платёж по договору. По умолчанию — на инфляцию (цель Банка России 4%): "
+         "расчёт идёт в постоянных ценах, и такой рост платёж не меняет. Если договор индексирует быстрее инфляции, "
+         "платёж в постоянных ценах растёт на (1 + g) / (1 + π*) − 1 в год.", "Условие договора аренды", 0, 30, 0.5),
     Norm("horizon_years", "horizon", "Горизонт расчёта", r"T", 5.0, "лет",
          "ТЗ: не меньше 5 лет. Если на площадке задан больший горизонт окупаемости, берётся он.", "ТЗ организатора", 3, 15, 1),
     Norm("price_factor", "whatif", "Стоимость оборудования", r"f_{\text{цена}}", 100.0, "% от цены карточки",
@@ -184,7 +188,7 @@ RANGES: dict[str, tuple[float, float, str]] = {
 LEVELS: dict[str, str] = {
     "price_factor": "B", "salary_factor": "B", "robots_per_operator": "D", "service_pct": "C", "license_pct": "B",
     "infra_pct": "C", "software_pct": "C", "integration_pct": "C", "commissioning_pct": "C", "energy_tariff": "C",
-    "service_life_years": "D", "fte_hours": "A",
+    "service_life_years": "D", "fte_hours": "A", "raas_growth_pct": "C",
 }
 LEVEL_WIDTH = {"A": 0.05, "B": 0.10, "C": 0.20, "D": 0.35}
 # Точки безубыточности: ключ, подпись, единица, границы поиска, целое ли значение.
@@ -980,6 +984,10 @@ def _raas(s: dict) -> dict:
         "Оборудование и ПО не покупаются: они в арендном платеже. Внедрение на площадке остаётся на заказчике.",
     )
     payment_fig = _raas_payment_fig(s)
+    growth = _raas_growth(s["p"])
+    if abs(growth) > 1e-9:
+        payment_fig = {**payment_fig, "note": payment_fig["note"] + f" По договору платёж индексируется на {_t_plain(s['p']['raas_growth_pct'])}% в год: "
+                       f"в постоянных ценах он {'дорожает' if growth > 0 else 'дешевеет'} на {_t_plain(abs(round(growth * 100, 1)))}% в год."}
     opex_lines = [payment_fig, _energy_fig(s), _cost_pct_fig(s, "comms_pct", "обор"), _operators_fig(s)]
     confirmed = sum(1 for item in s["included"] if item["raas_available"])
     total = len(s["included"])
@@ -997,12 +1005,19 @@ def _raas(s: dict) -> dict:
         dep_base=max(0.0, capex_value - training),
         expensed=training,
         owned=False,
+        growing=(payment_fig["value"] or 0.0, growth) if abs(growth) > 1e-9 else None,
     )
+
+
+def _raas_growth(p: dict) -> float:
+    """Рост арендного платежа в постоянных ценах: индексация по договору сверх цели по инфляции."""
+    return (1 + p.get("raas_growth_pct", 0) / 100) / (1 + p["inflation_target_pct"] / 100) - 1
 
 
 def _robot_scenario(
     s, key, title, subtitle, capex, capex_lines, opex_lines, opex_tex, note,
     support: dict | None = None, dep_base: float = 0.0, expensed: float = 0.0, owned: bool = True,
+    growing: tuple[float, float] | None = None,
 ) -> dict:
     p, horizon = s["p"], s["horizon"]
     support = support or _no_support()
@@ -1047,7 +1062,9 @@ def _robot_scenario(
             "Полный год до налога. Доп. дохода и предотвращённых потерь в данных площадки нет.",
         )
     capex_value = capex["value"]
-    flow = _cashflow(s, capex_value, saved, opex_value, dep_base, expensed, support)
+    flow = _cashflow(s, capex_value, saved, opex_value, dep_base, expensed, support, growing)
+    # Сколько сверх первого года добавит рост платежа к каждому году.
+    extra = [0.0] + [-row["growth_rub"] for row in flow["rows"]]
     rate = flow["rate"]
     capex_var = _var(r"\text{CAPEX}", "Вложения", capex_value, "₽", "calc")
     cf_var = _var(r"CF_t", "Денежный поток года после налога", None, "₽", "calc", "Таблица денежного потока по годам.")
@@ -1098,12 +1115,16 @@ def _robot_scenario(
     eac = _eac_fig(s, flow["npv"], rate)
     support_total = sum(support["frp"](year) for year in range(1, horizon + 1))
     annual = opex_value + after_value
-    tco_value = capex_value + annual * horizon - support_total
+    grown = sum(extra)
+    tco_value = capex_value + annual * horizon + grown - support_total
     tco = _fig(
         "tco", f"TCO за {horizon} лет", tco_value, "₽",
-        r"\text{TCO} = \text{CAPEX} + (\text{OPEX} + \text{ФОТ}_{\text{после}}) \times T - \sum S_t" if support_total else r"\text{TCO} = \text{CAPEX} + (\text{OPEX} + \text{ФОТ}_{\text{после}}) \times T",
-        rf"{_t(capex_value)} + ({_t(opex_value)} + {_t(after_value)}) \times {horizon}" + (rf" - {_t(support_total)}" if support_total else "") + rf" = {_t(tco_value)}\ \text{{₽}}",
+        (r"\text{TCO} = \text{CAPEX} + (\text{OPEX} + \text{ФОТ}_{\text{после}}) \times T"
+         + (r" + \Delta_{\text{рост}}" if grown else "") + (r" - \sum S_t" if support_total else "")),
+        rf"{_t(capex_value)} + ({_t(opex_value)} + {_t(after_value)}) \times {horizon}" + (rf" + {_t(grown)}" if grown else "")
+        + (rf" - {_t(support_total)}" if support_total else "") + rf" = {_t(tco_value)}\ \text{{₽}}",
         [
+            *([_var(r"\Delta_{\text{рост}}", "Рост арендного платежа за горизонт сверх первого года", grown, "₽", "calc")] if grown else []),
             _var(r"\text{CAPEX}", "Капитальные затраты", capex_value, "₽", "calc"),
             _var(r"\text{OPEX}", "Эксплуатация парка", opex_value, "₽/год", "calc"),
             _var(r"\text{ФОТ}_{\text{после}}", "ФОТ оставшихся людей", after_value, "₽/год", "calc"),
@@ -1114,7 +1135,7 @@ def _robot_scenario(
     )
     cumulative = [0.0]
     for year in range(1, horizon + 1):
-        cumulative.append(cumulative[-1] + support["frp"](year))
+        cumulative.append(cumulative[-1] + support["frp"](year) - extra[year])
     return {
         "key": key,
         "title": title,
@@ -1131,6 +1152,9 @@ def _robot_scenario(
         "effect_lines": [saving, _negate(opex), *support["year_lines"]],
         "payback": payback,
         "roi": roi,
+        # У аренды вложения — только во внедрение на площадке: их окупаемость и ROI — для сравнения по единым показателям.
+        "implementation_payback": None if owned else flow["pbp"],
+        "implementation_roi": None if owned else flow["roi"],
         "npv": npv,
         "irr": irr,
         "dpp": dpp,
@@ -1138,6 +1162,7 @@ def _robot_scenario(
         "eac": eac,
         "tco": tco,
         "cashflow": flow["rows"],
+        "asset_start": flow["asset_start"],
         "years": [
             {"year": row["year"], "cost_rub": capex_value + annual * row["year"] - cumulative[row["year"]], "net_rub": row["cumulative"]}
             for row in flow["rows"]
@@ -1407,6 +1432,7 @@ def _sensitivity(
             "payback_low": values[0]["payback"], "payback_high": values[1]["payback"],
             "effect_low": values[0]["effect"], "effect_high": values[1]["effect"],
             "npv_low": values[0]["npv"], "npv_high": values[1]["npv"],
+            "rent_npv_low": values[0].get("rent_npv"), "rent_npv_high": values[1].get("rent_npv"), "rent_npv": base.get("rent_npv"),
             "payback": base["payback"], "effect": base["effect"], "npv": base["npv"],
             "swing": swing,
         }
@@ -1443,7 +1469,9 @@ def _swing(low: float | None, high: float | None) -> float | None:
 
 def _metric(report: dict) -> dict:
     purchase = next(item for item in report["scenarios"] if item["key"] == "purchase")
-    return {"payback": purchase["payback"]["value"], "effect": purchase["effect"]["value"], "npv": purchase["npv"]["value"]}
+    rent = next((item for item in report["scenarios"] if item["key"] == "raas"), None)
+    return {"payback": purchase["payback"]["value"], "effect": purchase["effect"]["value"], "npv": purchase["npv"]["value"],
+            "rent_npv": rent["npv"]["value"] if rent else None}
 
 
 def _verdict(payback: float | None, npv: float | None = None, owned: bool = True) -> str:
@@ -2287,7 +2315,8 @@ def _rate_fig(params: dict[str, dict]) -> dict:
     return fig
 
 
-def _cashflow(s: dict, capex: float, saved: float, opex: float, dep_base: float, expensed: float, support: dict) -> dict:
+def _cashflow(s: dict, capex: float, saved: float, opex: float, dep_base: float, expensed: float, support: dict,
+              growing: tuple[float, float] | None = None) -> dict:
     """Годовой денежный поток после налога: уведомление и выплаты при сокращении, амортизация, остаточная стоимость."""
     p, horizon = s["p"], s["horizon"]
     factor = p["salary_factor"] / 100
@@ -2307,7 +2336,10 @@ def _cashflow(s: dict, capex: float, saved: float, opex: float, dep_base: float,
     npv = -capex
     inflow = 0.0
     flows = [-capex]
+    base_opex = opex
     for year in range(1, horizon + 1):
+        # Платёж, который дорожает по договору: в год t он больше на (1 + g)^(t−1).
+        opex = base_opex + (growing[0] * ((1 + growing[1]) ** (year - 1) - 1) if growing else 0.0)
         months = 12 - notice if year == 1 else 12.0
         saving = saved * months / 12
         paid = payouts if year == 1 else 0.0
@@ -2326,7 +2358,9 @@ def _cashflow(s: dict, capex: float, saved: float, opex: float, dep_base: float,
         # Остаточная стоимость — по линейному износу: техника стоит столько же, как бы её ни списывали.
         # Если баланс ниже (ускоренная амортизация), с разницы платится налог.
         value_left = max(0.0, dep_base - linear * age)
-        residual = value_left - tax * max(0.0, value_left - left) if year == horizon else 0.0
+        # Сколько стоит своя техника на конец года: по износу, за вычетом налога с превышения над балансом.
+        asset = value_left - tax * max(0.0, value_left - left)
+        residual = asset if year == horizon else 0.0
         cash = operating + residual
         disc = (1 + rate) ** year
         if pbp is None and operating > 0 and cumulative + operating >= 0:
@@ -2342,6 +2376,7 @@ def _cashflow(s: dict, capex: float, saved: float, opex: float, dep_base: float,
             "year": year,
             "saving_rub": saving,
             "opex_rub": -opex,
+            "growth_rub": -(opex - base_opex),
             "payouts_rub": -paid,
             "support_rub": frp,
             "depreciation_rub": dep,
@@ -2349,6 +2384,8 @@ def _cashflow(s: dict, capex: float, saved: float, opex: float, dep_base: float,
             "residual_rub": residual,
             "reinvest_rub": -reinvest,
             "cf_rub": cash,
+            "asset_rub": asset,
+            "cash_cumulative": cumulative,
             "cumulative": cumulative + residual,
             "discounted": discounted + residual / disc,
         })
@@ -2363,6 +2400,7 @@ def _cashflow(s: dict, capex: float, saved: float, opex: float, dep_base: float,
         "roi": (inflow - capex) / capex * 100 if capex > 0 else None,
         "inflow": inflow,
         "residual": rows[-1]["residual_rub"] if rows else 0.0,
+        "asset_start": dep_base,
         "rate": rate,
         "payouts": payouts,
     }

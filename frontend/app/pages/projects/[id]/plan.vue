@@ -45,7 +45,8 @@ const snapOn = ref(true)
 const hint = ref('')
 const zoomPct = ref(100)
 const saveState = ref<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle')
-const panels = reactive({ nav: true, monitor: true, props: true })
+/* Монитор свёрнут по умолчанию: сначала видна схема целиком, графики — по клику. */
+const panels = reactive({ nav: true, monitor: false, props: true })
 /* Просмотр: схема спит, пока по ней не кликнут, чтобы колесо прокручивало страницу, а не карту. */
 const awake = ref(false)
 /* Меню «Добавить объект» в режиме роботов. */
@@ -753,6 +754,29 @@ const liveUtil = computed(() => {
 const liveRobots = computed(() => (live.value?.processes ?? []).reduce((acc, row) => acc + row.robots, 0))
 const modeLabel = computed(() => loadMode.value === 'peak' ? `Пик ×${peak.value}` : loadMode.value === 'failure' ? `Сбой: −${failurePct.value}% роботов` : liveLoad.value === 100 ? 'базовый поток' : `поток ${liveLoad.value} %`)
 const statFor = (code: string) => check.value?.stats.processes.find((row) => row.code === code)
+const processNames = computed(() => Object.fromEntries(groups.value.map((group) => [group.process_code, group.process_name])))
+/* Справится ли процесс со сменой: по прогону смены без анимации. Без скорости или производительности робота
+   проверить нельзя — это говорим прямо, а не «не подтверждает». */
+type Verdict = { code: string; name: string; tone: 'ok' | 'bad' | 'todo'; badge: string; text: string; share: number }
+const verdictOf = (proc: SimProcess): Verdict => {
+  const st = statFor(proc.code)
+  if (!st) return { code: proc.code, name: proc.name, tone: 'todo', badge: 'Считаем', text: 'смена прогоняется', share: 0 }
+  const share = st.requiredPerHour > 0 ? Math.min(1, st.donePerHour / st.requiredPerHour) : 1
+  const amount = `${perHour(st.donePerHour)} из ${perHour(st.requiredPerHour)} ${proc.unit} в час`
+  if (st.donePerHour === 0 && st.requiredPerHour > 0 && st.notes.length) return { code: proc.code, name: proc.name, tone: 'todo', badge: 'Проверить нельзя', text: 'нет данных о скорости или производительности робота', share: 0 }
+  if (st.confirmed) return { code: proc.code, name: proc.name, tone: 'ok', badge: 'Справляется', text: amount, share }
+  return { code: proc.code, name: proc.name, tone: 'bad', badge: 'Не успевает', text: amount, share }
+}
+const verdicts = computed(() => active.value.map(verdictOf))
+const verdictHead = computed(() => {
+  const rows = verdicts.value
+  if (!rows.length) return ''
+  const ok = rows.filter((row) => row.tone === 'ok').length
+  const unknown = rows.filter((row) => row.tone === 'todo' && row.badge === 'Проверить нельзя').length
+  const word = (n: number) => n % 10 === 1 && n % 100 !== 11 ? 'процесс' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'процесса' : 'процессов'
+  return `Со сменой справляются ${ok} из ${rows.length} ${word(rows.length)}${unknown ? `, ${unknown} проверить нельзя` : ''}`
+})
+const focusProc = ref('')
 const fmt = (value: number, digits = 0) => value.toLocaleString('ru-RU', { maximumFractionDigits: digits, minimumFractionDigits: digits })
 const meters = (value: number) => value.toLocaleString('ru-RU', { maximumFractionDigits: value >= 100 ? 0 : 1 })
 const perHour = (value: number) => (value >= 100 ? fmt(value) : fmt(value, value >= 10 ? 1 : 2))
@@ -766,7 +790,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
     :alerts="skippedAlerts(skipped)"
     current="plan"
     title="Визуализация"
-    lead="Сценарий работы предприятия по стадиям на одной схеме: пол и чертёж, здание, объекты каждого процесса. Когда стадии закрыты, роботы из сравнения проходят смену по кратчайшим маршрутам."
+    lead="Роботы из расчёта на плане объекта. Нажмите ▶ — смена пойдёт вживую, а сверху видно, справляются ли роботы с потоком."
   >
     <template #actions>
       <UiButton variant="secondary" @click="exportPlan"><template #icon><PhDownloadSimple :size="16" weight="bold" /></template>Выгрузить план</UiButton>
@@ -780,7 +804,12 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
       <p>Модель движения упрощена: роботы не объезжают друг друга, станция обслуживает одного робота за раз, лифт — фиксированное время.</p>
     </AssessmentNotice>
 
-    <section v-if="(pending || loading) && !layout" class="waiting glass"><div class="h3">Собираем схему</div></section>
+    <StepLoading
+      v-if="(pending || loading) && !layout"
+      label="Визуализация"
+      title="Собираем схему"
+      :stages="['Загружаем план объекта', 'Расставляем роботов и рабочие зоны', 'Готовим реплей смены']"
+    />
     <UiCallout v-else-if="loadError || error" tone="danger" title="Схема не открылась">{{ loadError || fetchErrorMessage(error, 'Сервер не ответил.') }}</UiCallout>
 
     <section v-else-if="layout && guide.phase === 'intro' && readonly" class="intro glass glass-xl">
@@ -813,18 +842,36 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
     </section>
 
     <div v-else-if="layout" class="studio">
+      <!-- Вывод по смене: главное — до схемы. Клик по процессу подсвечивает его на плане. -->
+      <section v-if="!editing && verdicts.length" class="verdict glass">
+        <div class="v-in">
+          <div class="v-head">
+            <span class="label">Справятся ли роботы со сменой {{ shiftHours }} ч</span>
+            <span class="h3">{{ verdictHead }}</span>
+          </div>
+          <div class="v-list">
+            <button v-for="row in verdicts" :key="row.code" type="button" class="v-chip" :class="[row.tone, { on: focusProc === row.code }]" :aria-pressed="focusProc === row.code" @click="focusProc = focusProc === row.code ? '' : row.code">
+              <i class="dot" :style="{ background: colors[row.code] }" />
+              <span class="v-copy"><span class="body-sm strong">{{ row.name }}</span><span class="caption">{{ row.badge }} · {{ row.text }}</span></span>
+              <span v-if="row.tone !== 'todo'" class="v-bar"><i :style="{ width: `${row.share * 100}%` }" /></span>
+            </button>
+          </div>
+          <span v-if="focusProc" class="caption">Остальные процессы на схеме приглушены. <button type="button" class="link" @click="focusProc = ''">Показать все</button></span>
+        </div>
+      </section>
+
       <!-- Страница: просмотр схемы, монитор и запуск смены. Редактирование — в полноэкранном редакторе. -->
       <div v-if="!editing" class="canvas-in viewer" :class="{ asleep: !awake }" @mouseleave="awake = false">
         <ClientOnly>
           <PlanEditor
             ref="editor" :layout="layout" :floor-id="floorId" mode="view" tool="hand" :process="toolProcess" :station-kind="stationKind" :station-item="stationItem" :link-kind="linkKind"
-            pending-link="" :colors="colors" :processes="byCode" :visibility="visibility" highlight="" :calibrate-meters="calibrateMeters" :selection="[]" :focus-robot="focusRobot" :snap="snapOn"
+            pending-link="" :colors="colors" :processes="byCode" :names="processNames" :visibility="visibility" :highlight="focusProc" :calibrate-meters="calibrateMeters" :selection="[]" :focus-robot="focusRobot" :snap="snapOn"
             @ready="onEditorReady" @hint="hint = $event" @focus="focusRobot = $event" @zoom="zoomPct = Math.round($event * 10)"
           />
         </ClientOnly>
         <!-- Пока схема спит, колесо прокручивает страницу; клик включает управление картой. -->
         <button v-if="!awake" type="button" class="sleep" @click="awake = true">
-          <span class="sleep-chip glass glass-strong"><PhCursorClick :size="18" weight="bold" /><span>Нажмите, чтобы управлять схемой</span><span class="caption">колесо сдвигает · Ctrl + колесо приближает</span></span>
+          <span class="sleep-chip glass glass-strong"><PhCursorClick :size="16" weight="bold" /><span>Нажмите на схему, чтобы двигать и приближать</span></span>
         </button>
 
         <div class="topbar glass glass-strong">
@@ -832,7 +879,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
             <button v-for="f in layout.floors" :key="f.id" type="button" class="flr" :class="{ on: f.id === floorId }" @click="floorId = f.id">{{ f.name }}</button>
           </div>
           <span class="sep" />
-          <span class="caption ready">{{ readyCount }} из {{ stageProcesses.length }} процессов готовы · {{ active.length }} в модели</span>
+          <span class="caption ready" :title="`Объекты расставлены у ${readyCount} из ${stageProcesses.length} процессов, в смене участвуют ${active.length}`">На схеме {{ active.length }} из {{ stageProcesses.length }} процессов</span>
           <span class="sep" />
           <UiBadge v-if="readonly" tone="info" size="sm">Демо · только просмотр</UiBadge>
           <UiButton v-else size="sm" @click="openEditor()"><template #icon><PhPencilSimple :size="14" weight="bold" /></template>Редактировать</UiButton>
@@ -856,6 +903,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
                 <div v-for="row in (live?.processes ?? []).slice(0, 3)" :key="row.code"><span class="caption"><i class="dot" :style="{ background: colors[row.code] }" /> {{ row.name }}</span><span class="mono-md">{{ fmt(row.done) }} {{ row.unit }}</span></div>
               </div>
             </div>
+            <p v-if="active.length && !playing && series('rate').length < 2" class="caption m-empty">Нажмите ▶ внизу схемы — смена пойдёт, и здесь появятся графики: сколько выполнено, очередь, загрузка роботов.</p>
             <p v-if="!active.length" class="caption">{{ readonly ? 'Ни один процесс не готов к смене: администратор ещё не расставил объекты на этом демо.' : 'Ни один процесс не готов к смене. Откройте редактор и расставьте объекты процессов или нажмите «Дособрать».' }}</p>
             <template v-else>
               <div class="live-ctl">
@@ -907,12 +955,23 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
         </div>
         <div class="statusline caption"><span>{{ hint }}</span></div>
       </div>
+      <div v-if="!editing" class="legend-under">
+        <div class="legend">
+          <div class="lg"><i class="sw load" /> Откуда берут груз</div>
+          <div class="lg"><i class="sw unload" /> Куда везут</div>
+          <div class="lg"><i class="sw chg" /> Зарядка</div>
+          <div class="lg"><i class="sw way" /> Точка обхода</div>
+          <div class="lg"><i class="sw zone" /> Зона работы</div>
+          <div class="lg"><i class="sw lift" /> Лифт «Л», лестница «С»</div>
+          <div class="lg"><i class="sw robot" /> Робот, тёмный — с грузом, серый — сломан</div>
+        </div>
+      </div>
 
       <!-- Проверка за смену: под холстом. -->
-      <section v-if="!editing" class="check glass">
+      <section v-if="!editing" class="shift-check glass">
         <div class="ch-in">
           <div class="between">
-            <div><div class="h4">Проверка за смену</div><div class="caption">Смена {{ shiftHours }} ч прогоняется без анимации при базовом потоке заданий. Поток и поломки вживую меняются в мониторе.</div></div>
+            <div><div class="h4">Подробно по процессам</div><div class="caption">Смена {{ shiftHours }} ч прогнана без анимации при обычном потоке заданий. Поток и поломки можно менять вживую в мониторе на схеме.</div></div>
             <span class="caption">{{ checking ? 'считаем' : check ? `${fmt(check.ms)} мс` : '' }}</span>
           </div>
           <div v-if="active.length" class="ch-grid">
@@ -920,7 +979,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
               <div class="c-head"><i class="dot" :style="{ background: colors[proc.code] }" /><span class="body-sm strong">{{ proc.name }}</span></div>
               <span class="caption">{{ proc.robot.name }} × {{ proc.robot.count }} по расчёту</span>
               <template v-if="statFor(proc.code)">
-                <UiBadge :tone="statFor(proc.code)!.confirmed ? 'ok' : 'warn'" size="sm">{{ statFor(proc.code)!.confirmed ? 'Подтверждает расчёт' : 'Не подтверждает расчёт' }}</UiBadge>
+                <UiBadge :tone="verdictOf(proc).tone === 'ok' ? 'ok' : verdictOf(proc).tone === 'bad' ? 'warn' : 'neutral'" size="sm">{{ verdictOf(proc).badge }}</UiBadge>
                 <dl class="c-rows">
                   <div><dt class="caption">Нужно в час</dt><dd class="mono-sm">{{ perHour(statFor(proc.code)!.requiredPerHour) }} {{ proc.unit }}</dd></div>
                   <div><dt class="caption">Выполнено в час</dt><dd class="mono-sm">{{ perHour(statFor(proc.code)!.donePerHour) }} {{ proc.unit }}</dd></div>
@@ -935,15 +994,6 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
             </div>
           </div>
           <p v-else class="body-sm muted">{{ readonly ? 'Появится, когда администратор расставит объекты хотя бы одного процесса на этом демо.' : 'Появится, когда хотя бы один процесс готов: откройте редактор и расставьте объекты или нажмите «Дособрать».' }}</p>
-          <div class="legend">
-            <div class="lg"><i class="sw load" /> Откуда берут груз</div>
-            <div class="lg"><i class="sw unload" /> Куда везут</div>
-            <div class="lg"><i class="sw chg" /> Зарядка</div>
-            <div class="lg"><i class="sw way" /> Точка обхода</div>
-            <div class="lg"><i class="sw zone" /> Зона работы</div>
-            <div class="lg"><i class="sw lift" /> Лифт «Л», лестница «С»</div>
-            <div class="lg"><i class="sw robot" /> Робот, тёмный — с грузом, серый — сломан</div>
-          </div>
         </div>
       </section>
 
@@ -1206,6 +1256,8 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
       </Teleport>
     </div>
   </ProjectShell>
+  <!-- Пока проект грузится — загрузка, а не «не найден»: на первом показе данных ещё нет всегда. -->
+  <section v-else-if="pending" class="container opening"><StepLoading label="Проект" title="Открываем проект" :timer="false" /></section>
   <section v-else class="container gone">
     <UiCallout tone="danger" title="Проект не найден">Нет сохранённого расчёта с таким адресом.</UiCallout>
   </section>
@@ -1340,9 +1392,10 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 .fs-canvas .statusline { right: 330px; }
 
 /* Спящая схема на странице: клик включает управление. */
-.sleep { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; background: rgba(15, 20, 19, 0.16); cursor: pointer; transition: background var(--dur-fast) var(--ease); }
-.sleep:hover { background: rgba(15, 20, 19, 0.1); }
-.sleep-chip { position: relative; display: grid; justify-items: center; gap: 4px; padding: 14px 22px; border-radius: 14px; color: var(--ink-strong); font-size: 14px; font-weight: 700; }
+/* Схема спит, пока по ней не кликнули: колесо прокручивает страницу. Подсказка — внизу, над управлением, план не закрывает. */
+.sleep { position: absolute; inset: 0; z-index: 3; display: grid; place-items: end center; padding-bottom: 76px; background: transparent; cursor: pointer; }
+.sleep-chip { position: relative; display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; color: var(--ink-strong); font-size: 13px; font-weight: 700; opacity: 0.92; }
+.sleep:hover .sleep-chip { opacity: 1; }
 .sleep-chip > * { position: relative; z-index: 1; }
 .sleep-chip .caption { font-weight: 500; }
 
@@ -1383,7 +1436,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 .end { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 8px; background: rgba(255, 255, 255, 0.6); }
 .link { color: var(--brand-700); font-weight: 700; font-size: 12px; }
 
-.check.glass .ch-in { position: relative; z-index: 1; padding: var(--space-5); display: grid; gap: var(--space-4); }
+.shift-check.glass .ch-in { position: relative; z-index: 1; padding: var(--space-5); display: grid; gap: var(--space-4); }
 .ch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space-4); }
 .chk { display: grid; gap: 6px; padding: 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.55); box-shadow: inset 0 0 0 1px var(--border-hairline); justify-items: start; align-content: start; }
 .c-head { display: inline-flex; align-items: center; gap: 8px; }
@@ -1414,4 +1467,25 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
   .panel { position: static; width: auto; max-height: none; }
   .fs-bar { flex-wrap: wrap; }
 }
+.opening { padding-top: var(--space-8); padding-bottom: var(--space-8); }
+.shift-check { border-radius: var(--radius-xl); }
+.verdict { border-radius: var(--radius-xl); margin-bottom: var(--space-4); }
+.v-in { position: relative; z-index: 1; padding: var(--space-5); display: grid; gap: var(--space-4); }
+.v-head { display: grid; gap: 4px; }
+.v-head .label { color: var(--ink-muted); }
+.v-head .h3 { margin: 0; }
+.v-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.v-chip { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 4px 10px; align-items: center; padding: 10px 14px; border-radius: 14px; text-align: left; background: #fff; box-shadow: inset 3px 0 0 var(--tone, rgba(15, 20, 19, 0.15)), inset 0 0 0 1px rgba(15, 20, 19, 0.07); transition: box-shadow var(--dur-fast) var(--ease); }
+.v-chip.ok { --tone: var(--brand-500); }
+.v-chip.bad { --tone: #e0a43a; }
+.v-chip:hover, .v-chip.on { box-shadow: inset 3px 0 0 var(--tone, rgba(15, 20, 19, 0.15)), inset 0 0 0 1.5px var(--brand-400); }
+.v-chip .dot { width: 10px; height: 10px; border-radius: 50%; }
+.v-copy { display: grid; gap: 1px; min-width: 0; }
+.v-chip.bad .v-copy .caption { color: #8a5200; }
+.v-bar { grid-column: 2; display: block; height: 5px; border-radius: 3px; background: rgba(15, 20, 19, 0.07); overflow: hidden; }
+.v-bar i { display: block; height: 100%; border-radius: 3px; background: var(--tone); }
+.link { color: var(--link); font-weight: 700; }
+.legend-under { padding: 10px 4px 0; }
+.legend-under .legend { border-top: 0; padding-top: 0; }
+.m-empty { margin: 0; padding: 10px 12px; border-radius: 10px; background: rgba(15, 20, 19, 0.04); }
 </style>
