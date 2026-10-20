@@ -210,7 +210,11 @@ def list_requests(db: Session, user_id: UUID | None = None, *, audience: str = "
     rows = list(db.scalars(query.limit(200)))
     names = _company_names(db, {row.user_id for row in rows})
     process_names = _process_titles(db)
-    return [_request_view(row, names.get(row.user_id, ""), process_names) for row in rows]
+    pictures = _request_pictures(db, rows)
+    return [
+        _request_view(row, names.get(row.user_id, ""), process_names, pictures.get(row.id, {}))
+        for row in rows
+    ]
 
 
 def submit_request(db: Session, user_id: UUID, kind: str, payload: dict) -> dict:
@@ -713,8 +717,41 @@ def _facts(kind: str, payload: dict, process_names: dict[str, str]) -> list[dict
     return lines
 
 
-def _request_view(row: VendorRequestRow, company: str, process_names: dict[str, str]) -> dict:
+def _request_pictures(db: Session, rows: list[VendorRequestRow]) -> dict[UUID, dict]:
+    """Фото для карточки заявки: снимок робота из каталога или логотип компании."""
+    slugs = []
+    user_ids = set()
+    for row in rows:
+        payload = row.payload or {}
+        slug = str(payload.get("slug") or "")
+        if slug:
+            slugs.append(slug)
+        if row.kind == "profile":
+            user_ids.add(row.user_id)
+    by_slug: dict[str, tuple[str | None, float | None]] = {}
+    if slugs:
+        found = db.execute(
+            select(ProductRow.slug, ProductRow.image_url, ProductRow.price_rub).where(ProductRow.slug.in_(set(slugs)))
+        )
+        for slug, image, price in found:
+            by_slug[slug] = (image, None if price is None else float(price))
+    logos: dict[UUID, str | None] = {}
+    if user_ids:
+        profiles = db.scalars(select(VendorProfileRow).where(VendorProfileRow.user_id.in_(user_ids)))
+        logos = {row.user_id: row.logo_url for row in profiles}
+    result: dict[UUID, dict] = {}
+    for row in rows:
+        slug = str((row.payload or {}).get("slug") or "")
+        image, price = by_slug.get(slug, (None, None))
+        if image is None and row.kind == "profile":
+            image = logos.get(row.user_id)
+        result[row.id] = {"image_url": image, "price_rub": price}
+    return result
+
+
+def _request_view(row: VendorRequestRow, company: str, process_names: dict[str, str], picture: dict | None = None) -> dict:
     payload = {key: value for key, value in (row.payload or {}).items() if key != "_before"}
+    shot = picture or {}
     return {
         "id": str(row.id),
         "user_id": str(row.user_id),
@@ -728,6 +765,8 @@ def _request_view(row: VendorRequestRow, company: str, process_names: dict[str, 
         "status": row.status,
         "catalog_applied": bool(row.catalog_applied),
         "admin_comment": row.admin_comment,
+        "image_url": shot.get("image_url"),
+        "price_rub": shot.get("price_rub"),
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "decided_at": row.decided_at.isoformat() if row.decided_at else None,
     }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { PhArrowRight, PhArrowUpRight, PhX, PhScales, PhPlus, PhPlay, PhLockSimple, PhTreeStructure, PhIdentificationCard, PhRobot, PhListChecks } from '@phosphor-icons/vue'
+import { PhArrowRight, PhArrowUpRight, PhX, PhScales, PhPlus, PhPlay, PhLockSimple, PhTreeStructure, PhIdentificationCard, PhRobot, PhListChecks, PhChartPie } from '@phosphor-icons/vue'
 import { availabilityLabel, availabilityTone, formatRub } from '~/data/catalog'
 import { cardToProduct, platformGet, type PlatformPage } from '~/composables/usePlatform'
 import { objectTypeLabel, objectTypeImage, steps, type ObjectType } from '~/data/projects'
@@ -204,17 +204,22 @@ const adminItems = [adminOverview, ...adminNav.flatMap((group) => group.items)]
 
     <!-- ================= Вендор ================= -->
     <template v-else-if="menu === 'vendor'">
-      <NuxtLink to="/vendor?tab=profile" class="adm">
+      <NuxtLink to="/vendor" class="adm">
         <PhIdentificationCard :size="22" weight="duotone" class="adm-ic" />
-        <span class="row-t">Профиль компании</span>
+        <span class="row-t">Компания</span>
         <span class="row-s">Название, логотип, контакты и документы. Публикуется после проверки.</span>
       </NuxtLink>
-      <NuxtLink to="/vendor?tab=robots" class="adm">
+      <NuxtLink to="/vendor/robots" class="adm">
         <PhRobot :size="22" weight="duotone" class="adm-ic" />
         <span class="row-t">Роботы</span>
-        <span class="row-s">Цена, что умеет робот, файл или ссылка на список.</span>
+        <span class="row-s">Карточки как в каталоге. Пустые поля можно дополнить и отправить на проверку.</span>
       </NuxtLink>
-      <NuxtLink to="/vendor?tab=requests" class="adm">
+      <NuxtLink to="/vendor/analytics" class="adm">
+        <PhChartPie :size="22" weight="duotone" class="adm-ic" />
+        <span class="row-t">Аналитика</span>
+        <span class="row-s">Кто участвует в подборе, кто выпал и почему подбор остался пустым.</span>
+      </NuxtLink>
+      <NuxtLink to="/vendor/requests" class="adm">
         <PhListChecks :size="22" weight="duotone" class="adm-ic" />
         <span class="row-t">Заявки</span>
         <span class="row-s">Что на проверке, что принято и что просят исправить.</span>
