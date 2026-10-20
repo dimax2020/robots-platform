@@ -154,10 +154,24 @@ def test_every_process_is_audited_and_every_eligible_alternative_reaches_economy
                     selected += 1
                 elif hit['verdict'] in {'unknown','fail'}:
                     assert not hit['economic_ready']
+                elif hit['verdict'] == 'pass':
+                    # Ни одна технически подходящая альтернатива не теряется
+                    # за выбором по умолчанию или общим сообщением об уточнениях.
+                    assert hit['economic_reasons']
+                    plan = matched['demo_plan']
+                    process = {**plan['technical_processes'], **plan['processes']}[group['process_code']]
+                    if process.get('sizing_limitation'):
+                        assert any(r['code'] == 'sizing_model_missing' and r['message'] == process['sizing_limitation']
+                                   for r in hit['economic_reasons'])
+                    rejected = project_economy(db, project.id, None, None,
+                                              picks={**defaults, group['process_code']: hit['product_id']})
+                    assert not rejected['complete']
+                    assert not any(r['product_id'] == hit['product_id'] and r['process_code'] == group['process_code']
+                                   for r in rejected['fleet'])
         assert project.site==old
         report=project_economy(db,project.id,None,None)
         assert report['complete'] and report['fleet']
         if slug=='demo-airport':
             apron=next(g for g in matched['groups'] if g['process_code']=='apron_transport')
             assert not any(h['verdict']=='pass' for h in apron['hits'])
-    assert seen==30 and selected>=14
+    assert seen==30 and selected==62

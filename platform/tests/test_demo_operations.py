@@ -100,8 +100,8 @@ def test_original_lift_height_is_a_real_failure_not_a_missing_profile(db):
     assert all(any(r['code']=='technical_constraint' and 'Высота размещения' in r['message'] for r in h['reasons']) for h in group['hits'])
 
 
-@pytest.mark.parametrize('slug,technical,economic',[('demo-warehouse',13,7),('demo-hospital',7,6),('demo-airport',8,6)])
-def test_all_operations_have_settings_and_sources_without_automatic_statuses(db,slug,technical,economic):
+@pytest.mark.parametrize('slug,technical,economic,default_scope',[('demo-warehouse',13,13,7),('demo-hospital',7,7,6),('demo-airport',8,8,6)])
+def test_all_operations_have_settings_and_sources_without_automatic_statuses(db,slug,technical,economic,default_scope):
     project=resolve_project(db,slug);matched=run_match(db,project.id)
     assert sum(any(h['verdict']=='pass' for h in g['hits']) for g in matched['groups'])==technical
     assert sum(any(h['demo_economic_ready'] for h in g['hits']) for g in matched['groups'])==economic
@@ -114,7 +114,7 @@ def test_all_operations_have_settings_and_sources_without_automatic_statuses(db,
                 assert hit['applicability']=='conditional'
                 assert any(a['key']=='operation_scope' and a['origin']=='demo_synthetic' for a in hit['assumptions'])
     report=project_economy(db,project.id,None,None)
-    assert report['complete'] and report['coverage']['included_processes']==economic
+    assert report['complete'] and report['coverage']['included_processes']==default_scope
 
 
 @pytest.mark.parametrize('code',['perimeter_security','passenger_service'])
