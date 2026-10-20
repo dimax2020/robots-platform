@@ -1,12 +1,17 @@
-"""Экономика трёх сценариев: без роботизации, покупка, аренда. Вход — парк, площадка и нормативы, без базы."""
+"""Экономика трёх сценариев: без роботизации, покупка, аренда. Вход — парк, площадка и нормативы, без базы.
+
+Высвобождение считается из данных площадки, деньги — годовым потоком после налога с дисконтированием."""
 
 from __future__ import annotations
 
 import math
+import random
 from dataclasses import dataclass
 
 NO_PRICE = "Не будет использоваться в расчётах, не хватает цены."
-NO_COUNT = "Количество посчитать не удалось, поэтому в расчёте экономики участвует только один робот."
+NO_COUNT = "Количество не посчитано: формуле не хватает данных площадки. В расчёте 1 робот — укажите своё количество."
+OWN_COUNT = "Количество задано вручную."
+COUNT_MAX = 10_000
 DISCLAIMER = "Результат является предварительной оценкой и требует верификации при обследовании объекта."
 
 SOURCES = {
@@ -45,8 +50,9 @@ NORMS: tuple[Norm, ...] = (
          "Демо-склад: 4,6 млн ₽ при оборудовании 71,4 млн ₽. Цена карточки идёт без пусконаладки.", "Демо-проект склада", 0, 30, 0.1),
     Norm("training_pct", "capex", "Обучение", r"k_{\text{обуч}}", 1.7, "% от оборудования",
          "Демо-склад: 1,2 млн ₽ при оборудовании 71,4 млн ₽.", "Демо-проект склада", 0, 10, 0.1),
-    Norm("reserve_pct", "capex", "Резерв", r"k_{\text{рез}}", 6.0, "% от суммы статей",
-         "Демо-склад: резерв 6% от суммы статей CAPEX.", "Демо-проект склада", 0, 20, 0.5),
+    Norm("reserve_pct", "capex", "Резерв", r"k_{\text{рез}}", 0.0, "% от суммы статей",
+         "Неопределённость показывается интервалом результата, а не надбавкой к вложениям. "
+         "Демо-проект организатора закладывал 6% — можно вернуть, если нужен запас в бюджете.", "Демо-проект склада", 0, 20, 0.5),
     Norm("service_pct", "opex", "Сервис", r"k_{\text{серв}}", 8.0, "% от оборудования в год",
          "Поле «Сервис_%_в_год» пустое у всех позиций каталога. Демо-норматив: медиана по 6 вендорам класса.", "Демо-норматив", 0, 20, 0.5),
     Norm("license_pct", "opex", "Лицензии", r"k_{\text{лиц}}", 4.9, "% от оборудования в год",
@@ -61,13 +67,11 @@ NORMS: tuple[Norm, ...] = (
          "Демо-склад: 0,9 кВт·ч на машину в час. Если в карточке робота есть мощность, берётся она.", "Демо-проект склада", 0, 10, 0.1),
     Norm("energy_tariff", "opex", "Тариф на электроэнергию", r"\tau", 7.2, "₽/кВт·ч",
          "Средний коммерческий тариф Московской области. Если тариф задан на площадке, берётся он.", "Демо-норматив", 1, 20, 0.1),
-    Norm("replacement_pct", "staff", "Доля замещаемого персонала", r"s", 63.0, "% ФОТ ролей",
-         "Демо-склад: 24 ставки из 38 переходят на роботов. Остальные люди остаются на исключениях и контроле.", "Демо-проект склада", 0, 100, 1),
-    Norm("robots_per_operator", "staff", "Роботов на одного оператора", r"m", 10.0, "шт.",
-         "Каталог не говорит, сколько людей нужно парку. Допущение: один оператор или диспетчер на 10 машин.", "Допущение команды", 1, 50, 1),
-    Norm("fte_hours", "staff", "Рабочих часов одного сотрудника", r"h_{\text{чел}}", 1970.0, "ч в год",
-         "Если у процесса нет численности в данных, людей считаем по часам работы его роботов: часы парка делятся на годовой фонд "
-         "одного сотрудника. Около 1 970 ч — 40-часовая неделя по производственному календарю.", "Допущение команды", 1000, 3000, 10),
+    Norm("robots_per_operator", "staff", "Роботов на один пост диспетчера", r"m", 10.0, "шт.",
+         "Каталог не говорит, сколько машин ведёт один диспетчер. Допущение: один пост на 10 машин. Уточняется у вендора.", "Допущение команды", 1, 50, 1),
+    Norm("fte_hours", "staff", "Годовой фонд рабочего времени сотрудника", r"h_{\text{чел}}", 1810.0, "ч в год",
+         "Около 1 970 ч по производственному календарю при 40-часовой неделе (ст. 91 ТК РФ) минус ежегодный отпуск "
+         "28 календарных дней, около 160 ч (ст. 115 ТК РФ). Нужен, чтобы перевести круглосуточный пост в людей.", "ТК РФ", 1000, 3000, 10),
     Norm("raas_rate_pct", "raas", "Ставка аренды", r"k_{\text{RaaS}}", 2.2, "% цены робота в месяц",
          "Выведено из демо: аренда дороже покупки на 19 млн ₽ в год при оборудовании 71,4 млн ₽, это около 26,6% в год или 2,2% в месяц. "
          "В ставку входят сервис, ремонт, расходники и лицензии.", "Демо-проект склада", 0.5, 6, 0.1),
@@ -89,9 +93,10 @@ NORMS: tuple[Norm, ...] = (
     Norm("frp_rate_pct", "subsidy", "Ставка займа ФРП", r"r_{\text{ФРП}}", 3.0, "% годовых",
          "Базовая ставка ФРП — 3% годовых, снижена с 5% с 1 января 2021 г. По отдельным программам, например "
          "«Цифровизация промышленности», — 1% или 5%.", "Меры господдержки: формулы", 0, 10, 0.5),
-    Norm("market_rate_pct", "subsidy", "Рыночная ставка кредита", r"r_{\text{рын}}", 18.0, "% годовых",
-         "Нормативом не задана. Средняя ставка по кредитам юрлицам — 16–20% годовых по данным Банка России, взята середина.",
-         "Меры господдержки: формулы", 5, 35, 0.5),
+    Norm("market_rate_pct", "finance", "Ключевая ставка Банка России", r"r_{\text{КС}}", 14.0, "% годовых",
+         "Ключевая ставка 14% — решение Банка России, сентябрь 2026 г. Основа ставки дисконтирования и выгоды займа ФРП. "
+         "Кредит бизнесу обычно дороже ключевой на несколько пунктов: это проверяют торнадо и стресс-сценарий "
+         "«Дорогие деньги» (21% — максимум 2024–2025 гг.).", "Банк России", 5, 35, 0.5),
     Norm("frp_share_pct", "subsidy", "Доля CAPEX за счёт займа ФРП", r"d_{\text{ФРП}}", 50.0, "% от CAPEX",
          "Сумма займа нормативом не задана. Допущение: заём закрывает половину вложений, уточняется по заявке в фонд.",
          "Допущение команды", 0, 100, 5),
@@ -109,10 +114,24 @@ NORMS: tuple[Norm, ...] = (
     Norm("accel_factor", "subsidy", "Коэффициент ускоренной амортизации", r"K_{\text{уск}}", 3.0, "коэфф.",
          "Ст. 259.3 НК РФ: специальный коэффициент не выше 3. Значение зависит от категории оборудования и договора.",
          "Меры господдержки: формулы", 1, 3, 0.1),
-    Norm("service_life_years", "subsidy", "Срок службы оборудования", r"T_{\text{сл}}", 7.0, "лет",
-         "Срока службы в карточках нет. Допущение: 7 лет, уточняется по паспорту оборудования.", "Допущение команды", 2, 20, 1),
-    Norm("profit_tax_pct", "subsidy", "Ставка налога на прибыль", r"t_{\text{приб}}", 25.0, "%",
-         "25%: 8% в федеральный бюджет и 17% в региональный, ст. 284 НК РФ, действует с 2025 г.", "НК РФ", 0, 40, 1),
+    Norm("service_life_years", "finance", "Срок полезного использования", r"T_{\text{сл}}", 7.0, "лет",
+         "Срока службы в карточках нет. Допущение: 7 лет, пока тип решения не сопоставлен с амортизационной группой "
+         "Классификации основных средств (ПП РФ № 1). Остаток стоимости на конец горизонта возвращается в расчёт.", "Допущение команды", 2, 20, 1),
+    Norm("profit_tax_pct", "finance", "Ставка налога на прибыль", r"t_{\text{приб}}", 25.0, "%",
+         "25%: 8% в федеральный бюджет и 17% в региональный, ст. 284 НК РФ, действует с 2025 г. "
+         "Экономия увеличивает прибыль, амортизация и выплаты её уменьшают.", "НК РФ", 0, 40, 1),
+    Norm("vat_pct", "finance", "НДС к вычету", r"k_{\text{НДС}}", 22.0, "%",
+         "Цены карточек с НДС. Плательщик НДС принимает его к вычету, поэтому вложения и расходы считаются без НДС: "
+         "22% с 1 января 2026 г., ст. 164 НК РФ. Для упрощённой системы налогообложения поставьте 0.", "НК РФ", 0, 22, 1),
+    Norm("inflation_target_pct", "finance", "Цель Банка России по инфляции", r"\pi^{*}", 4.0, "% в год",
+         "Расчёт идёт в постоянных ценах, поэтому ключевая ставка переводится в реальную: "
+         "r = (1 + r_КС) / (1 + π*) − 1. Цель по инфляции — 4%.", "Банк России", 0, 15, 0.5),
+    Norm("notice_months", "finance", "Срок уведомления о сокращении", r"t_{\text{увед}}", 2.0, "мес.",
+         "Работника предупреждают о сокращении не менее чем за 2 месяца (ст. 180 ТК РФ): "
+         "экономия ФОТ в первый год начинается после этого срока.", "ТК РФ", 0, 12, 1),
+    Norm("severance_months", "finance", "Выплаты при сокращении", r"t_{\text{вых}}", 2.0, "средних заработка",
+         "Выходное пособие и сохранение заработка на время трудоустройства — в сумме до 2 средних месячных заработков "
+         "(ст. 178 ТК РФ). Страховые взносы на них не начисляются (ст. 422 НК РФ).", "ТК РФ", 0, 6, 0.5),
 )
 
 # code, название, подпись, разовая или годовая, коэффициенты меры.
@@ -124,6 +143,8 @@ SUBSIDIES: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
     ("amort", "Ускоренная амортизация, ст. 259.3 НК РФ", "Экономия налога на прибыль", "year", ("accel_factor", "service_life_years", "profit_tax_pct")),
 )
 SUBSIDY_CODES = tuple(item[0] for item in SUBSIDIES)
+# Лизинговые меры относятся к схеме «Лизинг»: в покупке за свои средства их нет, иначе скидка считается без договора лизинга.
+PURCHASE_SUBSIDIES = ("mpt", "frp", "amort")
 SUPPORT_NOTE = "Право на меру и её размер подтверждаются условиями конкретной программы."
 
 NORM_BY_KEY = {norm.key: norm for norm in NORMS}
@@ -137,11 +158,63 @@ _ROLES = (
 
 # Поля площадки, которые экономика читает при любом наборе процессов: часы парка, ФОТ, тариф и горизонт.
 SITE_KEYS = frozenset((
-    "shift_hours", "shifts_per_day", "days_year", "payroll_burden", "staff_salary_year_rub",
-    "energy_tariff_rub_kwh", "payback_years", *(key for role in _ROLES for key in role[:2]),
+    "shift_hours", "shifts_per_day", "days_year", "payroll_burden", "staff_salary_year_rub", "staff_total",
+    "energy_tariff_rub_kwh", "payback_years", "budget_rub", *LOAD_KEYS, *(key for role in _ROLES for key in role[:2]),
 ))
 
-_SENSITIVE = ("price_factor", "salary_factor", "replacement_pct", "service_pct", "license_pct", "robots_per_operator", "energy_tariff")
+_SENSITIVE = (
+    "price_factor", "salary_factor", "robots_per_operator", "service_pct", "license_pct", "infra_pct", "software_pct",
+    "integration_pct", "commissioning_pct", "comms_pct", "consumables_pct", "repair_pct", "energy_tariff",
+    "market_rate_pct", "service_life_years",
+)
+# Диапазоны, которые указаны в самих источниках нормативов. Остальным — ширина по уровню достоверности.
+RANGES: dict[str, tuple[float, float, str]] = {
+    "comms_pct": (0.2, 0.5, "Файл модели: 0,2–0,5% стоимости оборудования в год."),
+    "consumables_pct": (0.5, 1.5, "Файл модели: 0,5–1,5% в год."),
+    "repair_pct": (1.0, 2.0, "Файл модели: 1–2% в год."),
+    "market_rate_pct": (14.0, 21.0, "Банк России: от текущей ключевой ставки 14% до максимума 2024–2025 гг. — 21%."),
+    "frp_rate_pct": (1.0, 5.0, "ФРП: 1–5% по отдельным программам."),
+    "leasing_discount_pct": (10.0, 15.0, "ПП № 649: обычно 10–15%."),
+}
+# Уровень достоверности: A — закон и паспорт, B — данные и документ, C — оценка по аналогу, D — допущение команды.
+LEVELS: dict[str, str] = {
+    "price_factor": "B", "salary_factor": "B", "robots_per_operator": "D", "service_pct": "C", "license_pct": "B",
+    "infra_pct": "C", "software_pct": "C", "integration_pct": "C", "commissioning_pct": "C", "energy_tariff": "C",
+    "service_life_years": "D", "fte_hours": "A",
+}
+LEVEL_WIDTH = {"A": 0.05, "B": 0.10, "C": 0.20, "D": 0.35}
+# Точки безубыточности: ключ, подпись, единица, границы поиска, целое ли значение.
+_BREAKEVEN = (
+    ("price_factor", "Цена парка", "% от цены карточки", 1.0, 500.0, False),
+    ("release", "Высвобождение людей", "чел.", 0.0, 0.0, True),
+    ("robots_per_operator", "Машин на один пост диспетчера", "шт.", 1.0, 200.0, True),
+    ("salary_factor", "Уровень зарплат", "% от зарплат площадки", 1.0, 500.0, False),
+    ("market_rate_pct", "Ключевая ставка", "% годовых", 0.0, 80.0, False),
+)
+
+# Начисления на ФОТ, если площадка их не задала: страховые взносы 30% (ст. 425 НК РФ) и взнос на травматизм 0,2%.
+LAW_BURDEN = 1.302
+# Ориентир демо-проекта организатора: какая доля персонала переходит на роботов. Только контроль, в расчёт не входит.
+CHECK_SHARE = 0.63
+
+# Роль площадки склада и процессы, которые забирают её работу. Если в парке несколько процессов роли,
+# численность делится между ними поровну: у них один поток паллет, и один человек не высвобождается дважды.
+ROLE_PROCESSES: dict[str, tuple[str, ...]] = {
+    "forklift_operators": ("pallet_transport", "rack_placement", "pallet_storage"),
+    "pack_operators": ("packing", "palletizing"),
+}
+# Поле площадки с долей работы, которую робот не берёт.
+MANUAL_SHARE = {
+    "pallet_transport": ("oversized_share_pct", "негабаритные паллеты"),
+    "rack_placement": ("oversized_share_pct", "негабаритные паллеты"),
+    "pallet_storage": ("oversized_share_pct", "негабаритные паллеты"),
+    "palletizing": ("oversized_share_pct", "негабаритные грузы"),
+}
+# Процессы, где человек остаётся на операции, а робот ускоряет его: без выработки до и после высвобождение не считается.
+ASSISTED = {
+    "order_picking": "Комплектация «товар к человеку»: отборщик остаётся на месте, робот забирает только переходы.",
+    "tote_delivery": "Робот возит грузы, но погрузку и выгрузку делает человек.",
+}
 
 
 TYPE_NORMS = (
@@ -169,23 +242,9 @@ _SUGGEST = (
     ("repair_pct", -1, "process"),
     ("energy_kwh", -1, "process"),
     ("salary_factor", 1, "site"),
-    ("replacement_pct", 1, "site"),
     ("energy_tariff", -1, "site"),
     ("robots_per_operator", 1, "site"),
 )
-_SHARE_EQUAL = (
-    "Численность не привязана к процессам, поэтому экономия на персонале поделена между ними поровну. "
-    "Процесс посчитан отдельно: как если бы роботизировали только его."
-)
-_SHARE_FTE = (
-    "Экономия на персонале распределена по численности на задаче процесса. "
-    "Процесс посчитан отдельно: как если бы роботизировали только его."
-)
-_SHARE_OWN = (
-    "ФОТ процесса — численность его задачи на годовую ставку. "
-    "В эффект парка входят только люди процессов, которые роботизируются."
-)
-_SHARE_NONE = "У задачи этого процесса численность не задана, свой ФОТ не считается."
 
 
 def blend_by_type(
@@ -299,11 +358,21 @@ def resolve(standard: dict[str, float] | None, overrides: dict | None, site: dic
 
 
 def split_process_overrides(overrides: dict | None) -> tuple[dict, dict[str, dict[str, float]]]:
-    """Ключ process:код:норматив задаёт коэффициент одному процессу. Остальное — на весь парк."""
+    """Ключ process:код:норматив задаёт коэффициент одному процессу, count:код — количество роботов,
+    off:код исключает процесс из расчёта. Остальное — на весь парк."""
     global_overrides: dict = {}
     by_process: dict[str, dict[str, float]] = {}
     for key, raw in (overrides or {}).items():
         if isinstance(key, str) and key.startswith("subsidy:"):
+            continue
+        if isinstance(key, str) and key.startswith("count:"):
+            value = _num(raw)
+            if key[6:] and value is not None:
+                by_process.setdefault(key[6:], {})["count"] = float(min(COUNT_MAX, max(1, round(value))))
+            continue
+        if isinstance(key, str) and key.startswith("off:"):
+            if key[4:] and _num(raw):
+                by_process.setdefault(key[4:], {})["off"] = 1.0
             continue
         if not isinstance(key, str) or not key.startswith("process:"):
             global_overrides[key] = raw
@@ -341,7 +410,7 @@ def clamp_overrides(values: dict | None) -> dict:
             clean[key] = value
     for code, items in by_process.items():
         for key, value in items.items():
-            clean[f"process:{code}:{key}"] = value
+            clean[{"count": f"count:{code}", "off": f"off:{code}"}.get(key, f"process:{code}:{key}")] = value
     return clean
 
 
@@ -359,6 +428,11 @@ def calculate(
     params = resolve(standard, global_overrides, site, meta)
     report = _compute(rows, site, tasks or [], params, by_process, with_processes=True, subsidies=subsidies)
     report["sensitivity"] = _sensitivity(rows, site, tasks or [], params, report, by_process, subsidies)
+    report["interval"] = _interval(report)
+    report["breakeven"] = _breakeven(rows, site, tasks or [], params, report, by_process, subsidies)
+    report["stress"] = _stress(rows, site, tasks or [], params, report, by_process, subsidies)
+    report["chance"] = _chance(report)
+    report["best_set"] = _best_set(rows, site, tasks or [], params, report, by_process, subsidies)
     return report
 
 
@@ -370,6 +444,7 @@ def _compute(
     by_process: dict[str, dict[str, float]] | None = None,
     with_processes: bool = False,
     subsidies: frozenset[str] = frozenset(),
+    release_scale: float = 1.0,
 ) -> dict:
     by_process = by_process or {}
     p = {key: item["value"] for key, item in params.items()}
@@ -377,8 +452,14 @@ def _compute(
     hours = _hours(site)
     tariff = _norm_var(params, "energy_tariff")
     fleet = [_line(row, params, hours, tariff, by_process) for row in rows]
-    included = [item for item in fleet if item["included"]]
+    priced = [item for item in fleet if item["included"]]
+    # Исключённый пользователем процесс остаётся в списке со своей экономикой, но в расчёт объекта не входит.
+    included = [item for item in priced if not item["off"]]
     payroll = _payroll(site, tasks, params, included, hours)
+    release = _release(site, tasks, included, params, hours)
+    if release_scale != 1.0:
+        for row in release["items"]:
+            row["fte"] *= release_scale
     operator = _operator_cost(site, params)
 
     robots = sum(item["count_used"] for item in included)
@@ -390,6 +471,7 @@ def _compute(
         "equipment": equipment,
         "hours": hours,
         "payroll": payroll,
+        "release": release["items"],
         "operator": operator,
         "params": params,
         "p": p,
@@ -407,21 +489,30 @@ def _compute(
         "horizon_years": horizon,
         "robots": robots,
         "payroll": payroll["fig"],
+        "release": release["summary"],
+        "story": _story(release["items"], p),
+        "discount": _rate_fig(params),
+        "requests": _requests(shared),
         "hours": hours,
         "operator": operator,
         "scenarios": scenarios,
+        "switch": _switch(scenarios[1], scenarios[2]),
         "params": list(params.values()),
     }
     if with_processes:
-        result["processes"] = _process_views(shared)
+        result["processes"] = _process_views(shared, priced)
     return result
 
 
 def _line(row: dict, params: dict[str, dict], hours: dict, tariff: dict, by_process: dict | None = None) -> dict:
-    local = _merge_params(params, (by_process or {}).get(row.get("process_code") or "") or {})
+    own = (by_process or {}).get(row.get("process_code") or "") or {}
+    local = _merge_params(params, own)
     p = {key: item["value"] for key, item in local.items()}
     price = _num(row.get("price_rub"))
-    count = _num(row.get("count"))
+    formula_count = _num(row.get("count"))
+    if formula_count is not None and formula_count <= 0:
+        formula_count = None
+    count = own.get("count") or formula_count
     power_w = _num(row.get("power_w"))
     item = {
         "process_code": row.get("process_code") or "",
@@ -432,8 +523,10 @@ def _line(row: dict, params: dict[str, dict], hours: dict, tariff: dict, by_proc
         "image_url": row.get("image_url"),
         "price_rub": price,
         "price_used": None,
-        "count": count,
+        "count": formula_count,
         "count_used": None,
+        "count_source": "project" if own.get("count") else "formula" if formula_count is not None else "default",
+        "off": bool(own.get("off")),
         "included": False,
         "note": "",
         "cost_rub": None,
@@ -446,31 +539,38 @@ def _line(row: dict, params: dict[str, dict], hours: dict, tariff: dict, by_proc
     if price is None:
         item["note"] = NO_PRICE
         return item
-    n = count if count is not None else 1.0
     if count is None:
+        count = 1.0
         item["note"] = NO_COUNT
+    elif own.get("count"):
+        item["note"] = OWN_COUNT
     factor = p["price_factor"] / 100
-    item["price_used"] = price * factor
-    item["count_used"] = n
+    vat = p["vat_pct"] / 100
+    net = price * factor / (1 + vat)
+    item["price_used"] = net
+    item["count_used"] = count
     item["included"] = True
-    item["cost_rub"] = n * price * factor
+    item["cost_rub"] = count * net
     kwh, kwh_source = (power_w / 1000, "card") if power_w else (p["energy_kwh"], "norm")
     item["kwh_per_hour"] = kwh
     item["kwh_source"] = kwh_source
     if hours["value"]:
-        item["energy_rub"] = n * kwh * hours["value"] * tariff["value"]
+        item["energy_rub"] = count * kwh * hours["value"] * tariff["value"]
     item["fig"] = _fig(
         f"cost:{item['process_code']}",
         item["name"],
         item["cost_rub"],
         "₽",
-        r"C_i = N_i \times P_i \times f_{\text{цена}}",
-        rf"{_t(n, 1)} \times {_t(price)} \times {_t(factor, 2)} = {_t(item['cost_rub'])}\ \text{{₽}}",
+        r"C_i = \dfrac{N_i \times P_i \times f_{\text{цена}}}{1 + k_{\text{НДС}}}",
+        rf"\dfrac{{{_t(count, 1)} \times {_t(price)} \times {_t(factor, 2)}}}{{1 + {_t(vat, 2)}}} = {_t(item['cost_rub'])}\ \text{{₽}}",
         [
-            _var("N_i", "Количество роботов", n, "шт.", "fleet", NO_COUNT if count is None else "Формула количества процесса по параметрам площадки."),
+            _var("N_i", "Количество роботов", count, "шт.", "project" if item["count_source"] == "project" else "fleet",
+                 {"project": OWN_COUNT, "formula": "Формула количества процесса по параметрам площадки.", "default": NO_COUNT}[item["count_source"]]),
             _var("P_i", "Цена за единицу", price, "₽", "card", "С НДС, без доставки, пусконаладки и интеграции."),
             _norm_var_fraction(p, "price_factor", local),
+            _norm_var_fraction(p, "vat_pct", local),
         ],
+        "НДС принимается к вычету, поэтому вложения считаются без него." if vat else "",
     )
     return item
 
@@ -478,12 +578,12 @@ def _line(row: dict, params: dict[str, dict], hours: dict, tariff: dict, by_proc
 def _payroll(site: dict, tasks: list[dict], params: dict[str, dict], included: list[dict] | None = None, hours: dict | None = None) -> dict:
     p = {key: item["value"] for key, item in params.items()}
     factor = p["salary_factor"] / 100
-    staffed = _task_staff(tasks)
+    staffed = _task_staff(tasks, _num(site.get("payroll_burden")) or LAW_BURDEN)
     if staffed and included is not None:
         return _payroll_by_process(site, staffed, included, params, hours or {})
 
     burden_raw = _num(site.get("payroll_burden"))
-    burden = burden_raw if burden_raw is not None else 1.0
+    burden = burden_raw if burden_raw is not None else LAW_BURDEN
     lines = []
     terms = []
     subst = []
@@ -508,8 +608,8 @@ def _payroll(site: dict, tasks: list[dict], params: dict[str, dict], included: l
         tex = rf"\text{{ФОТ}}_{{\text{{база}}}} = \left({' + '.join(terms)}\right) \times 12 \times k_{{\text{{нач}}}} \times f_{{\text{{ФОТ}}}}"
         sub = rf"\left({' + '.join(subst)}\right) \times 12 \times {_t(burden, 3)} \times {_t(factor, 2)} = {_t(total)}\ \text{{₽}}"
         vars_.append(_var(r"12", "Месяцев в году", 12, "мес.", "calc"))
-        vars_.append(_var(r"k_{\text{нач}}", "Коэффициент начислений на ФОТ", burden, "", "site" if burden_raw is not None else "calc",
-                          "" if burden_raw is not None else "На площадке не задан, взят 1."))
+        vars_.append(_var(r"k_{\text{нач}}", "Коэффициент начислений на ФОТ", burden, "", "site" if burden_raw is not None else "norm",
+                          "" if burden_raw is not None else "На площадке не задан: взносы 30% (ст. 425 НК РФ) и 0,2% на травматизм."))
         vars_.append(_norm_var_fraction(p, "salary_factor", params))
         note = "Роли площадки с численностью и зарплатой."
         if skipped:
@@ -546,8 +646,9 @@ def _payroll(site: dict, tasks: list[dict], params: dict[str, dict], included: l
     }
 
 
-def _task_staff(tasks: list[dict]) -> dict[str, dict]:
-    """Численность задач, привязанных к процессу. Ставка задачи, если она задана, важнее ставки площадки."""
+def _task_staff(tasks: list[dict], burden: float = LAW_BURDEN) -> dict[str, dict]:
+    """Численность задач, привязанных к процессу. Ставка задачи, если она задана, важнее ставки площадки.
+    Зарплата в месяц до НДФЛ переводится в годовую стоимость с начислениями."""
     staffed: dict[str, dict] = {}
     for task in tasks or []:
         if not isinstance(task, dict):
@@ -556,10 +657,14 @@ def _task_staff(tasks: list[dict]) -> dict[str, dict]:
         fte = _num(task.get("staff_fte_now"))
         if not code or not fte or fte <= 0:
             continue
-        row = staffed.setdefault(code, {"fte": 0.0, "rate": None, "name": str(task.get("name") or code)})
+        row = staffed.setdefault(code, {"fte": 0.0, "rate": None, "wage_month": None, "name": str(task.get("name") or code)})
         row["fte"] += fte
+        month = _num(task.get("staff_salary_month_rub"))
         own = _num(task.get("staff_salary_year_rub"))
-        if own:
+        if month:
+            row["rate"] = month * 12 * burden
+            row["wage_month"] = month
+        elif own:
             row["rate"] = own
     return staffed
 
@@ -568,7 +673,7 @@ def _default_rate(site: dict) -> tuple[float | None, str]:
     year_cost = _num(site.get("staff_salary_year_rub"))
     if year_cost:
         return year_cost, "Годовая стоимость сотрудника целевой группы с начислениями."
-    burden = _num(site.get("payroll_burden")) or 1.0
+    burden = _num(site.get("payroll_burden")) or LAW_BURDEN
     for _count_key, salary_key, label, _tag in _ROLES:
         salary = _num(site.get(salary_key))
         if salary:
@@ -577,12 +682,10 @@ def _default_rate(site: dict) -> tuple[float | None, str]:
 
 
 def _payroll_by_process(site: dict, staffed: dict[str, dict], included: list[dict], params: dict[str, dict], hours: dict) -> dict:
-    """ФОТ каждого процесса парка: численность задачи, а без неё — люди, которых заменяют часы работы роботов."""
+    """ФОТ процессов парка по численности их задач. Процесс без численности в базу не входит: людей из часов роботов не придумываем."""
     p = {key: item["value"] for key, item in params.items()}
     factor = p["salary_factor"] / 100
     rate_default, rate_note = _default_rate(site)
-    fte_hours = p["fte_hours"]
-    robot_hours = (hours or {}).get("value")
     lines: list[dict] = []
     by_process: dict[str, float] = {}
     vars_: list[dict] = []
@@ -592,49 +695,34 @@ def _payroll_by_process(site: dict, staffed: dict[str, dict], included: list[dic
         if code in by_process:
             continue
         task = staffed.get(code)
-        robots = item.get("count_used") or 0
-        if task:
-            fte = task["fte"]
-            rate = task["rate"] or rate_default
-            estimated = False
-        elif robot_hours and robots and fte_hours:
-            fte = robots * robot_hours / fte_hours
-            rate = rate_default
-            estimated = True
-        else:
-            fte, rate, estimated = 0.0, rate_default, True
+        if not task:
+            by_process[code] = 0.0
+            continue
+        fte = task["fte"]
+        rate = task["rate"] or rate_default
         amount = fte * rate * factor if rate else 0.0
         by_process[code] = amount
-        name = task["name"] if task else (item.get("process_name") or code)
+        name = task["name"]
         lines.append({
             "label": name,
             "process_code": code,
             "headcount": fte,
             "salary_month_rub": (rate or 0) / 12,
             "rub": amount,
-            "estimated": estimated,
-            "robots": robots,
-            "robot_hours": robot_hours,
-            "fte_hours": fte_hours,
+            "estimated": False,
+            "robots": item.get("count_used") or 0,
             "factor": factor,
             "rate_note": rate_note,
         })
         index = len(lines)
         parts.append(rf"L_{{{index}}} \times W_{{{index}}}")
-        how = (
-            f"Оценка: {_t_plain(robots)} роб. × {_t_plain(robot_hours or 0)} ч / {_t_plain(fte_hours)} ч на человека."
-            if estimated else "Численность задачи на площадке."
-        )
-        vars_.append(_var(f"L_{{{index}}}", f"{name}: численность", fte, "чел.", "calc" if estimated else "site", how))
-        vars_.append(_var(f"W_{{{index}}}", f"{name}: стоимость сотрудника в год", rate, "₽/год", "site", rate_note if not (task and task["rate"]) else "Ставка задачи."))
+        vars_.append(_var(f"L_{{{index}}}", f"{name}: численность", fte, "чел.", "site", "Численность задачи на площадке."))
+        vars_.append(_var(f"W_{{{index}}}", f"{name}: стоимость сотрудника в год", rate, "₽/год", "site", "Ставка задачи." if task["rate"] else rate_note))
     total = sum(by_process.values())
-    estimated_count = sum(1 for line in lines if line["estimated"] and line["rub"])
+    missing = sum(1 for value in by_process.values() if not value)
     note = "У каждого процесса свой ФОТ: численность его задачи."
-    if estimated_count:
-        note += (
-            f" Для {estimated_count} процессов численности в данных нет: людей считаем по часам работы роботов,"
-            f" один сотрудник — {_t_plain(fte_hours)} ч в год."
-        )
+    if missing:
+        note += f" У {missing} процессов численности в данных нет: их ФОТ и экономия не считаются."
     return {
         "total": total,
         "lines": lines,
@@ -644,9 +732,9 @@ def _payroll_by_process(site: dict, staffed: dict[str, dict], included: list[dic
             "ФОТ процессов парка до роботизации",
             total,
             "₽/год",
-            rf"\text{{ФОТ}}_{{\text{{база}}}} = \left({' + '.join(parts)}\right) \times f_{{\text{{ФОТ}}}}",
+            rf"\text{{ФОТ}}_{{\text{{база}}}} = \left({' + '.join(parts) or '0'}\right) \times f_{{\text{{ФОТ}}}}",
             rf"{_t(total)}\ \text{{₽}}",
-            [*vars_, _norm_var(params, "fte_hours"), _norm_var_fraction(p, "salary_factor", params)],
+            [*vars_, _norm_var_fraction(p, "salary_factor", params)],
             note,
         ),
     }
@@ -655,7 +743,7 @@ def _payroll_by_process(site: dict, staffed: dict[str, dict], included: list[dic
 def _operator_cost(site: dict, params: dict[str, dict]) -> dict:
     factor = params["salary_factor"]["value"] / 100
     burden_raw = _num(site.get("payroll_burden"))
-    burden = burden_raw if burden_raw is not None else 1.0
+    burden = burden_raw if burden_raw is not None else LAW_BURDEN
     forklift = _num(site.get("forklift_salary_month_rub"))
     if forklift:
         value = forklift * 12 * burden * factor
@@ -665,7 +753,8 @@ def _operator_cost(site: dict, params: dict[str, dict]) -> dict:
             "subst": rf"{_t(forklift)} \times 12 \times {_t(burden, 3)} \times {_t(factor, 2)} = {_t(value)}\ \text{{₽}}",
             "vars": [
                 _var(r"W_{\text{погр}}", "Зарплата оператора погрузчика: ближайшая по квалификации роль", forklift, "₽/мес", "site"),
-                _var(r"k_{\text{нач}}", "Коэффициент начислений на ФОТ", burden, "", "site" if burden_raw is not None else "calc"),
+                _var(r"k_{\text{нач}}", "Коэффициент начислений на ФОТ", burden, "", "site" if burden_raw is not None else "norm",
+                     "" if burden_raw is not None else "На площадке не задан: взносы 30% (ст. 425 НК РФ) и 0,2% на травматизм."),
             ],
         }
     year_cost = _num(site.get("staff_salary_year_rub"))
@@ -708,6 +797,7 @@ def _asis(s: dict) -> dict:
                 [_var(r"\text{ФОТ}_{\text{база}}", "ФОТ ролей до роботизации", payroll, "₽/год", "calc")],
                 "Текущие эксплуатационные затраты без ФОТ в данных площадки не заданы.")
     tco = payroll * horizon
+    none = "База сравнения: вложений и денежного потока проекта нет."
     return {
         "key": "asis",
         "title": "Без роботизации",
@@ -723,10 +813,16 @@ def _asis(s: dict) -> dict:
         "effect": _fig("effect", "Эффект в год", 0.0, "₽/год", r"\text{Эффект}_{\text{AS-IS}} = 0", "= 0", [], "Базовая точка сравнения."),
         "effect_lines": [],
         "payback": _fig("payback", "Срок окупаемости", None, "лет", r"\text{PBP}_{\text{AS-IS}}\ \text{не считается}", "", [], "Вложений нет."),
-        "roi": _fig("roi", "ROI", None, "%", r"\text{ROI}_{\text{AS-IS}}\ \text{не считается}", "", []),
+        "roi": _fig("roi", "Чистый ROI", None, "%", r"\text{ROI}_{\text{AS-IS}}\ \text{не считается}", "", []),
+        "npv": _fig("npv", "NPV", 0.0, "₽", r"\text{NPV}_{\text{AS-IS}} = 0", "= 0", [], none),
+        "irr": _fig("irr", "IRR", None, "%", r"\text{IRR}_{\text{AS-IS}}\ \text{не считается}", "", [], none),
+        "dpp": _fig("dpp", "Дисконтированная окупаемость", None, "лет", r"\text{DPP}_{\text{AS-IS}}\ \text{не считается}", "", [], none),
+        "pi": _fig("pi", "Индекс доходности", None, "", r"\text{PI}_{\text{AS-IS}}\ \text{не считается}", "", [], none),
+        "eac": _eac_fig(s, 0.0, _real_rate(s["p"])),
         "tco": _fig("tco", f"TCO за {horizon} лет", tco, "₽", r"\text{TCO}_{\text{AS-IS}} = \text{ФОТ}_{\text{база}} \times T",
                     rf"{_t(payroll)} \times {horizon} = {_t(tco)}\ \text{{₽}}",
                     [_var(r"\text{ФОТ}_{\text{база}}", "ФОТ ролей до роботизации", payroll, "₽/год", "calc"), _t_var(s)]),
+        "cashflow": [],
         "years": [{"year": year, "cost_rub": payroll * year, "net_rub": 0.0} for year in range(1, horizon + 1)],
         "verdict": "",
     }
@@ -740,14 +836,15 @@ def _purchase(s: dict) -> dict:
     reserve_params, reserve_mixed = _param_for_key(s, "reserve_pct")
     reserve = _mixed_reserve(s, _CAPEX_EXTRAS, True) if reserve_mixed else _reserve_fig(reserve_params, subtotal)
     capex_value = subtotal + reserve["value"]
+    training = next((item["value"] or 0 for item in extras if item["key"] == "training"), 0.0)
     capex = _fig(
         "capex", "CAPEX", capex_value, "₽",
         r"\text{CAPEX} = C_{\text{обор}} + C_{\text{инфр}} + C_{\text{ПО}} + C_{\text{интегр}} + C_{\text{ПНР}} + C_{\text{обуч}} + C_{\text{рез}}",
         " + ".join(_t(item["value"]) for item in [equipment_fig, *extras, reserve]) + rf" = {_t(capex_value)}\ \text{{₽}}",
         [_var(item["symbol"], item["label"], item["value"], "₽", "calc") for item in [equipment_fig, *extras, reserve]],
-        "Доп. статьи — доли от оборудования: каталог их не даёт, стандарт задаётся в админке.",
+        "Без НДС: он принимается к вычету. Доп. статьи — доли от оборудования: каталог их не даёт, стандарт задаётся в админке.",
     )
-    support = _support(s, capex_value, equipment)
+    support = _support(s, capex_value, equipment, capex_value - training)
     capex_lines = [equipment_fig, *extras, reserve]
     if support["once"]:
         net = max(0.0, capex_value - support["once"])
@@ -760,7 +857,7 @@ def _purchase(s: dict) -> dict:
                 _var(r"\sum \text{статей}", "CAPEX до господдержки", capex_value, "₽", "calc", capex["subst"]),
                 *[_var(fig["symbol"], fig["label"], fig["value"], "₽", "calc", fig["subst"]) for fig in applied],
             ],
-            f"Разовые меры поддержки уменьшают вложения. {SUPPORT_NOTE}",
+            f"Разовые меры поддержки уменьшают вложения и базу амортизации. {SUPPORT_NOTE}",
         )
         capex_lines += [_negate_support(fig) for fig in applied]
     opex_lines = [
@@ -776,8 +873,10 @@ def _purchase(s: dict) -> dict:
         s, "purchase", "Покупка", "Полное владение оборудованием",
         capex, capex_lines, opex_lines,
         r"\text{OPEX} = C_{\text{серв}} + C_{\text{лиц}} + C_{\text{эл}} + C_{\text{связь}} + C_{\text{расх}} + C_{\text{рем}} + C_{\text{опер}}",
-        note="" if s["included"] else "В парке нет роботов с ценой.",
+        note="" if s["included"] else "В парке нет роботов с ценой и количеством.",
         support=support,
+        dep_base=max(0.0, capex_value - training - support["once"]),
+        expensed=training,
     )
     scenario["support_items"] = support["items"]
     return scenario
@@ -789,6 +888,7 @@ def _raas(s: dict) -> dict:
     reserve_params, reserve_mixed = _param_for_key(s, "reserve_pct")
     reserve = _mixed_reserve(s, _RAAS_EXTRAS, False) if reserve_mixed else _reserve_fig(reserve_params, subtotal)
     capex_value = subtotal + reserve["value"]
+    training = next((item["value"] or 0 for item in extras if item["key"] == "training"), 0.0)
     capex = _fig(
         "capex", "CAPEX", capex_value, "₽",
         r"\text{CAPEX}_{\text{RaaS}} = C_{\text{инфр}} + C_{\text{интегр}} + C_{\text{ПНР}} + C_{\text{обуч}} + C_{\text{рез}}",
@@ -802,7 +902,7 @@ def _raas(s: dict) -> dict:
     total = len(s["included"])
     note = (
         f"Аренду подтверждает вендор у {confirmed} из {total} роботов, для остальных ставка — стандарт."
-        if total else "В парке нет роботов с ценой."
+        if total else "В парке нет роботов с ценой и количеством."
     )
     if s.get("subsidies"):
         note += " Меры господдержки считаются только для покупки."
@@ -811,49 +911,49 @@ def _raas(s: dict) -> dict:
         capex, [*extras, reserve], opex_lines,
         r"\text{OPEX}_{\text{RaaS}} = C_{\text{RaaS}} + C_{\text{эл}} + C_{\text{связь}} + C_{\text{опер}}",
         note=note,
+        dep_base=max(0.0, capex_value - training),
+        expensed=training,
+        owned=False,
     )
 
 
-def _robot_scenario(s, key, title, subtitle, capex, capex_lines, opex_lines, opex_tex, note, support: dict | None = None) -> dict:
+def _robot_scenario(
+    s, key, title, subtitle, capex, capex_lines, opex_lines, opex_tex, note,
+    support: dict | None = None, dep_base: float = 0.0, expensed: float = 0.0, owned: bool = True,
+) -> dict:
     p, horizon = s["p"], s["horizon"]
-    support = support or {"once": 0.0, "by_year": lambda _year: 0.0, "year_lines": [], "last_year": 0}
-    by_year = support["by_year"]
+    support = support or _no_support()
     payroll = s["payroll"]["total"]
-    share = p["replacement_pct"] / 100
     opex_value = sum(item["value"] or 0 for item in opex_lines if item["included"])
     opex = _fig(
         "opex", "OPEX в год", opex_value, "₽/год", opex_tex,
         " + ".join(_t(item["value"] or 0) for item in opex_lines if item["included"]) + rf" = {_t(opex_value)}\ \text{{₽}}",
         [_var(item["symbol"], item["label"], item["value"], "₽/год", "calc") for item in opex_lines if item["included"]],
-        "Не вошли: " + ", ".join(item["label"].lower() for item in opex_lines if not item["included"]) + "." if any(not item["included"] for item in opex_lines) else "",
+        "Без НДС. Не вошли: " + ", ".join(item["label"].lower() for item in opex_lines if not item["included"]) + "."
+        if any(not item["included"] for item in opex_lines) else "Без НДС: он принимается к вычету.",
     )
-    after_value = payroll * (1 - share)
+    saving = _saving_fig(s)
+    saved = saving["value"]
+    after_value = max(0.0, payroll - saved)
     after = _fig(
         "payroll_after", "ФОТ после роботизации", after_value, "₽/год",
-        r"\text{ФОТ}_{\text{после}} = \text{ФОТ}_{\text{база}} \times (1 - s)",
-        rf"{_t(payroll)} \times (1 - {_t(share, 2)}) = {_t(after_value)}\ \text{{₽}}",
-        [_var(r"\text{ФОТ}_{\text{база}}", "ФОТ ролей до роботизации", payroll, "₽/год", "calc"), _norm_var_fraction(p, "replacement_pct", s["params"])],
-        "Люди, которые остаются на исключениях и контроле.",
-    )
-    saved = payroll - after_value
-    saving = _fig(
-        "saving", "Экономия ФОТ", saved, "₽/год",
-        r"\Delta\text{ФОТ} = \text{ФОТ}_{\text{база}} - \text{ФОТ}_{\text{после}} = \text{ФОТ}_{\text{база}} \times s",
-        rf"{_t(payroll)} \times {_t(share, 2)} = {_t(saved)}\ \text{{₽}}",
-        [_var(r"\text{ФОТ}_{\text{база}}", "ФОТ ролей до роботизации", payroll, "₽/год", "calc"), _norm_var_fraction(p, "replacement_pct", s["params"])],
+        r"\text{ФОТ}_{\text{после}} = \text{ФОТ}_{\text{база}} - \Delta\text{ФОТ}",
+        rf"{_t(payroll)} - {_t(saved)} = {_t(after_value)}\ \text{{₽}}",
+        [_var(r"\text{ФОТ}_{\text{база}}", "ФОТ до роботизации", payroll, "₽/год", "calc"), _var(r"\Delta\text{ФОТ}", "Экономия ФОТ", saved, "₽/год", "calc")],
+        "Люди, которые остаются: их работу роботы не берут.",
     )
     operational = saved - opex_value
-    first_support = by_year(1)
+    first_support = support["frp"](1)
     effect_value = operational + first_support
     effect_vars = [_var(r"\Delta\text{ФОТ}", "Экономия ФОТ", saved, "₽/год", "calc"), _var(r"\text{OPEX}", "Затраты на эксплуатацию парка", opex_value, "₽/год", "calc")]
     if support["year_lines"]:
-        effect_vars.append(_var(r"S_{\text{год}}", "Господдержка в первый год", first_support, "₽/год", "calc"))
+        effect_vars.append(_var(r"S_{\text{ФРП}}", "Выгода займа ФРП в первый год", first_support, "₽/год", "calc"))
         effect = _fig(
             "effect", "Эффект в год", effect_value, "₽/год",
-            r"\text{Эффект} = \Delta\text{ФОТ} - \text{OPEX} + S_{\text{год}}",
+            r"\text{Эффект} = \Delta\text{ФОТ} - \text{OPEX} + S_{\text{ФРП}}",
             rf"{_t(saved)} - {_t(opex_value)} + {_t(first_support)} = {_t(effect_value)}\ \text{{₽}}",
             effect_vars,
-            f"Первый год. Годовые меры поддержки действуют ограниченный срок, срок окупаемости посчитан по годам. {SUPPORT_NOTE}",
+            f"Полный год до налога. Выгода займа снижается вместе с остатком долга. {SUPPORT_NOTE}",
         )
     else:
         effect = _fig(
@@ -861,32 +961,59 @@ def _robot_scenario(s, key, title, subtitle, capex, capex_lines, opex_lines, ope
             r"\text{Эффект} = \Delta\text{ФОТ} - \text{OPEX}",
             rf"{_t(saved)} - {_t(opex_value)} = {_t(effect_value)}\ \text{{₽}}",
             effect_vars,
-            "Файл модели: Эффект = ΔЗатраты + доп. доход − ΔOPEX. Доп. дохода и предотвращённых потерь в данных площадки нет.",
+            "Полный год до налога. Доп. дохода и предотвращённых потерь в данных площадки нет.",
         )
     capex_value = capex["value"]
-    payback_value = _payback_years(capex_value, operational, by_year, support["last_year"])
-    if support["year_lines"]:
-        payback_tex = r"\text{PBP}:\ \sum_{t=1}^{\text{PBP}} \left(\text{Эффект}_0 + S_t\right) = \text{CAPEX}"
-        payback_sub = rf"\text{{CAPEX}} = {_t(capex_value)}\ \text{{₽}} \Rightarrow {_t(payback_value, 1)}\ \text{{лет}}" if payback_value is not None else r"\text{Эффект} \le 0 \Rightarrow \text{срока нет}"
-    else:
-        payback_tex = r"\text{PBP} = \dfrac{\text{CAPEX}}{\text{Эффект}}"
-        payback_sub = rf"\dfrac{{{_t(capex_value)}}}{{{_t(effect_value)}}} = {_t(payback_value, 1)}\ \text{{лет}}" if payback_value is not None else r"\text{Эффект} \le 0 \Rightarrow \text{срока нет}"
+    flow = _cashflow(s, capex_value, saved, opex_value, dep_base, expensed, support)
+    rate = flow["rate"]
+    capex_var = _var(r"\text{CAPEX}", "Вложения", capex_value, "₽", "calc")
+    cf_var = _var(r"CF_t", "Денежный поток года после налога", None, "₽", "calc", "Таблица денежного потока по годам.")
+    rate_var = _var("r", "Реальная ставка дисконтирования", rate * 100, "%", "calc", "(1 + r_КС) / (1 + π*) − 1")
+    npv = _fig(
+        "npv", "NPV", flow["npv"], "₽",
+        r"\text{NPV} = -\text{CAPEX} + \sum_{t=1}^{T} \dfrac{CF_t}{(1 + r)^t} + \dfrac{V_T}{(1 + r)^T}",
+        rf"-{_t(capex_value)} + {_t(flow['npv'] + capex_value)} = {_t(flow['npv'])}\ \text{{₽}}",
+        [capex_var, cf_var, rate_var, _var("V_T", "Остаточная стоимость на конец горизонта", flow["residual"], "₽", "calc", "База амортизации минус линейный износ за горизонт; при ускоренной амортизации — минус налог с разницы с балансом."), _t_var(s)],
+        "Сколько денег проект приносит сверх вложений с учётом их стоимости во времени. Больше нуля — выгодно.",
+    )
+    if not owned:
+        flow["irr"] = flow["dpp"] = None
+    irr = _fig(
+        "irr", "IRR", flow["irr"] * 100 if flow["irr"] is not None else None, "%",
+        r"\text{IRR}:\ \text{NPV}(\text{IRR}) = 0",
+        rf"\text{{IRR}} = {_t(flow['irr'] * 100, 1)}\%" if flow["irr"] is not None else r"\text{поток не меняет знак}",
+        [capex_var, cf_var],
+        f"Доходность вложений. Сравнивается со ставкой {_t_plain(rate * 100)}%: выше — проект выгоден.",
+    )
+    dpp = _fig(
+        "dpp", "Дисконтированная окупаемость", flow["dpp"], "лет",
+        r"\text{DPP}:\ -\text{CAPEX} + \sum_{t=1}^{\text{DPP}} \dfrac{CF_t}{(1 + r)^t} = 0",
+        rf"{_t(flow['dpp'], 1)}\ \text{{лет}}" if flow["dpp"] is not None else r"\text{за горизонт не окупается}",
+        [capex_var, cf_var, rate_var],
+        "Окупаемость с учётом стоимости денег, без остаточной стоимости.",
+    )
+    payback_value = flow["pbp"] if owned else None
     payback = _fig(
         "payback", "Срок окупаемости", payback_value, "лет",
-        payback_tex,
-        payback_sub,
-        [_var(r"\text{CAPEX}", "Капитальные затраты", capex_value, "₽", "calc"), _var(r"\text{Эффект}", "Эффект в год", effect_value, "₽/год", "calc")],
-        "" if payback_value is not None else "Эффект не покрывает вложения: срока окупаемости нет.",
+        r"\text{PBP}:\ -\text{CAPEX} + \sum_{t=1}^{\text{PBP}} CF_t = 0",
+        (rf"{_t(payback_value, 1)}\ \text{{лет}}" if payback_value is not None else r"\text{за горизонт не окупается}") if owned else "",
+        [capex_var, cf_var],
+        ("Денежный поток после налога, с выплатами при сокращении и сроком уведомления. Остаточная стоимость не учитывается."
+         if payback_value is not None else "Денежный поток за горизонт не покрывает вложения.")
+        if owned else "Для аренды срок окупаемости не считается: техника не покупается. Сравнивайте по NPV.",
     )
-    support_total = sum(by_year(year) for year in range(1, horizon + 1))
-    gain = operational * horizon + support_total
-    roi_value = gain / capex_value * 100 if capex_value > 0 else None
+    roi_value = flow["roi"] if owned else None
     roi = _fig(
-        "roi", f"ROI за {horizon} лет", roi_value, "%",
-        r"\text{ROI} = \dfrac{\text{Эффект} \times T + \sum S_t}{\text{CAPEX}} \times 100\%" if support_total else r"\text{ROI} = \dfrac{\text{Эффект} \times T}{\text{CAPEX}} \times 100\%",
-        rf"\dfrac{{{_t(gain)}}}{{{_t(capex_value)}}} \times 100\% = {_t(roi_value, 0)}\%" if roi_value is not None else "",
-        [_var(r"\text{Эффект}", "Эффект в год", operational, "₽/год", "calc"), _t_var(s), _var(r"\text{CAPEX}", "Капитальные затраты", capex_value, "₽", "calc")],
+        "roi", f"Чистый ROI за {horizon} лет", roi_value, "%",
+        r"\text{ROI} = \dfrac{\sum_{t=1}^{T} CF_t + V_T - \text{CAPEX}}{\text{CAPEX}} \times 100\%",
+        rf"\dfrac{{{_t(flow['inflow'])} - {_t(capex_value)}}}{{{_t(capex_value)}}} \times 100\% = {_t(roi_value, 0)}\%" if roi_value is not None else "",
+        [_var(r"\sum CF_t + V_T", "Денежный поток за горизонт с остаточной стоимостью", flow["inflow"], "₽", "calc"), capex_var, _t_var(s)],
+        (f"Чистая прибыль на вложенный рубль за {horizon} лет, после возврата CAPEX. В среднем за год — {_t_plain(roi_value / horizon)}%."
+         if roi_value is not None else "") if owned else "Для аренды ROI не считается: своих вложений в технику нет.",
     )
+    pi = _pi_fig(flow["npv"], capex_value, rate, owned)
+    eac = _eac_fig(s, flow["npv"], rate)
+    support_total = sum(support["frp"](year) for year in range(1, horizon + 1))
     annual = opex_value + after_value
     tco_value = capex_value + annual * horizon - support_total
     tco = _fig(
@@ -898,13 +1025,13 @@ def _robot_scenario(s, key, title, subtitle, capex, capex_lines, opex_lines, ope
             _var(r"\text{OPEX}", "Эксплуатация парка", opex_value, "₽/год", "calc"),
             _var(r"\text{ФОТ}_{\text{после}}", "ФОТ оставшихся людей", after_value, "₽/год", "calc"),
             _t_var(s),
-            *([_var(r"\sum S_t", "Годовая господдержка за горизонт", support_total, "₽", "calc")] if support_total else []),
+            *([_var(r"\sum S_t", "Выгода займа ФРП за горизонт", support_total, "₽", "calc")] if support_total else []),
         ],
-        "Оставшийся ФОТ входит в TCO, чтобы сценарии сравнивались с базой на одной шкале. Замена узлов не добавлена: срока службы в карточках нет.",
+        "Простая сумма затрат без налогов и дисконтирования: сценарии сравниваются с базой на одной шкале.",
     )
     cumulative = [0.0]
     for year in range(1, horizon + 1):
-        cumulative.append(cumulative[-1] + by_year(year))
+        cumulative.append(cumulative[-1] + support["frp"](year))
     return {
         "key": key,
         "title": title,
@@ -921,12 +1048,18 @@ def _robot_scenario(s, key, title, subtitle, capex, capex_lines, opex_lines, ope
         "effect_lines": [saving, _negate(opex), *support["year_lines"]],
         "payback": payback,
         "roi": roi,
+        "npv": npv,
+        "irr": irr,
+        "dpp": dpp,
+        "pi": pi,
+        "eac": eac,
         "tco": tco,
+        "cashflow": flow["rows"],
         "years": [
-            {"year": year, "cost_rub": capex_value + annual * year - cumulative[year], "net_rub": operational * year + cumulative[year] - capex_value}
-            for year in range(1, horizon + 1)
+            {"year": row["year"], "cost_rub": capex_value + annual * row["year"] - cumulative[row["year"]], "net_rub": row["cumulative"]}
+            for row in flow["rows"]
         ],
-        "verdict": _verdict(payback_value),
+        "verdict": _verdict(payback_value, flow["npv"], owned),
     }
 
 
@@ -1024,44 +1157,45 @@ def _energy_fig(s: dict) -> dict:
 
 
 def _operators_fig(s: dict) -> dict:
-    if "operator_fixed" in s:
-        value = s["operator_fixed"] or 0
-        if value <= 0:
-            fig = _fig("operators", "Персонал эксплуатации", None, "₽/год", r"C_{\text{опер}} = 0", "", [],
-                       "Доля персонала эксплуатации на этот процесс не выделяется.", included=False)
-            fig["symbol"] = r"C_{\text{опер}}"
-            return fig
-        fig = _fig(
-            "operators", "Персонал эксплуатации", value, "₽/год",
-            r"C_{\text{опер}} = C_{\text{опер парка}} \times \dfrac{N_i}{N}",
-            rf"= {_t(value)}\ \text{{₽}}",
-            [_var(r"C_{\text{опер парка}}", "Персонал эксплуатации парка, доля процесса по числу роботов", value, "₽/год", "calc")],
-            "Доля общего персонала эксплуатации парка, пропорционально числу роботов процесса.",
-        )
-        fig["symbol"] = r"C_{\text{опер}}"
-        return fig
     per = s["p"]["robots_per_operator"]
     operator = s["operator"]
     if not s["robots"] or operator["value"] is None:
-        fig = _fig("operators", "Персонал эксплуатации", None, "₽/год", r"C_{\text{опер}} = \lceil N / m \rceil \times W_{\text{опер}}", "", [],
+        fig = _fig("operators", "Персонал эксплуатации", None, "₽/год", r"C_{\text{опер}} = L_{\text{дисп}} \times W_{\text{опер}}", "", [],
                    "Нет зарплаты подходящей роли на площадке." if s["robots"] else "Роботов нет.", included=False)
         fig["symbol"] = r"C_{\text{опер}}"
         return fig
-    people = math.ceil(s["robots"] / per)
+    # Доля поста без округления: диспетчерская одна на весь парк, и каждый робот занимает 1/m поста.
+    # Так процессы складываются в итог объекта без скачков, а один робот не тянет за собой целый пост.
+    posts = s["robots"] / per
+    hours = (s.get("hours") or {}).get("value")
+    fte_hours = s["p"]["fte_hours"]
+    people = posts * hours / fte_hours if hours and fte_hours else posts
     value = people * operator["value"]
+    if hours and fte_hours:
+        tex = r"C_{\text{опер}} = \dfrac{N}{m} \times \dfrac{H}{h_{\text{чел}}} \times W_{\text{опер}}"
+        subst = (rf"\dfrac{{{_t(s['robots'])}}}{{{_t(per)}}} \times \dfrac{{{_t(hours)}}}{{{_t(fte_hours)}}} \times {_t(operator['value'])}"
+                 rf" = {_t(people, 1)} \times {_t(operator['value'])} = {_t(value)}\ \text{{₽}}")
+        extra = [_var("H", "Часов работы парка в год", hours, "ч", "calc", (s.get("hours") or {}).get("subst", "")), _norm_var(s["params"], "fte_hours")]
+        note = (f"{_t_plain(posts)} поста диспетчера на всё время работы парка: {_t_plain(people)} чел. со сменами и отпусками. "
+                "Диспетчерская общая на парк, поэтому считается доля поста, а не целый пост на каждый процесс.")
+    else:
+        tex = r"C_{\text{опер}} = \dfrac{N}{m} \times W_{\text{опер}}"
+        subst = rf"\dfrac{{{_t(s['robots'])}}}{{{_t(per)}}} \times {_t(operator['value'])} = {_t(value)}\ \text{{₽}}"
+        extra = []
+        note = f"{_t_plain(posts)} поста диспетчера. Часов работы площадки нет: на пост считаем одного человека."
     fig = _fig(
-        "operators", "Персонал эксплуатации", value, "₽/год",
-        r"C_{\text{опер}} = \left\lceil \dfrac{N}{m} \right\rceil \times W_{\text{опер}}",
-        rf"\left\lceil \dfrac{{{_t(s['robots'])}}}{{{_t(per)}}} \right\rceil \times {_t(operator['value'])} = {people} \times {_t(operator['value'])} = {_t(value)}\ \text{{₽}}",
+        "operators", "Персонал эксплуатации", value, "₽/год", tex, subst,
         [
             _var("N", "Роботов в парке", s["robots"], "шт.", "fleet"),
             _norm_var(s["params"], "robots_per_operator"),
-            _var(r"W_{\text{опер}}", "Годовая стоимость оператора", operator["value"], "₽/год", "calc", operator["subst"]),
+            *extra,
+            _var(r"W_{\text{опер}}", "Годовая стоимость диспетчера", operator["value"], "₽/год", "calc", operator["subst"]),
             *operator["vars"],
         ],
-        f"{people} операторов или диспетчеров парка.",
+        note,
     )
     fig["symbol"] = r"C_{\text{опер}}"
+    fig["count"] = people
     return fig
 
 
@@ -1080,28 +1214,13 @@ def _negate_support(fig: dict) -> dict:
     return out
 
 
-def _payback_years(capex: float, operational: float, by_year, last_year: int) -> float | None:
-    if capex <= 0:
-        return None
-    total = 0.0
-    year = 0
-    while year < 200:
-        year += 1
-        gain = operational + by_year(year)
-        if gain > 0 and total + gain >= capex:
-            return year - 1 + (capex - total) / gain
-        total += gain
-        if year >= last_year and operational <= 0:
-            return None
-    return None
-
-
-def _support(s: dict, capex_gross: float, equipment: float) -> dict:
-    """Меры господдержки для покупки. Считаются все, в расчёт входят только включённые."""
+def _support(s: dict, capex_gross: float, equipment: float, dep_gross: float) -> dict:
+    """Меры господдержки для покупки за свои средства. Лизинговые меры относятся к схеме «Лизинг» и здесь не считаются."""
     params = s["params"]
-    v = {key: params[key]["value"] for key in params if params[key]["group"] == "subsidy"}
-    on = s.get("subsidies") or frozenset()
+    v = {key: params[key]["value"] for key in params}
+    on = (s.get("subsidies") or frozenset()) & frozenset(PURCHASE_SUBSIDIES)
     items: list[dict] = []
+    horizon = s["horizon"]
 
     mpt_limit = v["mpt_limit_mln"] * 1_000_000
     mpt_raw = equipment * v["mpt_rate_pct"] / 100
@@ -1110,86 +1229,59 @@ def _support(s: dict, capex_gross: float, equipment: float) -> dict:
         "subsidy_mpt", "Субсидия Минпромторга", mpt, "₽",
         r"S_{\text{МПТ}} = \min\left(k_{\text{МПТ}} \times C_{\text{обор}},\ L_{\text{МПТ}}\right)",
         rf"\min\left({_t(v['mpt_rate_pct'], 1)}\% \times {_t(equipment)},\ {_t(mpt_limit)}\right) = {_t(mpt)}\ \text{{₽}}",
-        [_var(r"C_{\text{обор}}", "Стоимость оборудования", equipment, "₽", "calc"), _norm_var(params, "mpt_rate_pct"), _norm_var(params, "mpt_limit_mln")],
-        "Упёрлись в лимит программы." if mpt_raw > mpt_limit else "",
+        [_var(r"C_{\text{обор}}", "Стоимость оборудования без НДС", equipment, "₽", "calc"), _norm_var(params, "mpt_rate_pct"), _norm_var(params, "mpt_limit_mln")],
+        ("Упёрлись в лимит программы. " if mpt_raw > mpt_limit else "") + "Уменьшает и вложения, и базу амортизации: одна сумма не даёт налоговую выгоду дважды.",
     )
     mpt_fig["symbol"] = r"S_{\text{МПТ}}"
-
-    leasing = equipment * v["leasing_discount_pct"] / 100
-    leasing_fig = _fig(
-        "subsidy_leasing", "Скидка по ПП № 649", leasing, "₽",
-        r"S_{\text{лиз}} = k_{\text{лиз}} \times C_{\text{обор}}",
-        rf"{_t(v['leasing_discount_pct'], 1)}\% \times {_t(equipment)} = {_t(leasing)}\ \text{{₽}}",
-        [_var(r"C_{\text{обор}}", "Стоимость техники", equipment, "₽", "calc"), _norm_var(params, "leasing_discount_pct")],
-        "Скидка единовременная, в счёт аванса по договору лизинга.",
-    )
-    leasing_fig["symbol"] = r"S_{\text{лиз}}"
-
-    moscow_limit = v["moscow_limit_mln"] * 1_000_000
-    moscow_raw = equipment * v["moscow_rate_pct"] / 100
-    moscow = min(moscow_raw, moscow_limit)
-    moscow_fig = _fig(
-        "subsidy_moscow", "Субсидия Москвы на лизинг", moscow, "₽",
-        r"S_{\text{Мск}} = \min\left(k_{\text{Мск}} \times B_{\text{лиз}},\ L_{\text{Мск}}\right)",
-        rf"\min\left({_t(v['moscow_rate_pct'], 1)}\% \times {_t(equipment)},\ {_t(moscow_limit)}\right) = {_t(moscow)}\ \text{{₽}}",
-        [_var(r"B_{\text{лиз}}", "База лизинга: стоимость оборудования", equipment, "₽", "calc"), _norm_var(params, "moscow_rate_pct"), _norm_var(params, "moscow_limit_mln")],
-        "Упёрлись в годовой лимит на предприятие." if moscow_raw > moscow_limit else "",
-    )
-    moscow_fig["symbol"] = r"S_{\text{Мск}}"
-
-    once_values = {"mpt": (mpt, mpt_fig), "leasing": (leasing, leasing_fig), "moscow": (moscow, moscow_fig)}
-    once = sum(value for code, (value, _fig_) in once_values.items() if code in on)
+    once = mpt if "mpt" in on else 0.0
     capex_net = max(0.0, capex_gross - once)
 
     spread = max(0.0, v["market_rate_pct"] - v["frp_rate_pct"]) / 100
     loan = capex_net * v["frp_share_pct"] / 100
-    frp_year = spread * loan
     frp_term = max(1, int(round(v["frp_term_years"])))
+
+    def frp_year(year: int) -> float:
+        if year > frp_term:
+            return 0.0
+        return spread * loan * (frp_term - year + 0.5) / frp_term
+
+    frp_first = frp_year(1)
     frp_fig = _fig(
-        "subsidy_frp", "Выгода займа ФРП", frp_year, "₽/год",
-        r"S_{\text{ФРП}} = (r_{\text{рын}} - r_{\text{ФРП}}) \times d_{\text{ФРП}} \times \text{CAPEX}",
-        rf"({_t(v['market_rate_pct'], 1)}\% - {_t(v['frp_rate_pct'], 1)}\%) \times {_t(v['frp_share_pct'])}\% \times {_t(capex_net)} = {_t(frp_year)}\ \text{{₽}}",
+        "subsidy_frp", "Выгода займа ФРП", frp_first, "₽/год",
+        r"S_{\text{ФРП},t} = (r_{\text{КС}} - r_{\text{ФРП}}) \times d_{\text{ФРП}} \times \text{CAPEX} \times \dfrac{T_{\text{ФРП}} - t + 0{,}5}{T_{\text{ФРП}}}",
+        rf"({_t(v['market_rate_pct'], 1)}\% - {_t(v['frp_rate_pct'], 1)}\%) \times {_t(v['frp_share_pct'])}\% \times {_t(capex_net)} \times \dfrac{{{frp_term} - 0{{,}}5}}{{{frp_term}}} = {_t(frp_first)}\ \text{{₽}}",
         [_norm_var(params, "market_rate_pct"), _norm_var(params, "frp_rate_pct"), _norm_var(params, "frp_share_pct"), _var(r"\text{CAPEX}", "Вложения после разовых мер", capex_net, "₽", "calc"), _norm_var(params, "frp_term_years")],
-        f"Каждый год в течение {frp_term} лет займа.",
+        f"Первый год. Заём гасится равными долями {frp_term} лет: выгода считается на средний остаток долга и снижается год от года.",
     )
     frp_fig["symbol"] = r"S_{\text{ФРП}}"
 
     life = max(1.0, v["service_life_years"])
     factor = max(1.0, v["accel_factor"])
     tax = v["profit_tax_pct"] / 100
-    normal = capex_gross / life
-    fast = capex_gross * factor / life
-    amort_years: list[float] = []
-    left = capex_gross
-    while left > 1e-6 and len(amort_years) < 200:
-        deduction = min(fast, left)
-        left -= deduction
-        amort_years.append(max(0.0, deduction - normal) * tax)
-    amort_first = amort_years[0] if amort_years else 0.0
+    base = max(0.0, dep_gross - once)
+    normal = base / life
+    fast = min(base, base * factor / life)
+    amort_first = (fast - normal) * tax
     amort_fig = _fig(
-        "subsidy_amort", "Экономия на налоге", amort_first, "₽/год",
-        r"S_{\text{ам}} = \left(\dfrac{\text{CAPEX}}{T_{\text{сл}}} \times K_{\text{уск}} - \dfrac{\text{CAPEX}}{T_{\text{сл}}}\right) \times t_{\text{приб}}",
-        rf"\left(\dfrac{{{_t(capex_gross)}}}{{{_t(life)}}} \times {_t(factor, 1)} - \dfrac{{{_t(capex_gross)}}}{{{_t(life)}}}\right) \times {_t(v['profit_tax_pct'])}\% = {_t(amort_first)}\ \text{{₽}}",
-        [_var(r"\text{CAPEX}", "Вложения до господдержки", capex_gross, "₽", "calc"), _norm_var(params, "service_life_years"), _norm_var(params, "accel_factor"), _norm_var(params, "profit_tax_pct")],
-        f"Первый год. Экономия идёт {sum(1 for value in amort_years if value > 0)} г., пока оборудование не списано полностью, потом становится 0.",
+        "subsidy_amort", "Налог переносится на потом", amort_first, "₽/год",
+        r"\Delta\text{Налог}_1 = \left(\min\left(B \times \dfrac{K_{\text{уск}}}{T_{\text{сл}}},\ B\right) - \dfrac{B}{T_{\text{сл}}}\right) \times t_{\text{приб}}",
+        rf"\left({_t(fast)} - {_t(normal)}\right) \times {_t(v['profit_tax_pct'])}\% = {_t(amort_first)}\ \text{{₽}}",
+        [_var("B", "База амортизации: CAPEX без обучения и субсидии", base, "₽", "calc"), _norm_var(params, "service_life_years"), _norm_var(params, "accel_factor"), _norm_var(params, "profit_tax_pct")],
+        "Первый год. Это не отдельный доход, а другой график амортизации: налог меньше в первые годы и больше потом. Уже учтено в денежном потоке.",
     )
-    amort_fig["symbol"] = r"S_{\text{ам}}"
+    amort_fig["symbol"] = r"\Delta\text{Налог}"
 
-    def year_value(code: str, year: int) -> float:
-        if code == "frp":
-            return frp_year if year <= frp_term else 0.0
-        if code == "amort":
-            return amort_years[year - 1] if year <= len(amort_years) else 0.0
-        return 0.0
-
-    def by_year(year: int) -> float:
-        return sum(year_value(code, year) for code in ("frp", "amort") if code in on)
-
-    horizon = s["horizon"]
-    figs = {"mpt": mpt_fig, "leasing": leasing_fig, "moscow": moscow_fig, "frp": frp_fig, "amort": amort_fig}
+    figs = {"mpt": mpt_fig, "frp": frp_fig, "amort": amort_fig}
     for code, label, subtitle, kind, keys in SUBSIDIES:
+        if code not in figs:
+            continue
         fig = figs[code]
-        total = fig["value"] if kind == "once" else sum(year_value(code, year) for year in range(1, horizon + 1))
+        if code == "frp":
+            total = sum(frp_year(year) for year in range(1, horizon + 1))
+        elif code == "amort":
+            total = amort_first
+        else:
+            total = fig["value"]
         items.append({
             "code": code,
             "label": label,
@@ -1201,9 +1293,14 @@ def _support(s: dict, capex_gross: float, equipment: float) -> dict:
             "params": list(keys),
             "fig": fig,
         })
-    year_lines = [figs[code] for code in ("frp", "amort") if code in on]
-    last_year = max([frp_term if "frp" in on else 0, len(amort_years) if "amort" in on else 0])
-    return {"once": once, "by_year": by_year, "year_lines": year_lines, "last_year": last_year, "items": items}
+    return {
+        "once": once,
+        "frp": (lambda year: frp_year(year)) if "frp" in on else (lambda _year: 0.0),
+        "accelerated": "amort" in on,
+        "accel": factor,
+        "year_lines": [frp_fig] if "frp" in on else [],
+        "items": items,
+    }
 
 
 def _sensitivity(
@@ -1215,33 +1312,43 @@ def _sensitivity(
     by_process: dict[str, dict[str, float]] | None = None,
     subsidies: frozenset[str] = frozenset(),
 ) -> list[dict]:
+    """Торнадо: NPV и окупаемость покупки на границах диапазона каждого параметра."""
     base = _metric(report)
     out = []
+
+    def row(key, label, unit, value, low, high, level, note, values):
+        swing = abs(values[1]["npv"] - values[0]["npv"]) if values[0]["npv"] is not None and values[1]["npv"] is not None else None
+        return {
+            "key": key, "label": label, "unit": unit, "value": value, "low_value": low, "high_value": high,
+            "level": level, "range_note": note,
+            "payback_low": values[0]["payback"], "payback_high": values[1]["payback"],
+            "effect_low": values[0]["effect"], "effect_high": values[1]["effect"],
+            "npv_low": values[0]["npv"], "npv_high": values[1]["npv"],
+            "payback": base["payback"], "effect": base["effect"], "npv": base["npv"],
+            "swing": swing,
+        }
+
     for key in _SENSITIVE:
         current = params[key]["value"]
         if not current:
             continue
+        low, high, level, note = _range(params, key)
         values = []
-        for mult in (0.8, 1.2):
+        for bound in (low, high):
             changed = {k: dict(v) for k, v in params.items()}
-            changed[key]["value"] = current * mult
+            changed[key]["value"] = bound
             values.append(_metric(_compute(rows, site, tasks, changed, by_process, subsidies=subsidies)))
-        out.append({
-            "key": key,
-            "label": params[key]["label"],
-            "unit": params[key]["unit"],
-            "value": current,
-            "low_value": current * 0.8,
-            "high_value": current * 1.2,
-            "payback_low": values[0]["payback"],
-            "payback_high": values[1]["payback"],
-            "effect_low": values[0]["effect"],
-            "effect_high": values[1]["effect"],
-            "payback": base["payback"],
-            "effect": base["effect"],
-            "swing": _swing(values[0]["payback"], values[1]["payback"]),
-        })
-    out.sort(key=lambda item: (item["swing"] is not None, -(item["swing"] or 0)))
+        out.append(row(key, params[key]["label"], params[key]["unit"], current, low, high, level, note, values))
+    fte = (report.get("release") or {}).get("fte") or 0
+    if fte:
+        width = LEVEL_WIDTH["B"]
+        values = [_metric(_compute(rows, site, tasks, params, by_process, subsidies=subsidies, release_scale=scale)) for scale in (1 - width, 1 + width)]
+        out.append(row("release", "Высвобождение людей", "чел.", fte, fte * (1 - width), fte * (1 + width), "B",
+                       "Данные площадки, уровень B: ±10%. Сужается, если заказчик подтвердит численность на операциях.", values))
+    total = sum((item["swing"] or 0) ** 2 for item in out)
+    for item in out:
+        item["share"] = (item["swing"] or 0) ** 2 / total if total else 0
+    out.sort(key=lambda item: (item["swing"] is not None, item["swing"] or 0), reverse=True)
     return out
 
 
@@ -1253,17 +1360,27 @@ def _swing(low: float | None, high: float | None) -> float | None:
 
 def _metric(report: dict) -> dict:
     purchase = next(item for item in report["scenarios"] if item["key"] == "purchase")
-    return {"payback": purchase["payback"]["value"], "effect": purchase["effect"]["value"]}
+    return {"payback": purchase["payback"]["value"], "effect": purchase["effect"]["value"], "npv": purchase["npv"]["value"]}
 
 
-def _verdict(payback: float | None) -> str:
+def _verdict(payback: float | None, npv: float | None = None, owned: bool = True) -> str:
+    if not owned:
+        if npv is None:
+            return ""
+        if npv >= 0:
+            return f"Аренда выгоднее ручной работы: NPV {_t_plain(npv / 1_000_000)} млн ₽."
+        return f"Аренда дороже ручной работы: NPV {_t_plain(npv / 1_000_000)} млн ₽."
     if payback is None:
-        return "Окупаемости нет: эффект не покрывает вложения."
-    if payback <= 3:
-        return "До 3 лет: по ТЗ решение целесообразно."
-    if payback <= 5:
-        return "3–5 лет: по ТЗ требуется анализ рисков."
-    return "Больше 5 лет: по ТЗ нужно отдельное обоснование."
+        text = "Окупаемости нет: денежный поток за горизонт не покрывает вложения."
+    elif payback <= 3:
+        text = "До 3 лет: по ТЗ решение целесообразно."
+    elif payback <= 5:
+        text = "3–5 лет: по ТЗ требуется анализ рисков."
+    else:
+        text = "Больше 5 лет: по ТЗ нужно отдельное обоснование."
+    if npv is not None and payback is not None and npv < 0:
+        text += " NPV отрицательный: с учётом стоимости денег вложения не возвращаются."
+    return text
 
 
 def _fig(key, label, value, unit, tex, subst, vars_, note="", included=True) -> dict:
@@ -1431,114 +1548,19 @@ def _raas_payment_fig(s: dict) -> dict:
     return fig
 
 
-def _shares(included: list[dict], tasks: list[dict], payroll: dict | None = None) -> tuple[dict[str, float], str]:
-    codes: list[str] = []
-    for item in included:
-        if item["process_code"] not in codes:
-            codes.append(item["process_code"])
-    by_process = (payroll or {}).get("by_process")
-    if by_process:
-        total = sum(float(by_process.get(code) or 0) for code in codes)
-        if total > 0:
-            return {code: float(by_process.get(code) or 0) / total for code in codes}, _SHARE_OWN
-        return {code: 0.0 for code in codes}, _SHARE_NONE
-    ftes: dict[str, float] = {}
-    for task in tasks:
-        if not isinstance(task, dict):
-            continue
-        code = str(task.get("process_code") or "")
-        fte = _num(task.get("staff_fte_now"))
-        if code in codes and fte and fte > 0:
-            ftes[code] = ftes.get(code, 0.0) + fte
-    if ftes:
-        total = sum(ftes.values())
-        return {code: ftes.get(code, 0.0) / total for code in codes}, _SHARE_FTE
-    n = len(codes) or 1
-    return {code: 1 / n for code in codes}, _SHARE_EQUAL
-
-
 def _reprice(item: dict, params: dict[str, dict], s: dict) -> dict:
     clone = dict(item)
     factor = params["price_factor"]["value"] / 100
+    vat = params["vat_pct"]["value"] / 100
     count = item["count_used"] or 0
     price = item["price_rub"] or 0
     kwh = item["kwh_per_hour"] or 0 if item.get("kwh_source") == "card" else params["energy_kwh"]["value"]
     hours = (s.get("hours") or {}).get("value") or 0
-    clone["cost_rub"] = count * price * factor
-    clone["price_used"] = price * factor
+    clone["price_used"] = price * factor / (1 + vat)
+    clone["cost_rub"] = count * clone["price_used"]
     clone["kwh_per_hour"] = kwh
     clone["energy_rub"] = count * kwh * hours * params["energy_tariff"]["value"]
     return clone
-
-
-def _scaled_payroll(payroll: dict, share: float, note: str) -> dict:
-    total = payroll["total"] * share
-    fig = _fig(
-        "payroll",
-        "Доля ФОТ процесса",
-        total,
-        "₽/год",
-        r"\text{ФОТ}_{\text{проц}} = \text{ФОТ}_{\text{база}} \times \alpha",
-        rf"{_t(payroll['total'])} \times {_t(share, 2)} = {_t(total)}\ \text{{₽}}",
-        [
-            _var(r"\text{ФОТ}_{\text{база}}", "ФОТ площадки до роботизации", payroll["total"], "₽/год", "calc"),
-            _var(r"\alpha", "Доля процесса в экономии на персонале", share, "", "calc", note),
-        ],
-        note,
-    )
-    return {"total": total, "lines": [], "fig": fig}
-
-
-def _payroll_slice(payroll: dict, code: str, share: float, note: str) -> dict:
-    """ФОТ одного процесса: своя численность, а не доля чужого фонда."""
-    by_process = payroll.get("by_process")
-    if by_process is None:
-        return _scaled_payroll(payroll, share, note)
-    total = float(by_process.get(code) or 0)
-    line = next((item for item in payroll.get("lines") or [] if item.get("process_code") == code), None)
-    if line and total:
-        headcount = line["headcount"]
-        year_cost = line["salary_month_rub"] * 12
-        factor = line.get("factor", 1)
-        rate_var = _var(r"W_{\text{год}}", "Стоимость сотрудника в год с начислениями", year_cost, "₽/год", "site", line.get("rate_note") or "")
-        factor_var = _var(r"f_{\text{ФОТ}}", "Стоимость персонала, доля", factor, "", "calc")
-        if line.get("estimated"):
-            fig = _fig(
-                "payroll",
-                "ФОТ процесса до роботизации",
-                total,
-                "₽/год",
-                r"\text{ФОТ}_{\text{проц}} = \frac{N \times H}{h_{\text{чел}}} \times W_{\text{год}} \times f_{\text{ФОТ}}",
-                rf"\frac{{{_t(line['robots'])} \times {_t(line['robot_hours'])}}}{{{_t(line['fte_hours'])}}} \times {_t(year_cost)} \times {_t(factor, 2)} = {_t(total)}\ \text{{₽}}",
-                [
-                    _var("N", "Роботов процесса", line["robots"], "шт.", "fleet"),
-                    _var("H", "Часов работы в год", line["robot_hours"], "ч", "site", "Смена × смен в сутки × дней в году."),
-                    _var(r"h_{\text{чел}}", "Рабочих часов одного сотрудника", line["fte_hours"], "ч в год", "norm"),
-                    rate_var,
-                    factor_var,
-                ],
-                "Численности этого процесса в данных нет: людей считаем по часам работы его роботов. "
-                f"Выходит {_t_plain(headcount)} чел.",
-            )
-        else:
-            fig = _fig(
-                "payroll",
-                "ФОТ задачи до роботизации",
-                total,
-                "₽/год",
-                r"\text{ФОТ}_{\text{проц}} = L_{\text{задачи}} \times W_{\text{год}} \times f_{\text{ФОТ}}",
-                rf"{_t(headcount)} \times {_t(year_cost)} \times {_t(factor, 2)} = {_t(total)}\ \text{{₽}}",
-                [_var(r"L_{\text{задачи}}", f"{line['label']}: численность", headcount, "чел.", "site"), rate_var, factor_var],
-                _SHARE_OWN,
-            )
-        return {"total": total, "lines": [line], "by_process": {code: total}, "fig": fig}
-    return {
-        "total": 0.0,
-        "lines": [],
-        "by_process": {},
-        "fig": _fig("payroll", "ФОТ задачи до роботизации", 0.0, "₽/год", r"\text{ФОТ}_{\text{проц}} = 0", "0", [],
-                    "Нет ни численности задачи, ни ставки сотрудника на площадке: ФОТ процесса посчитать не из чего.", included=False),
-    }
 
 
 def _process_bundle(
@@ -1550,21 +1572,19 @@ def _process_bundle(
     full: bool = True,
     subsidies: frozenset[str] | None = None,
 ) -> tuple[dict, dict, dict, dict]:
-    # Пересчёт с параметрами процесса: подсказки what-if меняют ставку и часы, и ФОТ должен сдвигаться вместе с ними.
-    fleet_payroll = _payroll(s["site"], s["tasks"], params, s["included"], s["hours"])
-    payroll = _payroll_slice(fleet_payroll, item["process_code"], share, note)
+    """Процесс отдельно: как если бы роботизировали только его. Высвобождение и посты диспетчеров — свои."""
+    code = item["process_code"]
+    release = [row for row in s.get("release") or [] if row["process_code"] == code]
     operator = _operator_cost(s["site"], params)
-    probe = {
-        "p": {key: value["value"] for key, value in params.items()},
-        "params": params,
-        "robots": s["robots"],
-        "operator": operator,
-        "included": s["included"],
-    }
-    operator_total = _operators_fig(probe)["value"] or 0
-    robots = s["robots"] or 0
-    allocated = (item["count_used"] / robots * operator_total) if robots else 0
     clone = _reprice(item, params, s)
+    factor = params["salary_factor"]["value"] / 100
+    staff_cost = sum(row["staff"] * (row["rate"] or 0) * factor for row in release)
+    payroll = {
+        "total": staff_cost,
+        "lines": [],
+        "fig": _fig("payroll", "ФОТ процесса до роботизации", staff_cost, "₽/год",
+                    r"\text{ФОТ}_{\text{проц}} = L \times W_{\text{год}} \times f_{\text{ФОТ}}", rf"= {_t(staff_cost)}\ \text{{₽}}", [], note),
+    }
     one = {
         "fleet": [clone],
         "included": [clone],
@@ -1572,12 +1592,12 @@ def _process_bundle(
         "equipment": clone["cost_rub"] or 0,
         "hours": s["hours"],
         "payroll": payroll,
+        "release": release,
         "operator": operator,
         "params": params,
         "p": {key: value["value"] for key, value in params.items()},
         "horizon": s["horizon"],
         "by_process": {},
-        "operator_fixed": allocated,
         "site": s["site"],
         "tasks": s["tasks"],
         "subsidies": (s.get("subsidies") or frozenset()) if subsidies is None else subsidies,
@@ -1590,28 +1610,24 @@ def _process_bundle(
 
 def _meets(purchase: dict, horizon: int) -> bool:
     effect = purchase["effect"]["value"] or 0
-    capex = purchase["capex"]["value"] or 0
-    payback = purchase["payback"]["value"]
-    if effect <= 0:
-        return False
-    if capex <= 0:
-        return True
-    return payback is not None and payback <= horizon + 1e-6
+    npv = purchase["npv"]["value"]
+    return effect > 0 and npv is not None and npv >= 0
 
 
 def _profit_status(purchase: dict, horizon: int) -> tuple[bool, str]:
+    npv = purchase["npv"]["value"] or 0
+    payback = purchase["payback"]["value"]
+    npv_text = f"NPV {'+' if npv >= 0 else ''}{_t_plain(npv / 1_000_000)} млн ₽"
     if _meets(purchase, horizon):
-        payback = purchase["payback"]["value"]
         if payback is None:
-            return True, "Вложений нет, эффект в год положительный."
-        return True, f"Покупка окупается за {_t_plain(payback)} лет — в пределах горизонта {horizon} лет."
+            return True, f"Вложений нет, эффект в год положительный: {npv_text}."
+        return True, f"Покупка окупается за {_t_plain(payback)} лет, {npv_text}."
     effect = purchase["effect"]["value"] or 0
     if effect <= 0:
-        return False, "Покупка невыгодна: годовые затраты процесса больше его доли экономии на персонале."
-    payback = purchase["payback"]["value"]
+        return False, "Покупка невыгодна: годовые затраты процесса больше его экономии на персонале."
     if payback is None:
-        return False, "Покупка не окупается: эффект не покрывает вложения."
-    return False, f"Покупка не окупается за горизонт {horizon} лет: срок {_t_plain(payback)} лет."
+        return False, f"Покупка не окупается за горизонт {horizon} лет: {npv_text}."
+    return False, f"Покупка окупается за {_t_plain(payback)} лет, но с учётом стоимости денег не возвращает вложения: {npv_text}."
 
 
 def _snap(value: float, step: float, lo: float, hi: float) -> float:
@@ -1705,7 +1721,7 @@ def _suggestions(s: dict, item: dict, share: float, note: str, params: dict[str,
     on = s.get("subsidies") or frozenset()
     labels = {code: label for code, label, _subtitle, _kind, _keys in SUBSIDIES}
     singles = []
-    for code in SUBSIDY_CODES:
+    for code in PURCHASE_SUBSIDIES:
         if code in on:
             continue
         _one, _asis, purchase, _raas = _process_bundle(s, item, share, note, params, full=False, subsidies=on | {code})
@@ -1721,9 +1737,45 @@ def _suggestions(s: dict, item: dict, share: float, note: str, params: dict[str,
             if _meets(purchase, horizon):
                 found.append(_subsidy_hint(picked, labels, purchase))
                 break
+    # Комбинацию ищем, если среди подсказок нет реалистичного изменения самого процесса или меры поддержки.
+    if not any(row["scope"] != "site" and _realistic(row) for row in found):
+        combo = _combo_hint(s, item, share, note, params, on, labels)
+        if combo:
+            found.append(combo)
     for row in found:
         row.pop("_rank", None)
     return found
+
+
+def _combo_hint(s: dict, item: dict, share: float, note: str, params: dict[str, dict], on: frozenset[str], labels: dict[str, str]) -> dict | None:
+    """Если ни одно изменение по отдельности не помогает — скидка вендора вместе со всеми мерами господдержки.
+    Ищем наименьшую скидку, при которой процесс окупается; не помогает и это — процесс невыгоден."""
+    horizon = s["horizon"]
+    every = frozenset(on) | frozenset(PURCHASE_SUBSIDIES)
+    extra = [code for code in PURCHASE_SUBSIDIES if code not in on]
+    norm = params["price_factor"]
+
+    def meets(value: float) -> bool:
+        _one, _asis, purchase, _raas = _process_bundle(s, item, share, note, _with_param(params, "price_factor", value), full=False, subsidies=every)
+        return _meets(purchase, horizon)
+
+    current = norm["value"]
+    target = current if meets(current) else _closest(norm["min"], norm["max"], norm["step"] or 1, current, -1, meets)
+    if target is None:
+        return None
+    _one, _asis, purchase, _raas = _process_bundle(s, item, share, note, _with_param(params, "price_factor", target), full=False, subsidies=every)
+    return {
+        "key": "price_factor",
+        "label": "Скидка вендора и меры господдержки вместе" if extra else norm["label"],
+        "unit": norm["unit"],
+        "scope": "combo" if extra else "process",
+        "with": extra,
+        "with_labels": [labels[code] for code in extra],
+        "from": _round_step(current, norm["step"] or 1),
+        "to": _round_step(target, norm["step"] or 1),
+        "effect": purchase["effect"]["value"],
+        "payback": purchase["payback"]["value"],
+    }
 
 
 def _subsidy_hint(codes: list[str], labels: dict[str, str], purchase: dict) -> dict:
@@ -1739,8 +1791,18 @@ def _subsidy_hint(codes: list[str], labels: dict[str, str], purchase: dict) -> d
     }
 
 
-def _process_views(s: dict) -> list[dict]:
-    shares, share_note = _shares(s["included"], s.get("tasks") or [], s["payroll"])
+def _process_views(s: dict, priced: list[dict] | None = None) -> list[dict]:
+    """Каждый процесс так, будто роботизируют только его: вся его роль или задача и свои посты диспетчеров.
+    Исключённый пользователем процесс тоже считается — чтобы было видно, почему он невыгоден."""
+    release = {row["process_code"]: row for row in s.get("release") or []}
+    factor = s["p"]["salary_factor"] / 100
+    savings = {code: row["fte"] * (row["rate"] or 0) * factor for code, row in release.items()}
+    total = sum(savings.values())
+    # С кем процесс делит роль площадки в парке: роботизировать оба — люди всё равно уйдут один раз.
+    shared: dict[str, list[str]] = {}
+    for row in release.values():
+        if row["source"] == "role" and row["split"] > 1:
+            shared[row["process_code"]] = [other["process_name"] for other in release.values() if other["group"] == row["group"] and other is not row]
     out = []
     for item in s["fleet"]:
         base = {
@@ -1751,9 +1813,14 @@ def _process_views(s: dict) -> list[dict]:
             "count": item["count_used"],
             "cost_rub": item["cost_rub"],
             "included": bool(item["included"]),
+            "off": bool(item.get("off")),
             "note": item["note"],
             "share": 0,
             "share_note": "",
+            "release": None,
+            "story": None,
+            "status": "none",
+            "condition": None,
             "profitable": None,
             "reason": item["note"],
             "payroll": None,
@@ -1763,19 +1830,825 @@ def _process_views(s: dict) -> list[dict]:
         if not item["included"]:
             out.append(base)
             continue
-        params = _local_params(s, item["process_code"])
-        share = shares.get(item["process_code"], 0)
-        one, asis, purchase, raas = _process_bundle(s, item, share, share_note, params)
+        code = item["process_code"]
+        params = _local_params(s, code)
+        solo = _release(s["site"], s["tasks"], [item], params, s["hours"])["items"]
+        ctx = {**s, "release": solo}
+        row = solo[0] if solo else None
+        share = 0 if item.get("off") else (savings.get(code, 0) / total if total else 0)
+        note = (row["note"] or _release_how(row)) if row else ""
+        one, asis, purchase, raas = _process_bundle(ctx, item, share, note, params)
         purchase.pop("support_items", None)
-        ok, reason = _profit_status(purchase, s["horizon"])
+        saving = (row["fte"] * (row["rate"] or 0) * factor) if row else 0
+        if saving <= 0:
+            ok, reason = False, (row["note"] if row and row["note"] else "Высвобождения нет: экономии на персонале не будет.")
+        else:
+            ok, reason = _profit_status(purchase, s["horizon"])
+        story = _process_story(row, item, purchase, factor, shared.get(code, []))
+        story["unit"] = _unit_cost(s, item, story)
+        suggestions = [] if ok or saving <= 0 else _suggestions(ctx, item, share, note, params)
+        # Вывод по процессу: выгоден; окупится с условием — есть ближайшее изменение, при котором NPV ≥ 0;
+        # нет данных о людях; невыгоден.
+        condition = _condition(suggestions)
+        status = "ok" if ok else "no_staff" if story["needs_staff"] else "conditional" if condition else "bad"
         base.update({
             "share": share,
-            "share_note": share_note,
+            "share_note": note,
+            "release": {key: row[key] for key in ("source", "role", "staff", "split", "auto", "fte", "capped", "rate", "wage_month", "note")} if row else None,
+            "story": story,
+            "status": status,
+            "condition": condition if status == "conditional" else None,
             "profitable": ok,
             "reason": reason,
-            "payroll": one["payroll"]["fig"],
+            "payroll": _saving_fig(one),
             "scenarios": [asis, purchase, raas],
-            "suggestions": [] if ok else _suggestions(s, item, share, share_note, params),
+            "suggestions": suggestions,
         })
         out.append(base)
     return out
+
+
+def _release(site: dict, tasks: list[dict], included: list[dict], params: dict[str, dict], hours: dict) -> dict:
+    """Сколько людей уходит с каждого процесса парка. Только из данных: численность задачи или роли площадки,
+    доля работы, которую берут роботы, и целые ставки в каждой смене. Нет численности — нет и экономии."""
+    p = {key: item["value"] for key, item in params.items()}
+    burden_raw = _num(site.get("payroll_burden"))
+    burden = burden_raw if burden_raw else LAW_BURDEN
+    staffed = _task_staff(tasks, burden)
+    shifts = max(1, int(_num(site.get("shifts_per_day")) or 1))
+    robot_hours = (hours or {}).get("value")
+    fte_hours = p["fte_hours"]
+    rate_default, _rate_note = _default_rate(site)
+    codes: list[str] = []
+    names: dict[str, str] = {}
+    robots: dict[str, float] = {}
+    for item in included:
+        code = item["process_code"]
+        if code not in robots:
+            codes.append(code)
+            names[code] = item.get("process_name") or code
+            robots[code] = 0.0
+        robots[code] += item.get("count_used") or 0
+    roles = {role[0]: role for role in _ROLES}
+    members = {role: [code for code in codes if code in procs and code not in staffed] for role, procs in ROLE_PROCESSES.items()}
+    role_of = {code: role for role, items in members.items() for code in items}
+
+    items: list[dict] = []
+    for code in codes:
+        name = names[code]
+        cap = robots[code] * robot_hours / fte_hours if robot_hours and fte_hours else None
+        row = {
+            "process_code": code, "process_name": name, "robots": robots[code], "source": "", "role": "",
+            "staff": 0.0, "split": 1, "auto": 1.0, "auto_note": "", "cap": cap, "capped": False, "raw": 0.0, "fte": 0.0,
+            "rate": None, "wage_month": None, "group": "", "shifts": shifts, "note": "", "request": None,
+        }
+        task = staffed.get(code)
+        role = role_of.get(code)
+        if task:
+            rate = task["rate"] or rate_default
+            row.update(source="task", staff=task["fte"], group=f"task:{code}", rate=rate, wage_month=task["wage_month"] or (rate / 12 / burden if rate else None))
+            if not rate:
+                row["note"] = "Нет стоимости сотрудника: экономию посчитать не из чего."
+                row["request"] = {"to": "customer", "question": f"Сколько стоит в год сотрудник на процессе «{name}»?"}
+        elif role:
+            count_key, salary_key, label, _tag = roles[role]
+            headcount = _num(site.get(count_key)) or 0.0
+            salary = _num(site.get(salary_key))
+            split = len(members[role])
+            row.update(source="role", role=label, staff=headcount / split, split=split, group=f"role:{role}",
+                       rate=salary * 12 * burden if salary else None, wage_month=salary)
+            if not headcount:
+                row["note"] = f"На площадке не задана численность роли «{label}»."
+                row["request"] = {"to": "customer", "question": f"Сколько человек работает в роли «{label}»?"}
+            elif not salary:
+                row["note"] = f"У роли «{label}» не задана зарплата: экономию посчитать не из чего."
+                row["request"] = {"to": "customer", "question": f"Какая зарплата у роли «{label}»?"}
+        elif code in ASSISTED:
+            row["note"] = f"{ASSISTED[code]} Высвобождение не считается, пока вендор не даст выработку человека до и после."
+            row["request"] = {"to": "vendor", "question": f"Во сколько раз растёт выработка человека на процессе «{name}» с вашим решением?"}
+        else:
+            row["note"] = "В данных площадки нет численности на этой операции: высвобождение не считается."
+            row["request"] = {"to": "customer", "question": f"Сколько человек сейчас работает на процессе «{name}» и сколько стоит сотрудник в год?"}
+        if row["staff"] > 0:
+            field = MANUAL_SHARE.get(code)
+            pct = _num(site.get(field[0])) if field else None
+            if field and pct:
+                row["auto"] = min(1.0, max(0.0, 1 - pct / 100))
+                row["auto_note"] = f"{_t_plain(pct)}% — {field[1]}: их робот не берёт."
+            raw = row["staff"] * row["auto"]
+            if cap is not None and raw > cap:
+                raw = cap
+                row["capped"] = True
+                row["request"] = row["request"] or {
+                    "to": "vendor",
+                    "question": f"Сколько человеко-часов заменяет час работы робота на процессе «{name}»?",
+                }
+            row["raw"] = raw
+        items.append(row)
+
+    # Люди уходят целыми ставками в каждой смене: округление по роли или задаче, затем доля процесса.
+    groups: dict[str, list[dict]] = {}
+    for row in items:
+        if row["group"] and row["raw"] > 0:
+            groups.setdefault(row["group"], []).append(row)
+    for rows_ in groups.values():
+        total = sum(row["raw"] for row in rows_)
+        real = shifts * math.floor(total / shifts + 1e-9)
+        for row in rows_:
+            row["fte"] = real * row["raw"] / total if total else 0.0
+            if not real:
+                row["note"] = row["note"] or f"Робот забирает меньше одного человека на смену ({_t_plain(total)} чел. на {shifts} смен): целой ставки не освобождается."
+    staff_total = _num(site.get("staff_total"))
+    released = sum(row["fte"] for row in items)
+    if staff_total and released > staff_total:
+        for row in items:
+            row["fte"] *= staff_total / released
+        released = staff_total
+
+    base = sum(task["fte"] for task in staffed.values())
+    if not base:
+        base = sum(_num(site.get(role[0])) or 0 for role in _ROLES)
+    share = released / base if base else None
+    check = ""
+    if share is not None and share > CHECK_SHARE + 1e-9:
+        check = (f"Высвобождается {_t_plain(share * 100)}% персонала — больше ориентира демо-проекта организатора "
+                 f"({_t_plain(CHECK_SHARE * 100)}%). Проверьте численность и покрытие процессов.")
+    summary = {
+        "fte": released,
+        "base_fte": base,
+        "share": share,
+        "check": check,
+        "items": [
+            {key: row[key] for key in ("process_code", "process_name", "source", "role", "staff", "split", "auto", "auto_note", "capped", "cap", "fte", "rate", "wage_month", "group", "note")}
+            for row in items
+        ],
+    }
+    return {"items": items, "summary": summary}
+
+
+def _saving_fig(s: dict) -> dict:
+    """Экономия ФОТ: высвобожденные ставки на стоимость сотрудника."""
+    factor = s["p"]["salary_factor"] / 100
+    rows = [row for row in s.get("release") or []]
+    value = sum(row["fte"] * (row["rate"] or 0) * factor for row in rows)
+    fte = sum(row["fte"] for row in rows)
+    factor_var = _norm_var_fraction(s["p"], "salary_factor", s["params"])
+    if len(rows) == 1:
+        row = rows[0]
+        how = _release_how(row)
+        fig = _fig(
+            "saving", "Экономия ФОТ", value, "₽/год",
+            r"\Delta\text{ФОТ} = \Delta L \times W_{\text{год}} \times f_{\text{ФОТ}}",
+            rf"{_t(row['fte'], 1)} \times {_t(row['rate'] or 0)} \times {_t(factor, 2)} = {_t(value)}\ \text{{₽}}",
+            [
+                _var(r"\Delta L", "Высвобождается людей", row["fte"], "чел.", "site" if row["source"] else "calc", how),
+                _var(r"W_{\text{год}}", "Стоимость сотрудника в год с начислениями", row["rate"], "₽/год", "site"),
+                factor_var,
+            ],
+            row["note"] or how,
+        )
+    else:
+        vars_ = [
+            _var(rf"\Delta L_{{{index}}}", f"{row['process_name']}: высвобождается", row["fte"], "чел.", "site" if row["source"] else "calc",
+                 row["note"] or _release_how(row))
+            for index, row in enumerate(rows, start=1)
+        ]
+        fig = _fig(
+            "saving", "Экономия ФОТ", value, "₽/год",
+            r"\Delta\text{ФОТ} = \sum_p \Delta L_p \times W_p \times f_{\text{ФОТ}}",
+            rf"{_t(fte, 1)}\ \text{{чел.}} \Rightarrow {_t(value)}\ \text{{₽}}",
+            [*vars_, factor_var],
+            "Люди, чью работу забирают роботы: численность задачи или роли площадки, без нестандартных грузов, целыми ставками по сменам.",
+        )
+    fig["symbol"] = r"\Delta\text{ФОТ}"
+    return fig
+
+
+def _release_how(row: dict) -> str:
+    if not row["source"]:
+        return row["note"]
+    parts = []
+    if row["source"] == "task":
+        parts.append(f"На задаче {_t_plain(row['staff'])} чел.")
+    else:
+        parts.append(f"{row['role']}: {_t_plain(row['staff'] * row['split'])} чел." + (f", поровну на {row['split']} процесса парка" if row["split"] > 1 else ""))
+    if row["auto"] < 1:
+        parts.append(f"роботы берут {_t_plain(row['auto'] * 100)}% работы ({row['auto_note']})")
+    if row["capped"]:
+        parts.append(f"не больше, чем людей на часы работы роботов: {_t_plain(row['cap'])} чел.")
+    parts.append(f"целыми ставками на {row['shifts']} смен → {_t_plain(row['fte'])} чел.")
+    return "; ".join(parts) + "."
+
+
+def _no_support() -> dict:
+    return {"once": 0.0, "frp": lambda _year: 0.0, "accelerated": False, "accel": 1.0, "year_lines": [], "items": []}
+
+
+def _real_rate(p: dict) -> float:
+    return (1 + p["market_rate_pct"] / 100) / (1 + p["inflation_target_pct"] / 100) - 1
+
+
+def _rate_fig(params: dict[str, dict]) -> dict:
+    p = {key: item["value"] for key, item in params.items()}
+    rate = _real_rate(p)
+    fig = _fig(
+        "discount", "Ставка дисконтирования", rate * 100, "%",
+        r"r = \dfrac{1 + r_{\text{КС}}}{1 + \pi^{*}} - 1",
+        rf"\dfrac{{1 + {_t(p['market_rate_pct'] / 100, 3)}}}{{1 + {_t(p['inflation_target_pct'] / 100, 3)}}} - 1 = {_t(rate * 100, 1)}\%",
+        [_norm_var(params, "market_rate_pct"), _norm_var(params, "inflation_target_pct")],
+        "Расчёт в постоянных ценах: зарплаты и тарифы не индексируются, поэтому ставка реальная, без инфляции.",
+    )
+    fig["symbol"] = "r"
+    return fig
+
+
+def _cashflow(s: dict, capex: float, saved: float, opex: float, dep_base: float, expensed: float, support: dict) -> dict:
+    """Годовой денежный поток после налога: уведомление и выплаты при сокращении, амортизация, остаточная стоимость."""
+    p, horizon = s["p"], s["horizon"]
+    factor = p["salary_factor"] / 100
+    tax = p["profit_tax_pct"] / 100
+    notice = min(12.0, max(0.0, p["notice_months"]))
+    payouts = sum(row["fte"] * (row["wage_month"] or 0) * factor for row in s.get("release") or []) * p["severance_months"]
+    life = max(1.0, p["service_life_years"])
+    cycle = max(1, int(round(life)))
+    linear = dep_base / life
+    yearly_dep = min(dep_base, dep_base * support["accel"] / life) if support["accelerated"] else linear
+    rate = _real_rate(p)
+    left = dep_base
+    rows = []
+    cumulative = -capex
+    discounted = -capex
+    pbp = dpp = None
+    npv = -capex
+    inflow = 0.0
+    flows = [-capex]
+    for year in range(1, horizon + 1):
+        months = 12 - notice if year == 1 else 12.0
+        saving = saved * months / 12
+        paid = payouts if year == 1 else 0.0
+        # Срок службы кончился, а горизонт нет: парк покупается заново по тем же ценам, амортизация начинается снова.
+        reinvest = capex if year > 1 and (year - 1) % cycle == 0 else 0.0
+        if reinvest:
+            left = dep_base
+        age = (year - 1) % cycle + 1
+        dep = min(yearly_dep, left)
+        left -= dep
+        frp = support["frp"](year)
+        cost = expensed if year == 1 else 0.0
+        profit = saving - opex - paid - dep - cost + frp
+        tax_value = tax * profit
+        operating = saving - opex - paid + frp - tax_value - reinvest
+        # Остаточная стоимость — по линейному износу: техника стоит столько же, как бы её ни списывали.
+        # Если баланс ниже (ускоренная амортизация), с разницы платится налог.
+        value_left = max(0.0, dep_base - linear * age)
+        residual = value_left - tax * max(0.0, value_left - left) if year == horizon else 0.0
+        cash = operating + residual
+        disc = (1 + rate) ** year
+        if pbp is None and operating > 0 and cumulative + operating >= 0:
+            pbp = year - 1 + (-cumulative) / operating
+        if dpp is None and operating > 0 and discounted + operating / disc >= 0:
+            dpp = year - 1 + (-discounted) / (operating / disc)
+        cumulative += operating
+        discounted += operating / disc
+        npv += cash / disc
+        inflow += cash
+        flows.append(cash)
+        rows.append({
+            "year": year,
+            "saving_rub": saving,
+            "opex_rub": -opex,
+            "payouts_rub": -paid,
+            "support_rub": frp,
+            "depreciation_rub": dep,
+            "tax_rub": -tax_value,
+            "residual_rub": residual,
+            "reinvest_rub": -reinvest,
+            "cf_rub": cash,
+            "cumulative": cumulative + residual,
+            "discounted": discounted + residual / disc,
+        })
+    if capex <= 0:
+        pbp = dpp = None
+    return {
+        "rows": rows,
+        "npv": npv,
+        "irr": _irr(flows),
+        "pbp": pbp,
+        "dpp": dpp,
+        "roi": (inflow - capex) / capex * 100 if capex > 0 else None,
+        "inflow": inflow,
+        "residual": rows[-1]["residual_rub"] if rows else 0.0,
+        "rate": rate,
+        "payouts": payouts,
+    }
+
+
+def _irr(flows: list[float]) -> float | None:
+    def npv(rate: float) -> float:
+        return sum(value / (1 + rate) ** year for year, value in enumerate(flows))
+
+    low, high = -0.99, 10.0
+    if flows[0] >= 0 or npv(low) * npv(high) > 0:
+        return None
+    for _ in range(200):
+        mid = (low + high) / 2
+        if npv(low) * npv(mid) <= 0:
+            high = mid
+        else:
+            low = mid
+    return (low + high) / 2
+
+
+def _requests(s: dict) -> list[dict]:
+    """Чего не хватает расчёту: вопросы заказчику и вендору. Каждое допущение или пустое поле — отдельный вопрос."""
+    out = []
+    for row in s.get("release") or []:
+        if row["request"]:
+            out.append({**row["request"], "process_code": row["process_code"], "process_name": row["process_name"], "why": row["note"] or _release_how(row)})
+    params = s["params"]
+    if s["robots"] and params["robots_per_operator"]["source"] == "norm":
+        out.append({"to": "vendor", "process_code": "", "process_name": "", "question": "Сколько машин ведёт один диспетчер в вашей системе управления парком?",
+                    "why": f"Допущение {_t_plain(params['robots_per_operator']['value'])} машин на пост задаёт персонал эксплуатации — главную статью OPEX."})
+    if s["robots"] and params["service_pct"]["source"] == "norm":
+        out.append({"to": "vendor", "process_code": "", "process_name": "", "question": "Сколько стоит сервисный договор после гарантии, % цены в год?",
+                    "why": "В карточках сервиса нет, взята медиана по 6 вендорам."})
+    if s["robots"] and params["energy_tariff"]["source"] == "norm":
+        out.append({"to": "customer", "process_code": "", "process_name": "", "question": "Какой тариф на электроэнергию по договору энергоснабжения?",
+                    "why": "Тариф площадки не задан, взят средний коммерческий тариф."})
+    return out
+
+
+def _range(params: dict[str, dict], key: str) -> tuple[float, float, str, str]:
+    """Диапазон параметра: из источника норматива, если значение стандартное, иначе по уровню достоверности."""
+    item = params[key]
+    value = item["value"]
+    level = LEVELS.get(key, "C")
+    if item["source"] == "site":
+        level = "B"
+    elif item["source"] == "project":
+        level = "B"
+    source = RANGES.get(key)
+    if source and item["source"] == "norm" and source[0] <= value <= source[1]:
+        return source[0], source[1], level, source[2]
+    width = LEVEL_WIDTH[level]
+    low, high = value * (1 - width), value * (1 + width)
+    note = f"Уровень {level}: ±{_t_plain(width * 100)}%, в источнике диапазона нет."
+    return max(item["min"], low), high, level, note
+
+
+def _interval(report: dict) -> dict:
+    """Интервал NPV и окупаемости: корень из суммы квадратов отклонений по торнадо, вниз и вверх отдельно."""
+    base = _metric(report)
+    rows = report.get("sensitivity") or []
+
+    def spread(center, key_low, key_high):
+        if center is None:
+            return None, None
+        down = up = 0.0
+        for item in rows:
+            values = [item[key_low], item[key_high]]
+            if any(value is None for value in values):
+                continue
+            deltas = [value - center for value in values]
+            down += min(0.0, *deltas) ** 2
+            up += max(0.0, *deltas) ** 2
+        return center - math.sqrt(down), center + math.sqrt(up)
+
+    npv_low, npv_high = spread(base["npv"], "npv_low", "npv_high")
+    pay_low, pay_high = spread(base["payback"], "payback_low", "payback_high")
+    return {
+        "npv": base["npv"], "npv_low": npv_low, "npv_high": npv_high,
+        "payback": base["payback"], "payback_low": max(0.0, pay_low) if pay_low is not None else None, "payback_high": pay_high,
+        "note": "Каждый параметр двигается в своём диапазоне из источника норматива или по уровню достоверности A–D; "
+                "отклонения складываются как корень из суммы квадратов.",
+    }
+
+
+def _breakeven(
+    rows: list[dict],
+    site: dict,
+    tasks: list[dict],
+    params: dict[str, dict],
+    report: dict,
+    by_process: dict[str, dict[str, float]] | None = None,
+    subsidies: frozenset[str] = frozenset(),
+) -> list[dict]:
+    """Точки безубыточности покупки: при каком значении параметра NPV = 0, и запас прочности до него."""
+    if not report.get("robots"):
+        return []
+    base_npv = _metric(report)["npv"]
+    fte = (report.get("release") or {}).get("fte") or 0
+    out = []
+
+    def npv_at(key: str, value: float) -> float:
+        if key == "release":
+            return _metric(_compute(rows, site, tasks, params, by_process, subsidies=subsidies, release_scale=value / fte))["npv"]
+        changed = {k: dict(v) for k, v in params.items()}
+        changed[key]["value"] = value
+        return _metric(_compute(rows, site, tasks, changed, by_process, subsidies=subsidies))["npv"]
+
+    for key, label, unit, lo, hi, integer in _BREAKEVEN:
+        current = fte if key == "release" else params[key]["value"]
+        if key == "release":
+            if not fte:
+                continue
+            hi = fte * 5
+        rising = npv_at(key, hi) > npv_at(key, lo)
+        lo_npv, hi_npv = npv_at(key, lo), npv_at(key, hi)
+        if (lo_npv >= 0) == (hi_npv >= 0):
+            out.append({"key": key, "label": label, "unit": unit, "current": current, "value": None, "margin_pct": None,
+                        "direction": "min" if rising else "max", "reachable": lo_npv >= 0})
+            continue
+        left, right = lo, hi
+        for _ in range(40):
+            mid = (left + right) / 2
+            if integer and right - left <= 1:
+                break
+            if (npv_at(key, mid) >= 0) == rising:
+                right = mid
+            else:
+                left = mid
+            if not integer and right - left < 1e-3:
+                break
+        value = (math.ceil(right) if rising else math.floor(left)) if integer else (right if rising else left)
+        margin = (value - current) / current * 100 if current else None
+        out.append({"key": key, "label": label, "unit": unit, "current": current, "value": value, "margin_pct": margin,
+                    "direction": "min" if rising else "max", "reachable": True, "npv": base_npv})
+    return out
+
+
+def _story(items: list[dict], p: dict) -> dict:
+    """Объект одной строкой: сколько людей и ФОТ сейчас на роботизируемых операциях и сколько из этого уходит."""
+    factor = p["salary_factor"] / 100
+    groups: dict[str, dict] = {}
+    for row in items:
+        if not row["group"] or not row["staff"]:
+            continue
+        groups.setdefault(row["group"], {"staff": row["staff"] * row["split"], "rate": row["rate"] or 0})
+    staff = sum(group["staff"] for group in groups.values())
+    payroll = sum(group["staff"] * group["rate"] * factor for group in groups.values())
+    released = sum(row["fte"] for row in items)
+    saving = sum(row["fte"] * (row["rate"] or 0) * factor for row in items)
+    return {"staff_now": staff, "payroll_now": payroll, "released": released, "saving": saving}
+
+
+def _process_story(row: dict | None, item: dict, purchase: dict, factor: float, shared: list[str]) -> dict:
+    """Процесс как история «было → стало»: люди и их стоимость сейчас, что уходит, сколько стоят роботы, что в итоге."""
+    staff = row["staff"] if row else 0.0
+    rate = (row["rate"] or 0) * factor if row else 0.0
+    released = row["fte"] if row else 0.0
+    payroll_now = staff * rate
+    payroll_after = (staff - released) * rate
+    robots_year = purchase["opex"]["value"] or 0
+    dispatchers = next((line.get("count") for line in purchase["opex_lines"] if line["key"] == "operators"), None)
+    flow = purchase.get("cashflow") or []
+    return {
+        "source": row["source"] if row else "",
+        "role": row["role"] if row else "",
+        "staff": staff,
+        "wage_month": (row["wage_month"] * factor) if row and row["wage_month"] else None,
+        "rate_year": rate,
+        "payroll_now": payroll_now,
+        "released": released,
+        "remaining": max(0.0, staff - released),
+        "payroll_after": payroll_after,
+        "robots": item["count_used"] or 0,
+        "capex": purchase["capex"]["value"] or 0,
+        "robots_year": robots_year,
+        "dispatchers": dispatchers,
+        "cost_before": payroll_now,
+        "cost_after": payroll_after + robots_year,
+        "saving_year": payroll_now - payroll_after - robots_year,
+        "payback": purchase["payback"]["value"],
+        "npv": purchase["npv"]["value"],
+        "total": flow[-1]["cumulative"] if flow else None,
+        "shared_with": shared,
+        "needs_staff": not (row and row["source"] and staff > 0),
+    }
+
+
+# Границы реалистичного условия: дальше условие всё ещё показывается, но с пометкой «жёсткое».
+_REALISTIC = {
+    "price_factor": lambda item: item["from"] - item["to"] <= 30,
+    "robots_per_operator": lambda item: item["to"] <= 20,
+    "salary_factor": lambda item: item["to"] <= 130,
+}
+
+
+def _realistic(item: dict) -> bool:
+    check = _REALISTIC.get(item["key"])
+    return item["scope"] == "subsidy" or check is None or check(item)
+
+
+def _condition(suggestions: list[dict]) -> dict | None:
+    """Главное условие окупаемости. Любая подсказка делает процесс «окупится с условием»; первым показывается
+    реалистичное изменение этого процесса или мера поддержки, потом — параметры площадки, и только если таких нет —
+    жёсткое условие с пометкой."""
+    ranked = [item for item in suggestions if item["scope"] != "site"] + [item for item in suggestions if item["scope"] == "site"]
+    for item in ranked:
+        if _realistic(item):
+            return {**item, "hard": False}
+    # Реалистичных нет: показываем самое мягкое из жёстких — с наименьшей скидкой, условия площадки последними.
+    softest = sorted(ranked, key=lambda item: (item["scope"] == "site", item["from"] - item["to"] if item["key"] == "price_factor" else 1e9))
+    return {**softest[0], "hard": True} if softest else None
+
+
+def _annuity(rate: float, years: float) -> float:
+    """Коэффициент аннуитета: какая доля суммы платится каждый год, чтобы за срок вернуть её со ставкой."""
+    years = max(1.0, years)
+    if abs(rate) < 1e-9:
+        return 1 / years
+    return rate / (1 - (1 + rate) ** -years)
+
+
+def _pi_fig(npv: float, capex: float, rate: float, owned: bool) -> dict:
+    value = (npv + capex) / capex if owned and capex > 0 else None
+    return _fig(
+        "pi", "Индекс доходности", value, "",
+        r"\text{PI} = \dfrac{\text{NPV} + \text{CAPEX}}{\text{CAPEX}} = \dfrac{\sum_t CF_t / (1 + r)^t}{\text{CAPEX}}",
+        rf"\dfrac{{{_t(npv)} + {_t(capex)}}}{{{_t(capex)}}} = {_t(value, 2)}" if value is not None else "",
+        [_var(r"\text{NPV}", "Чистая приведённая стоимость", npv, "₽", "calc"), _var(r"\text{CAPEX}", "Вложения", capex, "₽", "calc"),
+         _var("r", "Реальная ставка дисконтирования", rate * 100, "%", "calc")],
+        "Сколько приведённых рублей возвращает каждый вложенный рубль. Больше 1 — выгодно; по PI выбирают процессы, когда бюджет ограничен."
+        if owned else "Для аренды не считается: своих вложений в технику нет.",
+    )
+
+
+def _eac_fig(s: dict, npv: float, rate: float) -> dict:
+    """Годовая стоимость операций после налога: ручная работа минус выгода проекта, разложенная на горизонт."""
+    p, horizon = s["p"], s["horizon"]
+    tax = p["profit_tax_pct"] / 100
+    payroll = s["payroll"]["total"]
+    factor = _annuity(rate, horizon)
+    base = payroll * (1 - tax)
+    value = base - npv * factor
+    return _fig(
+        "eac", "Годовая стоимость с учётом вложений (EAC)", value, "₽/год",
+        r"\text{EAC} = \text{ФОТ}_{\text{база}} \times (1 - t_{\text{приб}}) - \text{NPV} \times \dfrac{r}{1 - (1 + r)^{-T}}",
+        rf"{_t(payroll)} \times (1 - {_t(tax, 2)}) - {_t(npv)} \times {_t(factor, 4)} = {_t(value)}\ \text{{₽}}",
+        [
+            _var(r"\text{ФОТ}_{\text{база}}", "ФОТ операций до роботизации", payroll, "₽/год", "calc"),
+            _norm_var(s["params"], "profit_tax_pct"),
+            _var(r"\text{NPV}", "Выгода сценария против ручной работы", npv, "₽", "calc"),
+            _var("r", "Реальная ставка дисконтирования", rate * 100, "%", "calc"),
+            _t_var(s),
+        ],
+        "Сколько в среднем стоит год этих операций после налога, если вложения разложить на горизонт с учётом стоимости денег. "
+        "Ручная работа, покупка и аренда — на одной шкале: меньше — дешевле.",
+    )
+
+
+def _steady(scenario: dict) -> float | None:
+    """Поток установившегося года: без уведомления, выплат при сокращении и остаточной стоимости."""
+    rows = scenario.get("cashflow") or []
+    if not rows:
+        return None
+    row = rows[min(1, len(rows) - 1)]
+    return row["cf_rub"] - row["residual_rub"]
+
+
+def _switch(buy: dict, rent: dict) -> dict | None:
+    """Точка безразличия: через сколько месяцев использования покупка обгоняет аренду."""
+    if not (buy.get("available") and rent.get("available")):
+        return None
+    flow_buy, flow_rent = _steady(buy), _steady(rent)
+    if flow_buy is None or flow_rent is None:
+        return None
+    capex_buy, capex_rent = buy["capex"]["value"] or 0, rent["capex"]["value"] or 0
+    gap = flow_buy - flow_rent
+    months = (capex_buy - capex_rent) / gap * 12 if gap > 0 else None
+    if months is not None and months < 0:
+        months = 0.0
+    subst = (rf"\dfrac{{{_t(capex_buy)} - {_t(capex_rent)}}}{{{_t(flow_buy)} - {_t(flow_rent)}}} \times 12 = {_t(months, 0)}\ \text{{мес.}}"
+             if months is not None else r"CF_{\text{покуп}} \le CF_{\text{аренда}}:\ \text{покупка не обгоняет аренду}")
+    fig = _fig(
+        "switch", "Покупка выгоднее аренды через", months, "мес.",
+        r"t^{*} = \dfrac{\text{CAPEX}_{\text{покуп}} - \text{CAPEX}_{\text{аренда}}}{CF_{\text{покуп}} - CF_{\text{аренда}}} \times 12",
+        subst,
+        [
+            _var(r"\text{CAPEX}_{\text{покуп}}", "Вложения при покупке", capex_buy, "₽", "calc"),
+            _var(r"\text{CAPEX}_{\text{аренда}}", "Вложения при аренде: внедрение на площадке", capex_rent, "₽", "calc"),
+            _var(r"CF_{\text{покуп}}", "Поток года при покупке после налога", flow_buy, "₽/год", "calc"),
+            _var(r"CF_{\text{аренда}}", "Поток года при аренде после налога", flow_rent, "₽/год", "calc"),
+        ],
+        "Если роботы нужны дольше — выгоднее купить, если меньше — арендовать. Поток полного года после налога, без дисконтирования."
+        if months is not None else "Платёж аренды не дороже владения: при любом сроке аренда не проигрывает покупке.",
+    )
+    fig["symbol"] = "t^{*}"
+    return fig
+
+
+# Стресс-сценарии: сдвиг из источника, а не придуманный. Ключ, подпись, пояснение.
+_STRESS = (
+    ("volume", "Объём работ упал на 30%", "Людей на операциях на 30% меньше, а роботы уже куплены."),
+    ("rate", "Дорогие деньги", "Ключевая ставка возвращается к максимуму 2024–2025 гг."),
+    ("slow", "Внедрение на полгода дольше", "Экономия начинается на 6 месяцев позже, расходы на роботов — с первого года."),
+    ("price", "Роботы на 20% дороже", "Курс или новая цена вендора: дороже и вложения, и сервис."),
+    ("all", "Всё сразу", "Четыре неудачи одновременно — нижняя граница, которую стоит выдержать."),
+)
+
+
+def _stress(
+    rows: list[dict],
+    site: dict,
+    tasks: list[dict],
+    params: dict[str, dict],
+    report: dict,
+    by_process: dict[str, dict[str, float]] | None = None,
+    subsidies: frozenset[str] = frozenset(),
+) -> list[dict]:
+    """Покупка в неудачных условиях: NPV и окупаемость, если пойдёт хуже, чем в центральной оценке."""
+    if not report.get("robots"):
+        return []
+    base = _metric(report)
+    rate_high = RANGES["market_rate_pct"][1]
+
+    def shifted(key: str) -> tuple[dict[str, dict], float]:
+        changed = {k: dict(v) for k, v in params.items()}
+        keys = ("volume", "rate", "slow", "price") if key == "all" else (key,)
+        scale = 1.0
+        for one in keys:
+            if one == "volume":
+                scale = 0.7
+            elif one == "rate":
+                changed["market_rate_pct"]["value"] = max(changed["market_rate_pct"]["value"], rate_high)
+            elif one == "slow":
+                changed["notice_months"]["value"] = changed["notice_months"]["value"] + 6
+            elif one == "price":
+                changed["price_factor"]["value"] = changed["price_factor"]["value"] * 1.2
+        return changed, scale
+
+    out = []
+    for key, label, note in _STRESS:
+        changed, scale = shifted(key)
+        value = _metric(_compute(rows, site, tasks, changed, by_process, subsidies=subsidies, release_scale=scale))
+        if key == "rate":
+            note = f"Ключевая ставка {_t_plain(rate_high)}% — максимум 2024–2025 гг., сейчас {_t_plain(params['market_rate_pct']['value'])}%."
+        out.append({
+            "key": key, "label": label, "note": note,
+            "npv": value["npv"], "payback": value["payback"], "effect": value["effect"],
+            "delta": value["npv"] - base["npv"] if value["npv"] is not None and base["npv"] is not None else None,
+            "ok": value["npv"] is not None and value["npv"] >= 0,
+        })
+    return out
+
+
+def _chance(report: dict, runs: int = 2000) -> dict | None:
+    """Вероятность, что NPV покупки ≥ 0: случайные сочетания параметров в их диапазонах, отклик — по торнадо.
+    Корреляций нет: каждый параметр двигается сам по себе."""
+    base = _metric(report)["npv"]
+    rows = [item for item in report.get("sensitivity") or [] if item.get("npv_low") is not None and item.get("npv_high") is not None]
+    if base is None or not rows:
+        return None
+    rng = random.Random(20260101)
+    positive = 0
+    values = []
+    for _ in range(runs):
+        total = base
+        for item in rows:
+            lo, hi, mid = item["low_value"], item["high_value"], item["value"]
+            x = rng.uniform(lo, hi)
+            if x < mid and mid != lo:
+                total += (item["npv_low"] - base) * (mid - x) / (mid - lo)
+            elif x > mid and hi != mid:
+                total += (item["npv_high"] - base) * (x - mid) / (hi - mid)
+        values.append(total)
+        positive += total >= 0
+    values.sort()
+    return {
+        "npv_positive": positive / runs,
+        "p10": values[int(runs * 0.1)],
+        "p90": values[int(runs * 0.9) - 1],
+        "runs": runs,
+        "note": f"{runs} случайных сочетаний параметров, каждый — равномерно в своём диапазоне; "
+                "NPV по каждому параметру — линейно между точками торнадо. Корреляций между параметрами нет.",
+    }
+
+
+def _best_set(
+    rows: list[dict],
+    site: dict,
+    tasks: list[dict],
+    params: dict[str, dict],
+    report: dict,
+    by_process: dict[str, dict[str, float]] | None = None,
+    subsidies: frozenset[str] = frozenset(),
+) -> dict | None:
+    """Оптимальный состав: какие процессы роботизировать, чтобы NPV объекта был наибольшим в пределах бюджета.
+    Каждый набор считается целиком: процессы одной роли делят людей, посты диспетчеров — общие."""
+    views = [item for item in report.get("processes") or [] if item["included"]]
+    candidates = [item for item in views if item["status"] == "ok"]
+    if not candidates:
+        return None
+    by_process = by_process or {}
+    budget = _num(site.get("budget_rub"))
+    capex_of = {item["process_code"]: next((sc["capex"]["value"] or 0 for sc in item["scenarios"] if sc["key"] == "purchase"), 0) for item in views}
+    names = {item["process_code"]: item["process_name"] for item in views}
+    current = [item["process_code"] for item in views if not item["off"]]
+    base = _metric(report)
+
+    def run(codes: frozenset[str]) -> dict:
+        own = {code: dict(values) for code, values in by_process.items()}
+        for item in views:
+            code = item["process_code"]
+            row = own.setdefault(code, {})
+            if code in codes:
+                row.pop("off", None)
+            else:
+                row["off"] = 1
+        scenario = next(sc for sc in _compute(rows, site, tasks, params, own, subsidies=subsidies)["scenarios"] if sc["key"] == "purchase")
+        return {"npv": scenario["npv"]["value"], "capex": scenario["capex"]["value"] or 0, "payback": scenario["payback"]["value"]}
+
+    pool = sorted(candidates, key=lambda item: -(next((sc["npv"]["value"] or 0 for sc in item["scenarios"] if sc["key"] == "purchase"), 0)))
+    codes = [item["process_code"] for item in pool]
+    fits = lambda chosen: not budget or sum(capex_of[code] for code in chosen) <= budget  # noqa: E731
+    best: tuple[frozenset[str], dict] | None = None
+    if len(codes) <= 7:
+        for mask in range(1, 1 << len(codes)):
+            chosen = frozenset(code for index, code in enumerate(codes) if mask >> index & 1)
+            if not fits(chosen):
+                continue
+            result = run(chosen)
+            if result["npv"] is None:
+                continue
+            if best is None or result["npv"] > best[1]["npv"] + 1:
+                best = (chosen, result)
+    else:
+        # Процессов много: жадно добавляем тот, что сильнее всего поднимает NPV, пока прирост есть.
+        chosen: frozenset[str] = frozenset()
+        score = None
+        while True:
+            step = None
+            for code in codes:
+                if code in chosen or not fits(chosen | {code}):
+                    continue
+                result = run(chosen | {code})
+                if result["npv"] is not None and (step is None or result["npv"] > step[1]["npv"]):
+                    step = (chosen | {code}, result)
+            if step is None or (score is not None and step[1]["npv"] <= score + 1):
+                break
+            chosen, score = step[0], step[1]["npv"]
+            best = step
+    if best is None:
+        return {"budget": budget, "codes": [], "names": [], "npv": None, "capex": 0, "payback": None,
+                "current_npv": base["npv"], "same": False, "gain": None, "dropped": [], "added": [],
+                "note": "Ни один выгодный процесс не помещается в бюджет площадки."}
+    chosen, result = best
+    ordered = [code for code in codes if code in chosen]
+    same = set(ordered) == set(current)
+    return {
+        "budget": budget,
+        "codes": ordered,
+        "names": [names[code] for code in ordered],
+        "npv": result["npv"],
+        "capex": result["capex"],
+        "payback": result["payback"],
+        "current_npv": base["npv"],
+        "current_capex": sum(capex_of[code] for code in current),
+        "same": same,
+        "gain": result["npv"] - base["npv"] if base["npv"] is not None else None,
+        "dropped": [names[code] for code in current if code not in chosen],
+        "added": [names[code] for code in ordered if code not in current],
+        "note": ("Наибольший NPV объекта в пределах бюджета площадки. " if budget else "Наибольший NPV объекта; бюджет площадки не задан. ")
+                + "Каждый набор посчитан целиком: процессы одной роли делят людей, посты диспетчеров общие.",
+    }
+
+
+# Чем измеряется работа процесса, если у задачи нет своего потока: поля площадки и единица.
+_UNIT_FLOW = {
+    "pallet_transport": (("inbound_pallets_per_day", "outbound_pallets_per_day"), "паллета"),
+    "rack_placement": (("inbound_pallets_per_day", "outbound_pallets_per_day"), "паллета"),
+    "pallet_storage": (("inbound_pallets_per_day", "outbound_pallets_per_day"), "паллета"),
+    "palletizing": (("outbound_pallets_per_day",), "паллета"),
+    "order_picking": (("pick_lines_per_day",), "строка заказа"),
+    "tote_delivery": (("pick_lines_per_day",), "строка заказа"),
+}
+
+
+def _unit_cost(s: dict, item: dict, story: dict) -> dict | None:
+    """Стоимость одной операции процесса до и после: язык заказчика. Вложения — аннуитетом за срок службы."""
+    if story["needs_staff"]:
+        return None
+    code = item["process_code"]
+    site, p = s["site"], s["p"]
+    days = _num(site.get("days_year"))
+    per_day = sum(_num(task.get("flow_per_day")) or 0 for task in s.get("tasks") or [] if isinstance(task, dict) and task.get("process_code") == code)
+    unit = "операция"
+    if not per_day and code in _UNIT_FLOW:
+        keys, unit = _UNIT_FLOW[code]
+        per_day = sum(_num(site.get(key)) or 0 for key in keys)
+    if not per_day or not days:
+        return None
+    volume = per_day * days
+    rate = _real_rate(p)
+    life = max(1.0, p["service_life_years"])
+    capital = story["capex"] * _annuity(rate, life)
+    return {
+        "label": unit,
+        "volume_year": volume,
+        "before": story["payroll_now"] / volume,
+        "after": (story["payroll_after"] + story["robots_year"] + capital) / volume,
+        "capital_year": capital,
+        "note": f"{_t_plain(per_day)} в сутки × {_t_plain(days)} дней. Вложения разложены на срок службы {_t_plain(life)} лет "
+                f"под ставку {_t_plain(round(rate * 100, 1))}%, поэтому цена операции сравнима с ручной работой.",
+    }

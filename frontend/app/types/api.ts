@@ -196,6 +196,8 @@ export interface ApiTask {
   t_unload_s?: number | null
   container_types?: string[]
   staff_fte_now?: number | null
+  /** Средняя зарплата сотрудника на процессе в месяц, до НДФЛ. Начисления добавляет расчёт. */
+  staff_salary_month_rub?: number | null
 }
 
 export interface ApiProject {

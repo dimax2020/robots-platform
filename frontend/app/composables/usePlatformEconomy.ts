@@ -27,6 +27,8 @@ export interface EconFig {
   note: string
   included: boolean
   symbol: string
+  /** Персонал эксплуатации: сколько человек на постах диспетчера. */
+  count?: number
 }
 
 export interface EconFleet {
@@ -39,6 +41,10 @@ export interface EconFleet {
   price_rub: number | null
   count: number | null
   count_used: number | null
+  /** formula — формула процесса, project — задано пользователем, default — формула не посчитала, взят 1. */
+  count_source?: 'formula' | 'project' | 'default'
+  /** Пользователь исключил процесс из расчёта объекта. */
+  off?: boolean
   included: boolean
   note: string
   cost_rub: number | null
@@ -62,14 +68,141 @@ export interface EconScenario {
   effect_lines: EconFig[]
   payback: EconFig
   roi: EconFig
+  npv?: EconFig
+  irr?: EconFig
+  dpp?: EconFig
+  /** Индекс доходности: приведённый поток на рубль вложений. */
+  pi?: EconFig
+  /** Годовая стоимость операций после налога с учётом вложений: сравнивает сценарии на одной шкале. */
+  eac?: EconFig
   tco: EconFig
+  cashflow?: EconCashRow[]
   years: { year: number; cost_rub: number; net_rub: number }[]
   verdict: string
 }
 
+/** Год денежного потока после налога. Расходы и налог — отрицательные. */
+export interface EconCashRow {
+  year: number
+  saving_rub: number
+  opex_rub: number
+  payouts_rub: number
+  /** Повторная закупка, когда горизонт длиннее срока службы. */
+  reinvest_rub?: number
+  support_rub: number
+  depreciation_rub: number
+  tax_rub: number
+  residual_rub: number
+  cf_rub: number
+  cumulative: number
+  discounted: number
+}
+
+/** Высвобождение процесса: откуда численность, какую долю берут роботы, сколько людей уходит. */
+export interface EconRelease {
+  process_code?: string
+  process_name?: string
+  source: '' | 'task' | 'role'
+  role: string
+  staff: number
+  split: number
+  auto: number
+  auto_note?: string
+  capped: boolean
+  cap?: number | null
+  fte: number
+  /** Годовая стоимость сотрудника с начислениями и его зарплата в месяц. */
+  rate?: number | null
+  wage_month?: number | null
+  group?: string
+  note: string
+}
+
+/** Процесс историей «было → стало»: люди сейчас, кто уходит, сколько стоят роботы, что в итоге. */
+export interface EconStory {
+  source: '' | 'task' | 'role'
+  role: string
+  staff: number
+  wage_month: number | null
+  rate_year: number
+  payroll_now: number
+  released: number
+  remaining: number
+  payroll_after: number
+  robots: number
+  capex: number
+  robots_year: number
+  dispatchers: number | null
+  cost_before: number
+  cost_after: number
+  saving_year: number
+  payback: number | null
+  npv: number | null
+  total: number | null
+  shared_with: string[]
+  needs_staff: boolean
+  /** Цена одной операции до и после: ₽ на паллету или строку заказа. */
+  unit?: EconUnitCost | null
+}
+
+export interface EconUnitCost {
+  label: string
+  volume_year: number
+  before: number
+  after: number
+  capital_year: number
+  note: string
+}
+
+/** Покупка в неудачных условиях. */
+export interface EconStress {
+  key: 'volume' | 'rate' | 'slow' | 'price' | 'all'
+  label: string
+  note: string
+  npv: number | null
+  payback: number | null
+  effect: number | null
+  delta: number | null
+  ok: boolean
+}
+
+/** Вероятность, что NPV покупки не меньше нуля, по случайным сочетаниям параметров. */
+export interface EconChance {
+  npv_positive: number
+  p10: number
+  p90: number
+  runs: number
+  note: string
+}
+
+/** Оптимальный состав: набор процессов с наибольшим NPV объекта в пределах бюджета. */
+export interface EconBestSet {
+  budget: number | null
+  codes: string[]
+  names: string[]
+  npv: number | null
+  capex: number
+  payback: number | null
+  current_npv: number | null
+  current_capex?: number
+  same: boolean
+  gain: number | null
+  dropped: string[]
+  added: string[]
+  note: string
+}
+
+export interface EconRequest {
+  to: 'customer' | 'vendor'
+  process_code: string
+  process_name: string
+  question: string
+  why: string
+}
+
 export interface EconParam {
   key: string
-  group: 'capex' | 'opex' | 'staff' | 'raas' | 'horizon' | 'whatif' | 'subsidy'
+  group: 'capex' | 'opex' | 'staff' | 'raas' | 'horizon' | 'whatif' | 'finance' | 'subsidy'
   label: string
   symbol: string
   unit: string
@@ -98,6 +231,35 @@ export interface EconSensitivity {
   effect_low: number
   effect_high: number
   swing: number | null
+  npv?: number | null
+  npv_low?: number | null
+  npv_high?: number | null
+  level?: 'A' | 'B' | 'C' | 'D'
+  range_note?: string
+  /** Доля в разбросе NPV: квадрат размаха к сумме квадратов. */
+  share?: number
+}
+
+export interface EconInterval {
+  npv: number | null
+  npv_low: number | null
+  npv_high: number | null
+  payback: number | null
+  payback_low: number | null
+  payback_high: number | null
+  note: string
+}
+
+export interface EconBreakeven {
+  key: string
+  label: string
+  unit: string
+  current: number
+  value: number | null
+  margin_pct: number | null
+  direction: 'min' | 'max'
+  /** Без точки: true — окупается во всём диапазоне, false — не окупается нигде. */
+  reachable: boolean
 }
 
 export const PRELIMINARY = 'Результат является предварительной оценкой и требует верификации при обследовании объекта.'
@@ -118,7 +280,10 @@ export interface EconSuggestion {
   key: string
   label: string
   unit: string
-  scope: 'process' | 'site' | 'subsidy'
+  scope: 'process' | 'site' | 'subsidy' | 'combo'
+  /** Для combo: какие меры господдержки включаются вместе со скидкой. */
+  with?: string[]
+  with_labels?: string[]
   from: number
   to: number
   effect: number
@@ -133,9 +298,16 @@ export interface EconProcess {
   count: number | null
   cost_rub: number | null
   included: boolean
+  off?: boolean
   note: string
   share: number
   share_note: string
+  release?: EconRelease | null
+  story?: EconStory | null
+  /** Вывод: выгоден, окупится с условием, невыгоден, нет данных о людях. */
+  status?: 'ok' | 'conditional' | 'bad' | 'no_staff' | 'none'
+  /** Ближайшее изменение, при котором процесс окупается. hard — условие за пределами реалистичного (скидка больше 30% и т. п.). */
+  condition?: (EconSuggestion & { hard?: boolean }) | null
   profitable: boolean | null
   reason: string
   payroll: EconFig | null
@@ -150,11 +322,22 @@ export interface EconReport {
   horizon_years: number
   robots: number
   payroll: EconFig
+  release?: { fte: number; base_fte: number; share: number | null; check: string; items: EconRelease[] }
+  story?: { staff_now: number; payroll_now: number; released: number; saving: number }
+  discount?: EconFig
+  requests?: EconRequest[]
   scenarios: EconScenario[]
   processes?: EconProcess[]
   subsidies?: EconSubsidy[]
   params: EconParam[]
   sensitivity: EconSensitivity[]
+  interval?: EconInterval
+  breakeven?: EconBreakeven[]
+  stress?: EconStress[]
+  chance?: EconChance | null
+  best_set?: EconBestSet | null
+  /** Через сколько месяцев покупка обгоняет аренду. */
+  switch?: EconFig | null
   saved_overrides: Record<string, number>
 }
 
@@ -173,6 +356,7 @@ export const PARAM_GROUPS: { id: EconParam['group']; label: string }[] = [
   { id: 'opex', label: 'OPEX' },
   { id: 'raas', label: 'Аренда' },
   { id: 'horizon', label: 'Горизонт' },
+  { id: 'finance', label: 'Налоги и деньги' },
   { id: 'subsidy', label: 'Господдержка' },
 ]
 
@@ -188,6 +372,39 @@ export const SOURCE_TONE: Record<EconSource, 'ok' | 'warn' | 'info' | 'neutral' 
 }
 
 export const rubles = (value: number | null | undefined) => value == null ? '—' : `${Math.round(value).toLocaleString('ru-RU')} ₽`
+
+/** Миллионы со знаком: для NPV и потоков, где важно, плюс или минус. */
+export const signedMillions = (value: number | null | undefined, digits = 1) => {
+  if (value == null) return '—'
+  const text = Math.abs(value / 1_000_000).toLocaleString('ru-RU', { maximumFractionDigits: digits })
+  return `${value < 0 ? '−' : value > 0 ? '+' : ''}${text} млн ₽`
+}
+
+/** Условие окупаемости словами: «при скидке вендора 15%», «с субсидией Минпромторга». */
+export const conditionText = (item: EconSuggestion) => {
+  const n = (value: number) => value.toLocaleString('ru-RU', { maximumFractionDigits: 1 })
+  if (item.scope === 'subsidy') return item.key.includes(',') ? `с ${item.key.split(',').length} мерами господдержки` : `с мерой «${item.label}»`
+  if (item.scope === 'combo') return `при скидке вендора ${n(item.from - item.to)}% и мерах господдержки`
+  if (item.key === 'price_factor') return item.to < item.from ? `при скидке вендора ${n(item.from - item.to)}%` : `даже если цена вырастет на ${n(item.to - item.from)}%`
+  if (item.key === 'service_pct') return `при сервисе ${n(item.to)}% цены в год вместо ${n(item.from)}%`
+  if (item.key === 'salary_factor') return `если зарплаты на ${n(item.to - item.from)}% выше`
+  if (item.key === 'robots_per_operator') return `если диспетчер ведёт ${n(item.to)} машин вместо ${n(item.from)}`
+  if (item.key === 'energy_tariff') return `при тарифе ${n(item.to)} ₽/кВт·ч`
+  return `${item.label.toLowerCase()}: ${n(item.from)} → ${n(item.to)} ${item.unit}`.trim()
+}
+
+/** «2,3 года», «5 лет»: окупаемость словами. */
+export const yearsText = (value: number | null | undefined) => {
+  if (value == null) return '—'
+  const rounded = Math.round(value * 10) / 10
+  const text = rounded.toLocaleString('ru-RU', { maximumFractionDigits: 1 })
+  if (!Number.isInteger(rounded)) return `${text} года`
+  const mod10 = rounded % 10
+  const mod100 = rounded % 100
+  if (mod10 === 1 && mod100 !== 11) return `${text} год`
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${text} года`
+  return `${text} лет`
+}
 
 export const millions = (value: number | null | undefined) =>
   value == null ? '—' : `${(value / 1_000_000).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} млн ₽`
@@ -215,10 +432,29 @@ export function usePlatformEconomy(id: Ref<string>) {
   const readonly = live.readonly
   const objectCode = live.objectCode
 
+  /* Люди на процессе, введённые на шаге экономики. В демо живут только здесь, в своём проекте сохраняются в задачи площадки. */
+  const staffPatch = ref<Record<string, { name: string; staff_fte_now: number | null; staff_salary_month_rub: number | null }>>({})
+  const withStaff = (tasks: unknown[]) => {
+    const rows = (tasks as Record<string, unknown>[]).map((task) => ({ ...task }))
+    for (const [code, patch] of Object.entries(staffPatch.value)) {
+      const row = rows.find((task) => task.process_code === code)
+      if (row) Object.assign(row, { staff_fte_now: patch.staff_fte_now, staff_salary_month_rub: patch.staff_salary_month_rub })
+      else rows.push({ process_code: code, name: patch.name, staff_fte_now: patch.staff_fte_now, staff_salary_month_rub: patch.staff_salary_month_rub })
+    }
+    return rows
+  }
   const source = computed(() => {
     if (!project.value) return null
-    return { site: live.site.value, tasks: live.tasks.value }
+    return { site: live.site.value, tasks: withStaff(live.tasks.value) }
   })
+  const setStaff = async (code: string, name: string, fte: number | null, wageMonth: number | null) => {
+    staffPatch.value = { ...staffPatch.value, [code]: { name, staff_fte_now: fte, staff_salary_month_rub: wageMonth } }
+    const rec = live.record.value
+    if (!rec || readonly.value) return
+    const enabled: Record<string, boolean> = {}
+    for (const item of rec.processes) enabled[item.code] = item.enabled
+    await live.save({ ...rec.site }, withStaff(rec.tasks), enabled)
+  }
 
   const report = ref<EconReport | null>(null)
   const loading = ref(false)
@@ -301,6 +537,17 @@ export function usePlatformEconomy(id: Ref<string>) {
     saveOverrides,
     disableProcess,
     restoreProcess,
+    setStaff,
     inactive,
   }
+}
+
+/** Месяцы словами: «8 мес.», «2 года 4 мес.». */
+export const monthsText = (value: number | null | undefined) => {
+  if (value == null) return '—'
+  const total = Math.round(value)
+  const years = Math.floor(total / 12)
+  const months = total % 12
+  if (!years) return `${months} мес.`
+  return months ? `${yearsText(years)} ${months} мес.` : yearsText(years)
 }

@@ -273,6 +273,22 @@ const setTaskNum = (t: ApiTask, key: keyof ApiTask, raw: string, asInt = false) 
 }
 const fmt = (v: number | null | undefined) => (v == null ? '' : String(v))
 
+/* Люди на процессах: сколько человек сейчас на работе и их зарплата. Это главный вход экономии; хранится в задаче процесса. */
+type StaffKey = 'staff_fte_now' | 'staff_salary_month_rub'
+const staffRows = computed(() => processes.value.filter((item) => item.enabled))
+const staffTask = (code: string) => tasks.value.find((task) => task.process_code === code)
+const staffValue = (code: string, key: StaffKey) => staffTask(code)?.[key] ?? null
+const setStaffValue = (code: string, name: string, key: StaffKey, raw: string) => {
+  const text = raw.replace(/\s/g, '').replace(',', '.')
+  const value = text === '' ? null : Number(text)
+  let task = staffTask(code)
+  if (!task) {
+    task = { ...emptyTask(code), name }
+    tasks.value.push(task)
+  }
+  task[key] = value != null && Number.isFinite(value) && value >= 0 ? value : null
+}
+
 const addTask = () => {
   const used = new Set(tasks.value.map((t) => t.process_code))
   const next = (processesByObject[objectType.value] ?? []).find((c) => !used.has(c))
@@ -770,7 +786,24 @@ watch(() => tasks.value.length, (n) => {
         </section>
       </div>
 
-      <PlatformSetup v-else :processes="processes" :readonly="readonly" @toggle="toggleProcess" @all="toggleAll" />
+      <section v-if="part === 'object' && staffRows.length" class="group glass staff">
+        <div class="sec-head">
+          <div>
+            <div class="h3">Люди на процессах</div>
+            <div class="caption">Сколько человек сейчас делают эту работу и сколько они получают. От этого считается главная экономия. Если пусто, расчёт возьмёт численность роли площадки, а где её нет — экономию не посчитает. Эти же поля есть на шаге экономики.</div>
+          </div>
+        </div>
+        <div class="staff-list">
+          <div class="staff-row staff-head caption"><span>Процесс</span><span>Человек сейчас, все смены</span><span>Зарплата одного, ₽ в месяц до НДФЛ</span></div>
+          <div v-for="p in staffRows" :key="p.code" class="staff-row">
+            <span class="body-sm strong">{{ p.name }}</span>
+            <input class="input input-mono" inputmode="decimal" :disabled="readonly" :value="fmt(staffValue(p.code, 'staff_fte_now'))" placeholder="не задано" @input="setStaffValue(p.code, p.name, 'staff_fte_now', ($event.target as HTMLInputElement).value)">
+            <input class="input input-mono" inputmode="decimal" :disabled="readonly" :value="fmt(staffValue(p.code, 'staff_salary_month_rub'))" placeholder="не задано" @input="setStaffValue(p.code, p.name, 'staff_salary_month_rub', ($event.target as HTMLInputElement).value)">
+          </div>
+        </div>
+      </section>
+
+      <PlatformSetup v-else-if="part !== 'object'" :processes="processes" :readonly="readonly" @toggle="toggleProcess" @all="toggleAll" />
     </template>
   </ProjectShell>
 
@@ -831,6 +864,15 @@ watch(() => tasks.value.length, (n) => {
 .proc-copy { display: grid; gap: 2px; min-width: 0; }
 .proc-copy .body-sm { color: var(--ink-strong); font-weight: 650; }
 .task { padding: 18px 20px 20px; display: grid; gap: 14px; }
+.staff { margin-top: var(--space-5); }
+.staff-list { display: grid; gap: 6px; }
+.staff-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: center; }
+.staff-head { padding-bottom: 4px; border-bottom: 1px solid rgba(15, 20, 19, 0.08); }
+@media (max-width: 720px) {
+  .staff-row { grid-template-columns: 1fr 1fr; }
+  .staff-row > .strong { grid-column: 1 / -1; }
+  .staff-head { display: none; }
+}
 .task > * { position: relative; z-index: 1; }
 .empty-proc { align-content: start; }
 .task-top { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; }
