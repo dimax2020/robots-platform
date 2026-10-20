@@ -4,7 +4,8 @@ import { steps, type Project } from '~/data/projects'
 const props = defineProps<{
   project: Project
   current?: string
-  substages?: { id: string; label: string; to: string }[]
+  /** tone — статус подшага точкой: ok зелёная, cond и warn жёлтая, bad красная, off пустая. */
+  substages?: { id: string; label: string; to: string; tone?: string }[]
   currentSub?: string
   /** Предупреждение у шага: значок «!» и подсказка при наведении. Ключ — код шага. */
   alerts?: Record<string, { title: string; items: string[]; note: string }>
@@ -60,7 +61,7 @@ const subShift = computed(() => shown.value.items.length
     </div>
     <div v-if="shown.items.length" class="subrow">
       <NuxtLink v-for="sub in shown.items" :key="sub.id" :to="sub.to" class="sub" :class="{ on: sub.id === currentSub }" :title="sub.label" :aria-current="sub.id === currentSub ? 'step' : undefined">
-        <span class="sdot" />
+        <span class="sdot" :class="sub.tone" />
         <span class="slabel">{{ sub.label }}</span>
       </NuxtLink>
       <span v-if="shown.rest" class="caption more">ещё {{ shown.rest }}</span>
@@ -101,6 +102,10 @@ li > a:hover, li > a:focus-visible { background: #fff; color: var(--ink-strong);
 .sub.on { background: rgba(255, 255, 255, 0.85); color: var(--ink-strong); box-shadow: inset 0 0 0 1px var(--brand-400); }
 .sdot { width: 8px; height: 8px; border-radius: 99px; background: rgba(15, 20, 19, 0.16); flex: none; }
 .sub.on .sdot { background: var(--brand-500); }
+.sdot.ok, .sub.on .sdot.ok { background: var(--brand-500); }
+.sdot.cond, .sdot.warn, .sub.on .sdot.cond, .sub.on .sdot.warn { background: #e0a43a; }
+.sdot.bad, .sub.on .sdot.bad { background: #e5584b; }
+.sdot.off, .sub.on .sdot.off { background: transparent; box-shadow: inset 0 0 0 1.5px rgba(15, 20, 19, 0.3); }
 .more { padding: 2px 8px 4px; }
 @media (max-width: 800px) {
   /* Под шагом колонка слишком узкая, подпись обрезалась. На телефоне список шагов на всю ширину. */

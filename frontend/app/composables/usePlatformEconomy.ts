@@ -115,6 +115,11 @@ export interface EconRelease {
   rate?: number | null
   wage_month?: number | null
   group?: string
+  by_cost?: boolean
+  cost_month?: number | null
+  /** Техника, топливо, аренда на ручной работе, ₽ в месяц: уходят вместе с людьми. */
+  other_month?: number | null
+  work?: EconWork | null
   note: string
 }
 
@@ -141,8 +146,42 @@ export interface EconStory {
   total: number | null
   shared_with: string[]
   needs_staff: boolean
+  /** Затраты введены суммой: людей не знаем, экономия — по доле операций. */
+  by_cost?: boolean
+  cost_month?: number | null
+  /** Техника, топливо, аренда на ручной работе, ₽ в месяц: уходят вместе с людьми. */
+  other_month?: number | null
+  work?: EconWork | null
   /** Цена одной операции до и после: ₽ на паллету или строку заказа. */
   unit?: EconUnitCost | null
+}
+
+/** Работа процесса в операциях: объём, выработка человека и робота, сколько операций берут роботы. */
+export interface EconWork {
+  /** Единица: одна, две, пять — «паллета», «паллеты», «паллет». */
+  unit: [string, string, string]
+  per_day: number | null
+  volume_year: number | null
+  volume_source: string
+  /** Операций в час на одного робота с учётом готовности. */
+  robot_rate: number | null
+  robot_rate_how: string
+  /** Выработку робота указал пользователь, а не карточка. */
+  robot_rate_own?: boolean
+  /** Выработка до поправки на готовность: то, что пользователь вводит. */
+  robot_rate_raw?: number | null
+  robot_year: number | null
+  robots: number
+  capacity_year: number
+  /** Сколько роботов нужно, чтобы забрать всю автоматизируемую работу. */
+  robots_full: number | null
+  auto: number
+  coverage: number | null
+  taken_year: number | null
+  /** Операций в час на одного человека: объём / (люди × часы в год). */
+  person_rate: number | null
+  /** Скольких людей заменяет один робот. */
+  replaces: number | null
 }
 
 export interface EconUnitCost {
@@ -175,20 +214,28 @@ export interface EconChance {
   note: string
 }
 
-/** Оптимальный состав: набор процессов с наибольшим NPV объекта в пределах бюджета. */
-export interface EconBestSet {
+/** Правка, которую платформа вносит сама: число роботов на процессе или его место в итоге объекта. */
+export interface EconPlanChange {
+  kind: 'count' | 'off' | 'on'
+  code: string
+  name: string
+  from?: number
+  to?: number
+  reason: string
+}
+
+/** Правка платформы, уже внесённая в проект: показывается с причиной и кнопкой «Вернуть». */
+export interface EconFix { key: string; kind: 'count' | 'off'; code: string; name: string; change: string; reason: string }
+
+/** План платформы: лучший состав и число роботов в пределах бюджета. Скидки и господдержка сюда не входят. */
+export interface EconPlan {
   budget: number | null
-  codes: string[]
-  names: string[]
+  changes: EconPlanChange[]
   npv: number | null
-  capex: number
+  capex: number | null
   payback: number | null
   current_npv: number | null
-  current_capex?: number
-  same: boolean
   gain: number | null
-  dropped: string[]
-  added: string[]
   note: string
 }
 
@@ -313,6 +360,8 @@ export interface EconProcess {
   payroll: EconFig | null
   scenarios: EconScenario[]
   suggestions: EconSuggestion[]
+  /** Число роботов, при котором процесс выгоден сам по себе: его платформа ставит сама. */
+  tuning?: { from: number; to: number; npv: number; payback: number | null; capex: number; enough: number } | null
 }
 
 export interface EconReport {
@@ -335,7 +384,7 @@ export interface EconReport {
   breakeven?: EconBreakeven[]
   stress?: EconStress[]
   chance?: EconChance | null
-  best_set?: EconBestSet | null
+  plan?: EconPlan | null
   /** Через сколько месяцев покупка обгоняет аренду. */
   switch?: EconFig | null
   saved_overrides: Record<string, number>
@@ -427,19 +476,23 @@ export function usePlatformEconomy(id: Ref<string>) {
   const live = useLiveProject(id)
   const { choices, picksFor, skippedOf } = usePlatformCompare(id)
   const skipped = ref<{ code: string; name: string; reason: string }[]>([])
+  /* Результат подбора, на котором посчитана экономика: странице проекта он нужен для сводки по шагам. */
+  const groups = ref<MatchGroup[]>([])
   const project = live.shell
   const isDemo = live.isDemo
   const readonly = live.readonly
   const objectCode = live.objectCode
 
   /* Люди на процессе, введённые на шаге экономики. В демо живут только здесь, в своём проекте сохраняются в задачи площадки. */
-  const staffPatch = ref<Record<string, { name: string; staff_fte_now: number | null; staff_salary_month_rub: number | null }>>({})
+  type StaffPatch = { name: string; staff_fte_now: number | null; staff_salary_month_rub: number | null; staff_cost_month_rub: number | null; other_cost_month_rub: number | null }
+  const staffPatch = ref<Record<string, StaffPatch>>({})
   const withStaff = (tasks: unknown[]) => {
     const rows = (tasks as Record<string, unknown>[]).map((task) => ({ ...task }))
     for (const [code, patch] of Object.entries(staffPatch.value)) {
       const row = rows.find((task) => task.process_code === code)
-      if (row) Object.assign(row, { staff_fte_now: patch.staff_fte_now, staff_salary_month_rub: patch.staff_salary_month_rub })
-      else rows.push({ process_code: code, name: patch.name, staff_fte_now: patch.staff_fte_now, staff_salary_month_rub: patch.staff_salary_month_rub })
+      const values = { staff_fte_now: patch.staff_fte_now, staff_salary_month_rub: patch.staff_salary_month_rub, staff_cost_month_rub: patch.staff_cost_month_rub, other_cost_month_rub: patch.other_cost_month_rub }
+      if (row) Object.assign(row, values)
+      else rows.push({ process_code: code, name: patch.name, ...values })
     }
     return rows
   }
@@ -447,8 +500,9 @@ export function usePlatformEconomy(id: Ref<string>) {
     if (!project.value) return null
     return { site: live.site.value, tasks: withStaff(live.tasks.value) }
   })
-  const setStaff = async (code: string, name: string, fte: number | null, wageMonth: number | null) => {
-    staffPatch.value = { ...staffPatch.value, [code]: { name, staff_fte_now: fte, staff_salary_month_rub: wageMonth } }
+  /* Люди и зарплата — или затраты на процесс суммой в месяц, если людей не считали. Одно исключает другое. */
+  const setStaff = async (code: string, name: string, fte: number | null, wageMonth: number | null, costMonth: number | null = null, otherMonth: number | null = null) => {
+    staffPatch.value = { ...staffPatch.value, [code]: { name, staff_fte_now: costMonth ? null : fte, staff_salary_month_rub: costMonth ? null : wageMonth, staff_cost_month_rub: costMonth, other_cost_month_rub: costMonth ? null : otherMonth } }
     const rec = live.record.value
     if (!rec || readonly.value) return
     const enabled: Record<string, boolean> = {}
@@ -469,6 +523,7 @@ export function usePlatformEconomy(id: Ref<string>) {
     if (!source.value || !objectCode.value) throw new Error('Нет параметров площадки')
     const match = await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site: source.value.site, tasks: source.value.tasks })
     skipped.value = skippedOf(match.groups)
+    groups.value = match.groups
     const body: Record<string, unknown> = {
       site: source.value.site,
       tasks: source.value.tasks,
@@ -530,6 +585,8 @@ export function usePlatformEconomy(id: Ref<string>) {
     source,
     choices,
     skipped,
+    groups,
+    live,
     objectCode,
     ensureProject,
     load,
@@ -550,4 +607,23 @@ export const monthsText = (value: number | null | undefined) => {
   const months = total % 12
   if (!years) return `${months} мес.`
   return months ? `${yearsText(years)} ${months} мес.` : yearsText(years)
+}
+
+/** Значения проекта с правками платформы: число роботов и состав процессов, с метками auto:*, чтобы их можно было вернуть. */
+export const withPlan = (overrides: Record<string, number>, changes: EconPlanChange[]) => {
+  const next = { ...overrides }
+  for (const change of changes) {
+    if (change.kind === 'count') {
+      next[`auto:count:${change.code}`] = next[`auto:count:${change.code}`] ?? change.from ?? 1
+      next[`count:${change.code}`] = change.to ?? 1
+    } else if (change.kind === 'off') {
+      next[`off:${change.code}`] = 1
+      next[`auto:off:${change.code}`] = 1
+    } else {
+      delete next[`off:${change.code}`]
+      delete next[`auto:off:${change.code}`]
+    }
+  }
+  next.auto = 1
+  return next
 }

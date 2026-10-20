@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 
-from app.domain.economy import NORM_BY_KEY, NORMS, TYPE_NORMS, blend_by_type, calculate, clamp_overrides, scale_load, scale_task_flows
+from app.domain.economy import NORM_BY_KEY, NORMS, TYPE_NORMS, WORK_SPECS, blend_by_type, calculate, clamp_overrides, scale_load, scale_task_flows
 from app.domain.layout_items import clean_items, default_items
 from app.domain.formula import _number, identifiers
 from app.domain.specs import CANON_LABELS
@@ -1218,6 +1218,7 @@ def _economy_report(
             "power_w": _number(values.get("power_watt")) if values.get("power_watt") is not None else None,
             "raas_available": raas,
             "solution_type": product_types.get(hit["product_id"], ""),
+            "specs": {key: values.get(key) for key in WORK_SPECS if values.get(key) not in (None, "")},
         })
     meta = economy_meta(db)
     by_type, type_names = economy_type_norms(db)

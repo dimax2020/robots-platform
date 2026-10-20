@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { PhCheckCircle, PhWarningCircle, PhXCircle, PhArrowRight, PhCaretDown, PhChartLineUp, PhTarget } from '@phosphor-icons/vue'
-import { millions, signedMillions, yearsText, type EconBestSet, type EconChance, type EconFig, type EconScenario, type EconStress } from '~/composables/usePlatformEconomy'
+import { PhCheckCircle, PhWarningCircle, PhXCircle, PhArrowRight, PhCaretDown, PhChartLineUp } from '@phosphor-icons/vue'
+import { millions, signedMillions, yearsText, type EconPlan, type EconChance, type EconFig, type EconScenario, type EconStress } from '~/composables/usePlatformEconomy'
 
 /** Общая картина экономики: ответ словами, четыре понятные цифры и затраты «сейчас / с роботами». Без жаргона. */
 const props = defineProps<{
@@ -19,10 +19,10 @@ const props = defineProps<{
   uncounted: number
   chance?: EconChance | null
   worst?: EconStress | null
-  best?: EconBestSet | null
+  plan?: EconPlan | null
   busy?: boolean
 }>()
-const emit = defineEmits<{ keepGood: []; applyConditions: []; applyBest: []; goto: [string]; horizon: [number] }>()
+const emit = defineEmits<{ keepGood: []; applyConditions: []; applyPlan: []; goto: [string]; horizon: [number] }>()
 
 /* Горизонт расчёта: ТЗ требует не меньше 5 лет, короче и длиннее — для сравнения. */
 const HORIZONS = [3, 5, 7, 10]
@@ -41,11 +41,57 @@ const sure = computed(() => {
       : `${share > 0 ? 'но ' : ''}если всё пойдёт плохо сразу — ${signedMillions(props.worst.npv)}`
   return { tone, text, worst }
 })
-const bestStep = computed(() => {
-  const b = props.best
-  if (!b || b.same || !b.codes.length || b.npv == null || (b.gain ?? 0) <= 1) return null
-  return b
+const planStep = computed(() => {
+  const plan = props.plan
+  if (!plan?.changes.length || plan.npv == null) return null
+  return plan
 })
+const plural = (n: number, one: string, few: string, many: string) => {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return one
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few
+  return many
+}
+/* Главный совет — одно действие с наибольшим эффектом. */
+interface Advice { tone: 'best' | 'cond' | 'bad'; title: string; text: string; button: string; act: () => void }
+const advice = computed<Advice | null>(() => {
+  const plan = planStep.value
+  if (plan) {
+    const n = plan.changes.length
+    return {
+      tone: 'best',
+      title: `Платформа нашла, как улучшить итог: ${n} ${plural(n, 'правка', 'правки', 'правок')}.`,
+      text: `Итог ${signedMillions(plan.npv)} вместо ${signedMillions(plan.current_npv)}${plan.payback != null ? `, окупится за ${yearsText(plan.payback)}` : ''}${plan.budget ? ` · в бюджете ${millions(plan.budget)}` : ''}.`,
+      button: 'Применить',
+      act: () => emit('applyPlan'),
+    }
+  }
+  if (props.conditional) {
+    const n = props.conditional
+    return {
+      tone: 'cond',
+      title: `Ещё ${n} ${plural(n, 'процесс окупится', 'процесса окупятся', 'процессов окупятся')} с условием.`,
+      text: 'Скидка вендора, господдержка или другой сервис — условие у каждого процесса.',
+      button: props.applicable ? 'Применить условия' : 'Посмотреть',
+      act: () => props.applicable ? emit('applyConditions') : emit('goto', 'processes'),
+    }
+  }
+  if (props.losers) {
+    return {
+      tone: 'bad',
+      title: `Выгодны ${props.good} из ${props.total} процессов.`,
+      text: 'Невыгодные тянут итог вниз.',
+      button: `Убрать невыгодные · ${props.losers}`,
+      act: () => emit('keepGood'),
+    }
+  }
+  return null
+})
+const missing = computed(() => [
+  props.noStaff ? `люди у ${props.noStaff} ${plural(props.noStaff, 'процесса', 'процессов', 'процессов')}` : '',
+  props.uncounted ? `число роботов у ${props.uncounted}` : '',
+].filter(Boolean).join(', '))
 /* Панель экономиста помнится между заходами: кто открыл её раз, видит её сразу. */
 const expert = ref(false)
 onMounted(() => { try { expert.value = localStorage.getItem('econ-expert') === '1' } catch { /* хранилище недоступно */ } })
@@ -161,31 +207,17 @@ const pct = (value: number) => `${Math.max(0.4, (value / scale.value) * 100)}%`
         <span class="legend caption"><i class="sw now" />люди сейчас <i class="sw people" />люди, которые остаются <i class="sw bots" />роботы: сервис, энергия, диспетчеры</span>
       </div>
 
-      <div class="next">
-        <div v-if="bestStep" class="step best">
-          <span class="body-sm"><PhTarget :size="16" weight="bold" class="s-icon" /><b>Лучший набор<template v-if="bestStep.budget"> в бюджете {{ millions(bestStep.budget) }}</template>: {{ bestStep.names.join(', ') }}.</b>
-            Итог с учётом стоимости денег {{ signedMillions(bestStep.npv) }} вместо {{ signedMillions(bestStep.current_npv) }}<template v-if="bestStep.payback != null">, окупится за {{ yearsText(bestStep.payback) }}</template>.</span>
-          <UiButton size="sm" :disabled="busy" @click="emit('applyBest')">{{ bestStep.codes.length === 1 ? 'Оставить только его' : 'Оставить только их' }}</UiButton>
-        </div>
-        <div v-if="conditional" class="step cond">
-          <span class="body-sm"><b>Ещё {{ conditional }} {{ conditional === 1 ? 'процесс окупится' : 'процесса окупятся' }} с условием</b> — скидка вендора, господдержка или другой сервис. Условие показано у каждого процесса.</span>
-          <span class="s-actions">
-            <UiButton v-if="applicable" size="sm" :disabled="busy" @click="emit('applyConditions')">Применить условия</UiButton>
-            <UiButton variant="secondary" size="sm" @click="emit('goto', 'processes')">Посмотреть<template #after><PhArrowRight :size="14" weight="bold" /></template></UiButton>
-          </span>
-        </div>
-        <div v-if="losers" class="step bad">
-          <span class="body-sm"><b>Выгодны {{ good }} из {{ total }} процессов<template v-if="conditional">, ещё {{ conditional }} с условием</template>.</b> Невыгодные тянут итог вниз.</span>
-          <UiButton variant="danger" size="sm" :disabled="busy" @click="emit('keepGood')">Убрать невыгодные · {{ losers }}</UiButton>
-        </div>
-        <div v-if="noStaff" class="step warn">
-          <span class="body-sm"><b>У {{ noStaff }} процессов не указаны люди</b> — без этого экономия по ним не считается.</span>
-          <UiButton variant="secondary" size="sm" @click="emit('goto', 'processes')">Указать людей<template #after><PhArrowRight :size="14" weight="bold" /></template></UiButton>
-        </div>
-        <div v-if="uncounted" class="step warn">
-          <span class="body-sm"><b>У {{ uncounted }} процессов не посчитано количество роботов</b> — в расчёте по одному.</span>
-          <UiButton variant="secondary" size="sm" @click="emit('goto', 'processes')">Указать количество<template #after><PhArrowRight :size="14" weight="bold" /></template></UiButton>
-        </div>
+      <!-- Один главный совет и тихая строка о недостающих данных: остальное — во вкладке процессов. -->
+      <div v-if="advice || missing || $slots.fixes" class="next">
+        <slot name="fixes" />
+        <UiHint v-if="advice">
+          <b>{{ advice.title }}</b> {{ advice.text }}
+          <template #action><UiButton size="sm" :disabled="busy" @click="advice.act()">{{ advice.button }}</UiButton></template>
+        </UiHint>
+        <UiHint v-if="missing">
+          Не хватает данных: {{ missing }} — пока они не дают экономии.
+          <template #action><UiButton variant="secondary" size="sm" @click="emit('goto', 'processes')">Заполнить<template #after><PhArrowRight :size="14" weight="bold" /></template></UiButton></template>
+        </UiHint>
       </div>
     </div>
   </section>
@@ -215,7 +247,9 @@ const pct = (value: number) => `${Math.max(0.4, (value / scale.value) * 100)}%`
 .t-val { font-family: var(--font-mono); font-weight: 700; font-size: clamp(24px, 2.2vw, 34px); line-height: 1.1; letter-spacing: -0.02em; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
 .tile.good .t-val { color: var(--brand-700); }
 .tile.bad .t-val { color: #c0392b; }
-.how { margin-top: 4px; color: var(--link); font-weight: 600; }
+.how { margin-top: 4px; color: var(--link); font-weight: 600; opacity: 0; transition: opacity var(--dur-fast) var(--ease); }
+.tile:hover .how, .tile.on .how, .tile:focus-visible .how { opacity: 1; }
+@media (hover: none) { .how { opacity: 1; } }
 .compare { display: grid; gap: 8px; padding: 16px 18px; border-radius: 18px; background: rgba(255, 255, 255, 0.6); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); }
 .c-title { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; align-items: baseline; }
 .c-title .h4 { margin: 0; }
@@ -242,15 +276,7 @@ const pct = (value: number) => `${Math.max(0.4, (value / scale.value) * 100)}%`
 .caret { transition: transform var(--dur-fast) var(--ease); }
 .caret.up { transform: rotate(180deg); }
 .expert { padding: 14px; border-radius: 18px; background: rgba(255, 255, 255, 0.5); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); }
-.step.best { background: var(--surface-brand-tint); }
-.s-icon { display: inline-block; vertical-align: -3px; margin-right: 6px; color: var(--brand-700); }
-.next { display: grid; gap: 8px; }
-.next:empty { display: none; }
-.step { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 16px; padding: 12px 16px; border-radius: 14px; }
-.step.bad { background: #fdeceb; }
-.step.cond { background: #fdf4e3; }
-.s-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.step.warn { background: #fdf4e3; }
+.next { display: grid; gap: 6px; }
 @media (max-width: 1100px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) {
   .tiles { grid-template-columns: 1fr; }

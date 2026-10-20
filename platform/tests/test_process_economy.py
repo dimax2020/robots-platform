@@ -414,22 +414,42 @@ def test_stress_cases_are_worse_and_all_at_once_is_worst():
     assert 0 <= result["chance"]["npv_positive"] <= 1
 
 
-def test_best_set_skips_a_process_that_shares_the_same_people():
+def test_plan_drops_a_process_that_shares_the_same_people():
     # Перевозка и размещение делят 10 операторов: второй процесс людей не добавляет, а вложения добавляет.
     rows = [_row("pallet_transport", 1_000_000), _row("rack_placement", 3_000_000)]
-    result = calculate(rows, _SITE, standard=_QUIET)
-    best = result["best_set"]
-    assert best["codes"] == ["pallet_transport"]
-    assert best["dropped"] == ["rack_placement"]
-    assert best["npv"] > best["current_npv"]
+    plan = calculate(rows, _SITE, standard=_QUIET)["plan"]
+    assert [(item["kind"], item["code"]) for item in plan["changes"]] == [("off", "rack_placement")]
+    assert "pallet_transport" in plan["changes"][0]["reason"]
+    assert plan["npv"] > plan["current_npv"]
 
 
-def test_best_set_respects_site_budget():
+def test_plan_respects_site_budget():
     rows = [_row("pallet_transport", 1_000_000), _row("packing", 2_000_000)]
     site = {**_SITE, "pack_operators": 10, "pack_salary_month_rub": 100_000, "budget_rub": 1_500_000}
-    best = calculate(rows, site, standard=_QUIET)["best_set"]
-    assert best["codes"] == ["pallet_transport"]
-    assert best["capex"] <= 1_500_000
+    plan = calculate(rows, site, standard=_QUIET)["plan"]
+    assert [(item["kind"], item["code"]) for item in plan["changes"]] == [("off", "packing")]
+    assert plan["capex"] <= 1_500_000
+
+
+def test_plan_cuts_robots_that_have_no_people_to_replace():
+    # Часов работы 2 000 на площадке; один робот заменяет одного человека, людей 10. 40 роботов — лишние 30.
+    site = {**_SITE, "shift_hours": 8, "days_year": 250}
+    result = calculate([_row("pallet_transport", 3_000_000, 40)], site, standard={**_QUIET, "horizon_years": 5})
+    assert _process(result, "pallet_transport")["profitable"] is False
+    change = result["plan"]["changes"][0]
+    assert change["kind"] == "count" and change["from"] == 40 and change["to"] == 10
+    tuned = calculate([_row("pallet_transport", 3_000_000, 40)], site, standard=_QUIET, overrides={"count:pallet_transport": 10})
+    assert _process(tuned, "pallet_transport")["profitable"] is True
+
+
+def test_plan_keeps_a_process_the_user_switched_off():
+    rows = [_row("pallet_transport", 1_000_000), _row("packing", 1_000_000)]
+    site = {**_SITE, "pack_operators": 10, "pack_salary_month_rub": 100_000}
+    manual = calculate(rows, site, standard=_QUIET, overrides={"off:packing": 1})["plan"]
+    assert manual["changes"] == []
+    by_platform = calculate(rows, site, standard=_QUIET, overrides={"off:packing": 1, "auto:off:packing": 1})["plan"]
+    assert [(item["kind"], item["code"]) for item in by_platform["changes"]] == [("on", "packing")]
+    assert clamp_overrides({"auto": 1, "auto:off:packing": 1, "auto:count:x": 5})["auto:count:x"] == 5
 
 
 def test_unit_cost_per_pallet_before_and_after():
@@ -450,3 +470,73 @@ def test_fleet_is_bought_again_when_horizon_outlives_it():
     assert [year for year, row in flows.items() if row["reinvest_rub"]] == [6]
     assert flows[6]["reinvest_rub"] == pytest.approx(-capex)
     assert flows[7]["residual_rub"] == pytest.approx(capex * 3 / 5)
+
+
+# Склад для расчёта по операциям: 200 паллет в сутки, маршрут 50 м, 2 000 часов работы в год.
+_FLOW_SITE = {**_SITE, "inbound_pallets_per_day": 100, "outbound_pallets_per_day": 100, "picker_route_m": 50,
+              "shift_hours": 8, "days_year": 250}
+_FAST = {"speed_loaded_ms": "2,5"}
+
+
+def test_robot_takes_operations_and_people_follow():
+    row = {**_row("pallet_transport", 1_000_000), "specs": _FAST}
+    result = calculate([row], _FLOW_SITE, standard=_QUIET)
+    work = _process(result, "pallet_transport")["story"]["work"]
+    # 3600 / (2 × 50 / 2,5 + 80) = 30 паллет в час, с готовностью 0,82 — 24,6; за 2 000 часов — 49 200.
+    assert work["robot_rate"] == pytest.approx(24.6)
+    assert work["volume_year"] == 50_000
+    assert work["coverage"] == pytest.approx(49_200 / 50_000)
+    # Человек: 50 000 паллет на 10 человек по 2 000 часов — 2,5 в час; робот заменяет 9,84 человека.
+    assert work["person_rate"] == pytest.approx(2.5)
+    assert work["replaces"] == pytest.approx(9.84)
+    # Люди уходят по доле операций у роботов, целыми ставками: 9,84 → 9.
+    assert result["release"]["fte"] == 9
+
+
+def test_two_robots_close_all_work_and_one_is_reserve():
+    row = {**_row("pallet_transport", 1_000_000, 3), "specs": _FAST}
+    work = _process(calculate([row], _FLOW_SITE, standard=_QUIET), "pallet_transport")["story"]["work"]
+    assert work["coverage"] == 1
+    assert work["robots_full"] == 2
+
+
+def test_process_cost_entered_as_a_sum():
+    row = {**_row("pallet_transport", 1_000_000), "specs": _FAST}
+    tasks = [{"process_code": "pallet_transport", "staff_cost_month_rub": 500_000}]
+    result = calculate([row], {"shift_hours": 8, "shifts_per_day": 1, "days_year": 250, "inbound_pallets_per_day": 100,
+                               "outbound_pallets_per_day": 100, "picker_route_m": 50}, standard=_QUIET, tasks=tasks)
+    story = _process(result, "pallet_transport")["story"]
+    assert story["by_cost"] is True
+    assert story["payroll_now"] == 6_000_000
+    # Людей не знаем: уходит доля затрат, равная доле операций у роботов, без округления до ставок.
+    assert story["released"] == pytest.approx(0.984)
+    assert story["work"]["person_rate"] is None
+
+
+def test_robot_rate_entered_in_project_beats_the_card():
+    row = {**_row("pallet_transport", 1_000_000), "specs": _FAST}
+    result = calculate([row], _FLOW_SITE, standard=_QUIET, overrides={"rate:pallet_transport": 10})
+    work = _process(result, "pallet_transport")["story"]["work"]
+    assert work["robot_rate_own"] is True
+    assert work["robot_rate"] == pytest.approx(10 * 0.82)
+    assert clamp_overrides({"rate:pallet_transport": 10}) == {"rate:pallet_transport": 10}
+
+
+def test_robot_rate_entered_when_the_card_has_no_speed():
+    row = _row("floor_cleaning", 1_000_000)
+    site = {**_FLOW_SITE, "clean_area_m2": 5_000}
+    assert _process(calculate([row], site, standard=_QUIET), "floor_cleaning")["story"]["work"]["robot_rate"] is None
+    work = _process(calculate([row], site, standard=_QUIET, overrides={"rate:floor_cleaning": 1_000}), "floor_cleaning")["story"]["work"]
+    assert work["robot_rate"] == pytest.approx(820)
+
+
+def test_other_manual_costs_leave_with_the_people():
+    row = {**_row("pallet_transport", 1_000_000), "specs": _FAST}
+    tasks = [{"process_code": "pallet_transport", "staff_fte_now": 10, "staff_salary_month_rub": 100_000, "other_cost_month_rub": 200_000}]
+    site = {**_FLOW_SITE, "payroll_burden": 1}
+    story = _process(calculate([row], site, standard=_QUIET, tasks=tasks), "pallet_transport")["story"]
+    # 10 человек по 1,2 млн ₽ в год и техника 2,4 млн ₽ в год: на человека — 1,44 млн ₽.
+    assert story["payroll_now"] == pytest.approx(14_400_000)
+    assert story["other_month"] == 200_000
+    assert story["released"] == 9
+    assert story["payroll_now"] - story["payroll_after"] == pytest.approx(9 * 1_440_000)

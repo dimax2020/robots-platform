@@ -6,6 +6,7 @@ import { platformSend } from '~/composables/usePlatform'
 import { useLiveProject } from '~/composables/useLiveProject'
 import { photoFor } from '~/data/placeholders'
 import { usePlatformCompare, type MatchGroup, type MatchHit } from '~/composables/usePlatformCompare'
+import { STEP_SUMMARY, useStepPass, type SummaryRow } from '~/composables/useStepPass'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,21 +48,62 @@ const elapsed = computed(() => {
   return `${sec.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} с`
 })
 
+/* Первый проход — по процессам, в конце итог. Пройденный шаг открывается сразу с итога. */
+const pass = useStepPass(id, 'match')
 const activeCode = computed(() => {
   const query = typeof route.query.process === 'string' ? route.query.process : ''
-  if (groups.value.some((group) => group.process_code === query)) return query
-  return groups.value[0]?.process_code ?? ''
+  if (query === STEP_SUMMARY || groups.value.some((group) => group.process_code === query)) return query
+  return pass.done.value ? STEP_SUMMARY : groups.value[0]?.process_code ?? ''
 })
+watch([activeCode, () => groups.value.length], ([code, count]) => { if (code === STEP_SUMMARY && count) pass.markDone() }, { immediate: true })
 const activeGroup = computed(() => groups.value.find((group) => group.process_code === activeCode.value) ?? null)
 const nextGroup = computed(() => {
   const index = groups.value.findIndex((group) => group.process_code === activeCode.value)
   return index >= 0 ? groups.value[index + 1] : undefined
 })
-const substages = computed(() => groups.value.map((group) => ({
-  id: group.process_code,
-  label: group.process_name,
-  to: `/projects/${id.value}/match?process=${group.process_code}`,
-})))
+const onSummary = computed(() => activeCode.value === STEP_SUMMARY)
+const substages = computed(() => [
+  ...groups.value.map((group) => ({
+    id: group.process_code,
+    label: group.process_name,
+    to: `/projects/${id.value}/match?process=${group.process_code}`,
+    tone: group.hits.some((hit) => hit.verdict === 'pass') ? 'ok' : group.hits.length ? 'warn' : 'off',
+  })),
+  ...(groups.value.length ? [{ id: STEP_SUMMARY, label: 'Итог подбора', to: `/projects/${id.value}/match?process=${STEP_SUMMARY}` }] : []),
+])
+
+/* Итог подбора: все процессы разом — сколько роботов подошло, лучший и сколько в сравнении. */
+const passOf = (group: MatchGroup) => group.hits.filter((hit) => hit.verdict === 'pass').length
+const summaryRows = computed<SummaryRow[]>(() => groups.value.map((group) => {
+  const counts = statusOrder.map((verdict) => [verdict, group.hits.filter((hit) => hit.verdict === verdict).length] as const).filter(([, n]) => n > 0)
+  const best = group.hits.find((hit) => hit.product_id === group.best_product_id) ?? group.hits.find((hit) => hit.verdict === 'pass') ?? null
+  const inside = group.hits.filter((hit) => inCompare(group.process_code, hit, group)).length
+  return {
+    code: group.process_code,
+    name: group.process_name,
+    to: `/projects/${id.value}/match?process=${group.process_code}`,
+    tone: passOf(group) ? 'ok' : group.hits.length ? 'warn' : 'todo',
+    image: best ? photoFor(best.image_url, best.name, group.process_code) : null,
+    robot: best ? best.name : group.hits.length ? 'ни один робот не подошёл полностью' : 'в каталоге нет роботов',
+    detail: counts.map(([verdict, n]) => `${verdictLabel[verdict]?.toLowerCase()} ${n}`).join(' · '),
+    aside: group.hits.length ? `в сравнении ${inside}` : '',
+  }
+}))
+const summaryStats = computed(() => {
+  const covered = groups.value.filter((group) => passOf(group) > 0).length
+  const total = groups.value.reduce((sum, group) => sum + passOf(group), 0)
+  const inside = groups.value.reduce((sum, group) => sum + group.hits.filter((hit) => inCompare(group.process_code, hit, group)).length, 0)
+  return [
+    { label: 'Процессов', value: String(groups.value.length) },
+    { label: 'Подобрано', value: `${covered} из ${groups.value.length}` },
+    { label: 'Подходящих роботов', value: String(total) },
+    { label: 'В сравнении', value: robots(inside) },
+  ]
+})
+const summaryHint = computed(() => {
+  const empty = groups.value.filter((group) => group.hits.length && !group.hits.some((hit) => inCompare(group.process_code, hit, group)))
+  return empty.length ? `У ${empty.length} ${pluralRu(empty.length, 'процесса', 'процессов', 'процессов')} в сравнении никого — в экономику они не попадут. Откройте процесс и добавьте робота «с условием», если он вам подходит.` : ''
+})
 const robots = (n: number) => `${n.toLocaleString('ru-RU')} ${pluralRu(n, 'робот', 'робота', 'роботов')}`
 const compared = computed(() => {
   const group = activeGroup.value
@@ -75,8 +117,8 @@ const statusRank = (verdict: string) => {
 const visibleHits = computed(() => [...(activeGroup.value?.hits ?? [])].sort((a, b) => statusRank(a.verdict) - statusRank(b.verdict)))
 const buttonLabel = computed(() => {
   if (loadingMatch.value) return 'Считаем…'
-  if (matchError.value || !nextGroup.value) return 'К сравнению'
-  return 'Следующий процесс'
+  if (matchError.value || onSummary.value) return 'К сравнению'
+  return nextGroup.value ? 'Следующий процесс' : 'Итог подбора'
 })
 
 const isImmature = (hit: MatchHit) => hit.notes.some((note) => note.startsWith('Готовность:'))
@@ -108,8 +150,8 @@ const runMatch = async () => {
     const result = await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site })
     groups.value = result.groups
     const requested = typeof route.query.process === 'string' ? route.query.process : ''
-    const first = result.groups[0]?.process_code
-    if (first && !result.groups.some((group) => group.process_code === requested)) {
+    const first = pass.done.value ? STEP_SUMMARY : result.groups[0]?.process_code
+    if (first && requested !== STEP_SUMMARY && !result.groups.some((group) => group.process_code === requested)) {
       await router.replace({ query: { process: first } })
     }
   } catch (err: unknown) {
@@ -122,8 +164,8 @@ const runMatch = async () => {
 
 const goNext = () => {
   if (loadingMatch.value) return
-  if (!matchError.value && nextGroup.value) {
-    void router.push({ query: { process: nextGroup.value.process_code } })
+  if (!matchError.value && !onSummary.value) {
+    void router.push({ query: { process: nextGroup.value?.process_code ?? STEP_SUMMARY } })
     return
   }
   void router.push(`/projects/${id.value}/compare`)
@@ -141,8 +183,8 @@ onBeforeUnmount(stopClock)
     :substages="substages"
     :current-sub="activeCode"
     title="Подобранные решения"
-    :subtitle="activeGroup ? `по процессу «${activeGroup.process_name}»` : undefined"
-    :lead="loadingMatch ? 'Считаем решения по выбранным процессам. Время на экране — сколько уже идёт расчёт.' : 'Система сама распределила роботов по группам. В сравнение уже попали роботы, которые прошли по всем параметрам. При желании добавьте роботов, которые подходят с условием.'"
+    :subtitle="onSummary ? 'итог по всем процессам' : activeGroup ? `по процессу «${activeGroup.process_name}»` : undefined"
+    :lead="loadingMatch ? 'Считаем решения по выбранным процессам. Время на экране — сколько уже идёт расчёт.' : onSummary ? 'Все процессы разом: сколько роботов подошло, лучший и сколько в сравнении. Нажмите на процесс, чтобы открыть его.' : 'Система сама распределила роботов по группам. В сравнение уже попали роботы, которые прошли по всем параметрам. При желании добавьте роботов, которые подходят с условием.'"
   >
     <template #actions>
       <UiButton v-if="shell" size="lg" :disabled="loadingMatch" @click="goNext">
@@ -174,6 +216,8 @@ onBeforeUnmount(stopClock)
     </section>
 
     <UiCallout v-else-if="matchError" tone="danger" title="Подбор не посчитался">{{ matchError }}</UiCallout>
+
+    <StepSummary v-else-if="onSummary" :stats="summaryStats" :rows="summaryRows" :hint="summaryHint" />
 
     <section v-else-if="!activeGroup" class="empty glass">
       <div class="h3">Процессов для подбора нет</div>

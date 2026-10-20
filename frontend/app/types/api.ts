@@ -198,6 +198,10 @@ export interface ApiTask {
   staff_fte_now?: number | null
   /** Средняя зарплата сотрудника на процессе в месяц, до НДФЛ. Начисления добавляет расчёт. */
   staff_salary_month_rub?: number | null
+  /** Все затраты на процесс в месяц, если людей не считали. */
+  staff_cost_month_rub?: number | null
+  /** Техника, топливо, аренда на ручной работе в месяц. */
+  other_cost_month_rub?: number | null
 }
 
 export interface ApiProject {

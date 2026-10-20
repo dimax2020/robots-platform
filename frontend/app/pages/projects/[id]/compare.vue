@@ -5,6 +5,7 @@ import { platformSend } from '~/composables/usePlatform'
 import { useLiveProject } from '~/composables/useLiveProject'
 import { photoFor } from '~/data/placeholders'
 import { skippedAlerts, usePlatformCompare, type MatchGroup, type MatchHit, type RobotSpec } from '~/composables/usePlatformCompare'
+import { STEP_SUMMARY, useStepPass, type SummaryRow } from '~/composables/useStepPass'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
@@ -27,11 +28,15 @@ const skipped = computed(() => groups.value.flatMap((group) => {
   return reason ? [{ code: group.process_code, name: group.process_name, reason }] : []
 }))
 const stepAlerts = computed(() => skippedAlerts(skipped.value))
+/* Первый проход — по процессам, в конце итог. Пройденный шаг открывается сразу с итога. */
+const pass = useStepPass(id, 'compare')
 const activeCode = computed(() => {
   const query = typeof route.query.process === 'string' ? route.query.process : ''
-  if (readyGroups.value.some((group) => group.process_code === query)) return query
-  return readyGroups.value[0]?.process_code ?? ''
+  if (query === STEP_SUMMARY || readyGroups.value.some((group) => group.process_code === query)) return query
+  return pass.done.value ? STEP_SUMMARY : readyGroups.value[0]?.process_code ?? ''
 })
+const onSummary = computed(() => activeCode.value === STEP_SUMMARY)
+watch([activeCode, () => groups.value.length], ([code, count]) => { if (code === STEP_SUMMARY && count) pass.markDone() }, { immediate: true })
 const activeGroup = computed(() => readyGroups.value.find((group) => group.process_code === activeCode.value) ?? null)
 const nextGroup = computed(() => {
   const index = readyGroups.value.findIndex((group) => group.process_code === activeCode.value)
@@ -49,11 +54,42 @@ const optimal = computed(() => {
   if (!best) return null
   return activeGroup.value?.hits.find((hit) => hit.product_id === best) ?? null
 })
-const substages = computed(() => readyGroups.value.map((group) => ({
-  id: group.process_code,
-  label: group.process_name,
-  to: `/projects/${id.value}/compare?process=${group.process_code}`,
-})))
+const substages = computed(() => [
+  ...readyGroups.value.map((group) => ({
+    id: group.process_code,
+    label: group.process_name,
+    to: `/projects/${id.value}/compare?process=${group.process_code}`,
+    tone: remainingHit(group) ? 'ok' : 'off',
+  })),
+  ...(readyGroups.value.length ? [{ id: STEP_SUMMARY, label: 'Итог сравнения', to: `/projects/${id.value}/compare?process=${STEP_SUMMARY}` }] : []),
+])
+
+/* Итог сравнения: какой робот выбран на каждом процессе и кем — платформой или пользователем. */
+const robotsWord = (n: number) => n % 10 === 1 && n % 100 !== 11 ? 'робот' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'робота' : 'роботов'
+const summaryRows = computed<SummaryRow[]>(() => groups.value.map((group) => {
+  const hit = remainingHit(group)
+  const pool = includedHits(group).length
+  const own = hit && group.best_product_id && hit.product_id !== group.best_product_id
+  return {
+    code: group.process_code,
+    name: group.process_name,
+    to: pool ? `/projects/${id.value}/compare?process=${group.process_code}` : `/projects/${id.value}/match?process=${group.process_code}`,
+    tone: hit ? 'ok' : 'todo',
+    image: hit ? photoFor(hit.image_url, hit.name, group.process_code) : null,
+    robot: hit ? hit.name : 'робот не выбран',
+    detail: hit ? `${own ? 'свой выбор' : 'рекомендован платформой'} · в сравнении ${pool} ${robotsWord(pool)}` : skipReason(group),
+    aside: hit?.count != null ? `× ${Number(hit.count).toLocaleString('ru-RU')}` : '',
+  }
+}))
+const summaryStats = computed(() => {
+  const chosen = groups.value.filter((group) => remainingHit(group))
+  const own = chosen.filter((group) => group.best_product_id && remainingHit(group)?.product_id !== group.best_product_id).length
+  return [
+    { label: 'Робот выбран', value: `${chosen.length} из ${groups.value.length}` },
+    { label: 'Рекомендованных платформой', value: String(chosen.length - own) },
+    { label: 'Свой выбор', value: String(own) },
+  ]
+})
 const lineup = computed(() => readyGroups.value.map((group) => ({
   code: group.process_code,
   name: group.process_name,
@@ -100,13 +136,13 @@ const take = (hit: MatchHit) => {
 
 const forwardLabel = computed(() => {
   if (loadingMatch.value) return 'Считаем…'
-  if (matchError.value || !nextGroup.value) return 'К экономике'
-  return 'Следующий процесс'
+  if (matchError.value || onSummary.value) return 'К экономике'
+  return nextGroup.value ? 'Следующий процесс' : 'Итог сравнения'
 })
 const goForward = () => {
   if (loadingMatch.value) return
-  if (!matchError.value && nextGroup.value) {
-    void navigateTo({ query: { process: nextGroup.value.process_code } })
+  if (!matchError.value && !onSummary.value) {
+    void navigateTo({ query: { process: nextGroup.value?.process_code ?? STEP_SUMMARY } })
     return
   }
   void navigateTo(`/projects/${id.value}/economics`)
@@ -122,8 +158,8 @@ const load = async () => {
     groups.value = result.groups
     const ready = result.groups.filter((group) => includedHits(group).length > 0)
     const requested = typeof route.query.process === 'string' ? route.query.process : ''
-    const first = ready[0]?.process_code
-    if (first && !ready.some((group) => group.process_code === requested)) {
+    const first = pass.done.value ? STEP_SUMMARY : ready[0]?.process_code
+    if (first && requested !== STEP_SUMMARY && !ready.some((group) => group.process_code === requested)) {
       await navigateTo({ query: { process: first } })
     }
   } catch (err: unknown) {
@@ -145,11 +181,11 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, 
     :current-sub="activeCode"
     title="Сравнение роботов"
     :alerts="stepAlerts"
-    :subtitle="activeGroup ? `по процессу «${activeGroup.process_name}»` : undefined"
-    lead="На этом шаге вы можете сравнить подобранные решения и выбрать одно для расчёта экономики. По умолчанию выбран оптимальный робот — его рекомендует платформа."
+    :subtitle="onSummary ? 'итог по всем процессам' : activeGroup ? `по процессу «${activeGroup.process_name}»` : undefined"
+    :lead="onSummary ? 'Какой робот идёт в экономику по каждому процессу. Нажмите на процесс, чтобы сравнить роботов и выбрать другого.' : 'На этом шаге вы можете сравнить подобранные решения и выбрать одно для расчёта экономики. По умолчанию выбран оптимальный робот — его рекомендует платформа.'"
   >
     <template #actions>
-      <UiButton v-if="shell" size="lg" :disabled="loadingMatch || (!nextGroup && !canEconomy)" @click="goForward">
+      <UiButton v-if="shell" size="lg" :disabled="loadingMatch || (onSummary && !canEconomy)" @click="goForward">
         {{ forwardLabel }}<template v-if="!loadingMatch" #after><PhArrowRight :size="18" weight="bold" /></template>
       </UiButton>
     </template>
@@ -165,6 +201,7 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, 
       <div class="h3">Собираем сравнение</div>
     </section>
     <UiCallout v-else-if="matchError" tone="danger" title="Сравнение не открылось">{{ matchError }}</UiCallout>
+    <StepSummary v-else-if="onSummary" :stats="summaryStats" :rows="summaryRows" />
     <section v-else-if="!activeGroup" class="empty glass">
       <div class="h3">Процессов для сравнения нет</div>
     </section>

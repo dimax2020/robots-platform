@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import math
 import random
+
+from app.domain.specs import normalize_value
 from dataclasses import dataclass
 
 NO_PRICE = "Не будет использоваться в расчётах, не хватает цены."
@@ -192,6 +194,37 @@ _BREAKEVEN = (
     ("market_rate_pct", "Ключевая ставка", "% годовых", 0.0, 80.0, False),
 )
 
+# Работа процесса в операциях: единица, суточный объём и как считается выработка робота. Повторяет формулы
+# количества подбора, чтобы экономика и подбор считали одну и ту же работу. Объём задачи (flow_per_day) важнее.
+#   kind move — рейсы туда и обратно: 3600 / (маршрут / скорость + 80 с на пункте);
+#   kind patrol — обход периметра площадки: 3600 / (4·√S / скорость + 240 с);
+#   kind area — убираемая площадь: паспортная производительность, м²/ч;
+#   kind scan — паллетоместа в час по паспорту.
+_PALLET = ("паллета", "паллеты", "паллет")
+WORK: dict[str, dict] = {
+    **{code: {"unit": _PALLET, "volume": ("inbound_pallets_per_day", "outbound_pallets_per_day"), "kind": "move", "route": "picker_route_m"}
+       for code in ("pallet_transport", "cart_towing", "pallet_storage", "rack_placement", "packing", "palletizing")},
+    "order_picking": {"unit": ("строка заказа", "строки заказа", "строк заказа"), "volume": ("pick_lines_per_day",), "kind": "move", "route": "picker_route_m"},
+    **{code: {"unit": ("штука", "штуки", "штук"), "volume": ("pick_units_per_day",), "kind": "move", "route": "picker_route_m"}
+       for code in ("tote_delivery", "parcel_sorting")},
+    "floor_cleaning": {"unit": ("м² уборки", "м² уборки", "м² уборки"), "volume": ("clean_area_m2",), "kind": "area"},
+    **{code: {"unit": ("обход", "обхода", "обходов"), "volume": 24, "kind": "patrol"}
+       for code in ("perimeter_security", "territory_inspection", "roof_inspection")},
+    "warehouse_inventory": {"unit": ("паллетоместо", "паллетоместа", "паллетомест"), "volume": ("pallet_places",), "kind": "scan"},
+    **{code: {"unit": ("рейс", "рейса", "рейсов"), "volume": 420, "kind": "move", "route": 584}
+       for code in ("baggage_transport", "apron_transport", "passenger_service")},
+    **{code: {"unit": ("доставка", "доставки", "доставок"), "volume": 1200, "kind": "move", "route": 360}
+       for code in ("biomaterial_delivery", "medicine_delivery")},
+    "ward_service": {"unit": ("поручение", "поручения", "поручений"), "volume": 850, "kind": "move", "route": 360},
+}
+# Характеристики робота, из которых считается его выработка.
+WORK_SPECS = ("speed_loaded_ms", "proizvoditelnost", "throughput")
+# Готовность робота — та же, что в формулах количества подбора (C-011).
+READY = 0.82
+
+# Метки правок платформы: auto:count:код хранит прежнее количество, auto:off:код и auto:on:код — исключение и возврат.
+AUTO_PREFIXES = ("auto:count:", "auto:off:", "auto:on:")
+
 # Начисления на ФОТ, если площадка их не задала: страховые взносы 30% (ст. 425 НК РФ) и взнос на травматизм 0,2%.
 LAW_BURDEN = 1.302
 # Ориентир демо-проекта организатора: какая доля персонала переходит на роботов. Только контроль, в расчёт не входит.
@@ -363,7 +396,7 @@ def split_process_overrides(overrides: dict | None) -> tuple[dict, dict[str, dic
     global_overrides: dict = {}
     by_process: dict[str, dict[str, float]] = {}
     for key, raw in (overrides or {}).items():
-        if isinstance(key, str) and key.startswith("subsidy:"):
+        if isinstance(key, str) and (key.startswith("subsidy:") or key == "auto" or key.startswith("auto:")):
             continue
         if isinstance(key, str) and key.startswith("count:"):
             value = _num(raw)
@@ -373,6 +406,11 @@ def split_process_overrides(overrides: dict | None) -> tuple[dict, dict[str, dic
         if isinstance(key, str) and key.startswith("off:"):
             if key[4:] and _num(raw):
                 by_process.setdefault(key[4:], {})["off"] = 1.0
+            continue
+        if isinstance(key, str) and key.startswith("rate:"):
+            value = _num(raw)
+            if key[5:] and value and value > 0:
+                by_process.setdefault(key[5:], {})["rate"] = min(1e6, value)
             continue
         if not isinstance(key, str) or not key.startswith("process:"):
             global_overrides[key] = raw
@@ -402,6 +440,12 @@ def clamp_overrides(values: dict | None) -> dict:
     """Оставляет нормативы парка, ключи process:код:норматив и включённые меры subsidy:код."""
     global_overrides, by_process = split_process_overrides(values)
     clean: dict[str, float] = {f"subsidy:{code}": 1.0 for code in enabled_subsidies(values)}
+    # Метки правок платформы: что она поменяла сама и с какого значения — чтобы показать и дать вернуть.
+    for key, raw in (values or {}).items():
+        if isinstance(key, str) and (key == "auto" or key.startswith(AUTO_PREFIXES)):
+            value = _num(raw)
+            if value is not None:
+                clean[key] = value
     for key, raw in global_overrides.items():
         if key not in NORM_BY_KEY:
             continue
@@ -410,7 +454,7 @@ def clamp_overrides(values: dict | None) -> dict:
             clean[key] = value
     for code, items in by_process.items():
         for key, value in items.items():
-            clean[{"count": f"count:{code}", "off": f"off:{code}"}.get(key, f"process:{code}:{key}")] = value
+            clean[{"count": f"count:{code}", "off": f"off:{code}", "rate": f"rate:{code}"}.get(key, f"process:{code}:{key}")] = value
     return clean
 
 
@@ -432,7 +476,8 @@ def calculate(
     report["breakeven"] = _breakeven(rows, site, tasks or [], params, report, by_process, subsidies)
     report["stress"] = _stress(rows, site, tasks or [], params, report, by_process, subsidies)
     report["chance"] = _chance(report)
-    report["best_set"] = _best_set(rows, site, tasks or [], params, report, by_process, subsidies)
+    auto_off = frozenset(key[len("auto:off:"):] for key, value in (overrides or {}).items() if isinstance(key, str) and key.startswith("auto:off:") and _num(value))
+    report["plan"] = _plan(rows, site, tasks or [], params, report, by_process, subsidies, auto_off)
     return report
 
 
@@ -531,6 +576,8 @@ def _line(row: dict, params: dict[str, dict], hours: dict, tariff: dict, by_proc
         "note": "",
         "cost_rub": None,
         "raas_available": bool(row.get("raas_available")),
+        "specs": row.get("specs") or {},
+        "rate_own": own.get("rate"),
         "kwh_per_hour": None,
         "kwh_source": "",
         "energy_rub": 0.0,
@@ -655,10 +702,20 @@ def _task_staff(tasks: list[dict], burden: float = LAW_BURDEN) -> dict[str, dict
             continue
         code = str(task.get("process_code") or "")
         fte = _num(task.get("staff_fte_now"))
+        cost = _num(task.get("staff_cost_month_rub"))
+        if code and (not fte or fte <= 0) and cost and cost > 0:
+            # Людей не знаем, знаем, сколько процесс стоит в месяц: экономия — доля затрат по доле операций у роботов.
+            staffed[code] = {"fte": 1.0, "rate": cost * 12, "wage_month": None, "by_cost": True, "cost_month": cost,
+                             "name": str(task.get("name") or code), "flow": _num(task.get("flow_per_day")), "route": _num(task.get("route_len_m"))}
+            continue
         if not code or not fte or fte <= 0:
             continue
-        row = staffed.setdefault(code, {"fte": 0.0, "rate": None, "wage_month": None, "name": str(task.get("name") or code)})
+        row = staffed.setdefault(code, {"fte": 0.0, "rate": None, "wage_month": None, "by_cost": False, "cost_month": None, "other_month": None,
+                                        "name": str(task.get("name") or code), "flow": _num(task.get("flow_per_day")), "route": _num(task.get("route_len_m"))})
         row["fte"] += fte
+        other = _num(task.get("other_cost_month_rub"))
+        if other and other > 0:
+            row["other_month"] = (row["other_month"] or 0) + other
         month = _num(task.get("staff_salary_month_rub"))
         own = _num(task.get("staff_salary_year_rub"))
         if month:
@@ -666,6 +723,10 @@ def _task_staff(tasks: list[dict], burden: float = LAW_BURDEN) -> dict[str, dict
             row["wage_month"] = month
         elif own:
             row["rate"] = own
+    # Техника и прочие расходы ручной работы раскладываются на людей: с каждым ушедшим уходит его доля.
+    for row in staffed.values():
+        if row.get("other_month") and row["rate"] and row["fte"] and not row.get("by_cost"):
+            row["rate"] += row["other_month"] * 12 / row["fte"]
     return staffed
 
 
@@ -1851,6 +1912,8 @@ def _process_views(s: dict, priced: list[dict] | None = None) -> list[dict]:
         # нет данных о людях; невыгоден.
         condition = _condition(suggestions)
         status = "ok" if ok else "no_staff" if story["needs_staff"] else "conditional" if condition else "bad"
+        # Невыгоден при нынешнем числе роботов — ищем число, при котором он выгоден: это решает сама платформа.
+        tuning = None if ok or saving <= 0 else _best_count(ctx, item, params, row)
         base.update({
             "share": share,
             "share_note": note,
@@ -1863,9 +1926,48 @@ def _process_views(s: dict, priced: list[dict] | None = None) -> list[dict]:
             "payroll": _saving_fig(one),
             "scenarios": [asis, purchase, raas],
             "suggestions": suggestions,
+            "tuning": tuning,
         })
         out.append(base)
     return out
+
+
+def _best_count(s: dict, item: dict, params: dict[str, dict], row: dict | None) -> dict | None:
+    """Число роботов, при котором процесс сам по себе даёт наибольший NPV. Больше людей, чем есть на процессе,
+    роботы не заменят, поэтому лишние машины только добавляют вложения и расходы."""
+    if not row or not row["staff"]:
+        return None
+    current = int(round(item["count_used"] or 0))
+    hours = (s.get("hours") or {}).get("value") or 0
+    fte_hours = params["fte_hours"]["value"]
+    # Сколько роботов нужно, чтобы забрать всю автоматизируемую работу людей процесса.
+    enough = math.ceil(row["staff"] * row["auto"] * fte_hours / hours) if hours and fte_hours else current
+    upper = int(min(COUNT_MAX, max(current, enough, 1)))
+    if upper <= 1 and current <= 1:
+        candidates = [1]
+    elif upper <= 60:
+        candidates = list(range(1, upper + 1))
+    else:
+        candidates = sorted({1, current, enough, *(max(1, round(upper * step / 40)) for step in range(1, 41))})
+
+    def npv_at(count: int) -> tuple[float | None, dict]:
+        clone = {**item, "count_used": float(count)}
+        solo = _release(s["site"], s["tasks"], [clone], params, s["hours"])["items"]
+        if not solo or solo[0]["fte"] <= 0:
+            return None, {}
+        _one, _asis_, purchase, _raas_ = _process_bundle({**s, "release": solo}, clone, 0, "", params, full=False)
+        return purchase["npv"]["value"], purchase
+
+    best = None
+    for count in candidates:
+        npv, purchase = npv_at(count)
+        if npv is not None and (best is None or npv > best[1] + 1):
+            best = (count, npv, purchase)
+    if best is None or best[0] == current or best[1] < 0:
+        return None
+    count, npv, purchase = best
+    return {"from": current, "to": count, "npv": npv, "payback": purchase["payback"]["value"],
+            "capex": purchase["capex"]["value"] or 0, "enough": enough}
 
 
 def _release(site: dict, tasks: list[dict], included: list[dict], params: dict[str, dict], hours: dict) -> dict:
@@ -1882,12 +1984,14 @@ def _release(site: dict, tasks: list[dict], included: list[dict], params: dict[s
     codes: list[str] = []
     names: dict[str, str] = {}
     robots: dict[str, float] = {}
+    specs: dict[str, dict] = {}
     for item in included:
         code = item["process_code"]
         if code not in robots:
             codes.append(code)
             names[code] = item.get("process_name") or code
             robots[code] = 0.0
+            specs[code] = {**(item.get("specs") or {}), "_rate_own": item.get("rate_own")}
         robots[code] += item.get("count_used") or 0
     roles = {role[0]: role for role in _ROLES}
     members = {role: [code for code in codes if code in procs and code not in staffed] for role, procs in ROLE_PROCESSES.items()}
@@ -1901,12 +2005,16 @@ def _release(site: dict, tasks: list[dict], included: list[dict], params: dict[s
             "process_code": code, "process_name": name, "robots": robots[code], "source": "", "role": "",
             "staff": 0.0, "split": 1, "auto": 1.0, "auto_note": "", "cap": cap, "capped": False, "raw": 0.0, "fte": 0.0,
             "rate": None, "wage_month": None, "group": "", "shifts": shifts, "note": "", "request": None,
+            "by_cost": False, "cost_month": None, "other_month": None, "work": None,
         }
         task = staffed.get(code)
+        row["work"] = _work(code, specs.get(code) or {}, site, task, robots[code], robot_hours)
         role = role_of.get(code)
         if task:
             rate = task["rate"] or rate_default
-            row.update(source="task", staff=task["fte"], group=f"task:{code}", rate=rate, wage_month=task["wage_month"] or (rate / 12 / burden if rate else None))
+            row.update(source="task", staff=task["fte"], group=f"task:{code}", rate=rate, by_cost=bool(task.get("by_cost")), cost_month=task.get("cost_month"),
+                       other_month=task.get("other_month"),
+                       wage_month=None if task.get("by_cost") else task["wage_month"] or (rate / 12 / burden if rate else None))
             if not rate:
                 row["note"] = "Нет стоимости сотрудника: экономию посчитать не из чего."
                 row["request"] = {"to": "customer", "question": f"Сколько стоит в год сотрудник на процессе «{name}»?"}
@@ -1936,7 +2044,20 @@ def _release(site: dict, tasks: list[dict], included: list[dict], params: dict[s
                 row["auto"] = min(1.0, max(0.0, 1 - pct / 100))
                 row["auto_note"] = f"{_t_plain(pct)}% — {field[1]}: их робот не берёт."
             raw = row["staff"] * row["auto"]
-            if cap is not None and raw > cap:
+            work = row["work"]
+            if work and work["volume_year"] and work["robot_year"]:
+                # Роботы забирают операции: сколько их делает парк за год против автоматизируемого объёма.
+                coverage = min(row["auto"], work["capacity_year"] / work["volume_year"])
+                work.update(auto=row["auto"], coverage=coverage, taken_year=coverage * work["volume_year"],
+                            robots_full=math.ceil(row["auto"] * work["volume_year"] / work["robot_year"] - 1e-9))
+                if not row["by_cost"]:
+                    work["person_rate"] = work["volume_year"] / (row["staff"] * fte_hours) if fte_hours else None
+                    work["replaces"] = work["robot_year"] / (work["person_rate"] * fte_hours) if work["person_rate"] and fte_hours else None
+                raw = row["staff"] * coverage
+                row["capped"] = coverage < row["auto"] - 1e-9
+                row["cap"] = None
+                cap = None
+            elif cap is not None and raw > cap:
                 raw = cap
                 row["capped"] = True
                 row["request"] = row["request"] or {
@@ -1953,6 +2074,11 @@ def _release(site: dict, tasks: list[dict], included: list[dict], params: dict[s
             groups.setdefault(row["group"], []).append(row)
     for rows_ in groups.values():
         total = sum(row["raw"] for row in rows_)
+        if any(row["by_cost"] for row in rows_):
+            # Затраты суммой: людей не знаем, округлять до ставок нечего — экономия пропорциональна операциям.
+            for row in rows_:
+                row["fte"] = row["raw"]
+            continue
         real = shifts * math.floor(total / shifts + 1e-9)
         for row in rows_:
             row["fte"] = real * row["raw"] / total if total else 0.0
@@ -1979,11 +2105,83 @@ def _release(site: dict, tasks: list[dict], included: list[dict], params: dict[s
         "share": share,
         "check": check,
         "items": [
-            {key: row[key] for key in ("process_code", "process_name", "source", "role", "staff", "split", "auto", "auto_note", "capped", "cap", "fte", "rate", "wage_month", "group", "note")}
+            {key: row[key] for key in ("process_code", "process_name", "source", "role", "staff", "split", "auto", "auto_note", "capped", "cap", "fte", "rate",
+                                       "wage_month", "group", "note", "by_cost", "cost_month", "other_month", "work")}
             for row in items
         ],
     }
     return {"items": items, "summary": summary}
+
+
+def _spec(specs: dict, key: str) -> float | None:
+    raw = specs.get(key)
+    if raw is None or raw == "":
+        return None
+    normalized = normalize_value(key, raw)
+    value = _num(normalized[1] if normalized else raw)
+    return value if value and value > 0 else None
+
+
+def _work(code: str, specs: dict, site: dict, task: dict | None, robots: float, robot_hours: float | None) -> dict | None:
+    """Работа процесса в операциях: объём в сутки и в год, выработка одного робота в час и парка за год."""
+    model = WORK.get(code)
+    if not model:
+        return None
+    days = _num(site.get("days_year"))
+    per_day = (task or {}).get("flow")
+    source = "задача"
+    if not per_day:
+        volume = model["volume"]
+        per_day = sum(_num(site.get(key)) or 0 for key in volume) if isinstance(volume, tuple) else float(volume)
+        source = "площадка" if isinstance(volume, tuple) else "норма формулы подбора"
+    speed = _spec(specs, "speed_loaded_ms")
+    rate, how = None, ""
+    own_rate = _num(specs.get("_rate_own"))
+    if own_rate:
+        rate, how = own_rate, "указано в проекте"
+    elif model["kind"] == "move" and speed:
+        route_task = (task or {}).get("route")
+        route_site = model["route"] if isinstance(model["route"], (int, float)) else _num(site.get(model["route"]))
+        one_way = route_task or route_site
+        if one_way:
+            route = (2 * one_way) if route_task or not isinstance(model["route"], (int, float)) else one_way
+            rate = 3600 / (route / speed + 80)
+            how = f"3600 / ({_t_plain(route)} м / {_t_plain(speed)} м/с + 80 с на погрузку и выгрузку)"
+    elif model["kind"] == "patrol" and speed:
+        area = _num(site.get("area_m2"))
+        if area:
+            rate = 3600 / (4 * math.sqrt(area) / speed + 240)
+            how = f"3600 / (периметр {_t_plain(round(4 * math.sqrt(area)))} м / {_t_plain(speed)} м/с + 240 с)"
+    elif model["kind"] == "area":
+        rate = _spec(specs, "proizvoditelnost")
+        how = "паспортная производительность, м²/ч" if rate else ""
+    elif model["kind"] == "scan":
+        rate = _spec(specs, "throughput")
+        how = "паспортная производительность, паллетомест в час" if rate else ""
+    hours = robot_hours or 0
+    effective = rate * READY if rate else None
+    volume_year = per_day * days if per_day and days else None
+    robot_year = effective * hours if effective and hours else None
+    capacity = robots * robot_year if robot_year else 0.0
+    return {
+        "unit": list(model["unit"]),
+        "per_day": per_day or None,
+        "volume_year": volume_year,
+        "volume_source": source,
+        "robot_rate": effective,
+        "robot_rate_how": f"{how} × готовность {_t_plain(READY)}" if how else "",
+        "robot_rate_own": bool(own_rate),
+        "robot_rate_raw": rate,
+        "robot_year": robot_year,
+        "robots": robots,
+        "capacity_year": capacity,
+        "robots_full": math.ceil(volume_year / robot_year - 1e-9) if volume_year and robot_year else None,
+        "auto": 1.0,
+        "coverage": min(1.0, capacity / volume_year) if volume_year and robot_year else None,
+        "taken_year": min(volume_year, capacity) if volume_year and robot_year else None,
+        "person_rate": None,
+        "replaces": None,
+    }
 
 
 def _saving_fig(s: dict) -> dict:
@@ -2324,6 +2522,10 @@ def _process_story(row: dict | None, item: dict, purchase: dict, factor: float, 
         "total": flow[-1]["cumulative"] if flow else None,
         "shared_with": shared,
         "needs_staff": not (row and row["source"] and staff > 0),
+        "by_cost": bool(row and row.get("by_cost")),
+        "cost_month": row.get("cost_month") if row else None,
+        "other_month": row.get("other_month") if row else None,
+        "work": row.get("work") if row else None,
     }
 
 
@@ -2525,7 +2727,7 @@ def _chance(report: dict, runs: int = 2000) -> dict | None:
     }
 
 
-def _best_set(
+def _plan(
     rows: list[dict],
     site: dict,
     tasks: list[dict],
@@ -2533,33 +2735,49 @@ def _best_set(
     report: dict,
     by_process: dict[str, dict[str, float]] | None = None,
     subsidies: frozenset[str] = frozenset(),
+    auto_off: frozenset[str] = frozenset(),
 ) -> dict | None:
-    """Оптимальный состав: какие процессы роботизировать, чтобы NPV объекта был наибольшим в пределах бюджета.
-    Каждый набор считается целиком: процессы одной роли делят людей, посты диспетчеров — общие."""
+    """Правки, которые платформа вносит сама: число роботов на процессе и состав процессов — набор с наибольшим
+    NPV объекта в пределах бюджета. Каждый набор считается целиком: процессы одной роли делят людей, посты
+    диспетчеров общие. Скидка вендора и господдержка сюда не входят: о них договариваются, а не решают расчётом."""
     views = [item for item in report.get("processes") or [] if item["included"]]
-    candidates = [item for item in views if item["status"] == "ok"]
-    if not candidates:
+    if not views:
         return None
     by_process = by_process or {}
     budget = _num(site.get("budget_rub"))
-    capex_of = {item["process_code"]: next((sc["capex"]["value"] or 0 for sc in item["scenarios"] if sc["key"] == "purchase"), 0) for item in views}
     names = {item["process_code"]: item["process_name"] for item in views}
+    tuning = {item["process_code"]: item["tuning"] for item in views if item.get("tuning")}
+    tuned = {code: dict(values) for code, values in by_process.items()}
+    for code, change in tuning.items():
+        tuned.setdefault(code, {})["count"] = float(change["to"])
+
+    def purchase_of(item: dict) -> dict:
+        return next(sc for sc in item["scenarios"] if sc["key"] == "purchase")
+
+    solo_npv = {item["process_code"]: tuning[item["process_code"]]["npv"] if item["process_code"] in tuning else purchase_of(item)["npv"]["value"]
+                for item in views}
+    capex_of = {item["process_code"]: tuning[item["process_code"]]["capex"] if item["process_code"] in tuning else (purchase_of(item)["capex"]["value"] or 0)
+                for item in views}
     current = [item["process_code"] for item in views if not item["off"]]
     base = _metric(report)
 
     def run(codes: frozenset[str]) -> dict:
-        own = {code: dict(values) for code, values in by_process.items()}
+        own = {code: dict(values) for code, values in tuned.items()}
         for item in views:
-            code = item["process_code"]
-            row = own.setdefault(code, {})
-            if code in codes:
+            row = own.setdefault(item["process_code"], {})
+            if item["process_code"] in manual:
+                continue
+            if item["process_code"] in codes:
                 row.pop("off", None)
             else:
                 row["off"] = 1
         scenario = next(sc for sc in _compute(rows, site, tasks, params, own, subsidies=subsidies)["scenarios"] if sc["key"] == "purchase")
         return {"npv": scenario["npv"]["value"], "capex": scenario["capex"]["value"] or 0, "payback": scenario["payback"]["value"]}
 
-    pool = sorted(candidates, key=lambda item: -(next((sc["npv"]["value"] or 0 for sc in item["scenarios"] if sc["key"] == "purchase"), 0)))
+    # Процесс, который пользователь выключил сам, платформа не возвращает: это его решение.
+    manual = {item["process_code"] for item in views if item["off"] and item["process_code"] not in auto_off}
+    pool = sorted((item for item in views if item["process_code"] not in manual and item["status"] != "no_staff" and (solo_npv[item["process_code"]] or -1) >= 0),
+                  key=lambda item: -(solo_npv[item["process_code"]] or 0))
     codes = [item["process_code"] for item in pool]
     fits = lambda chosen: not budget or sum(capex_of[code] for code in chosen) <= budget  # noqa: E731
     best: tuple[frozenset[str], dict] | None = None
@@ -2569,49 +2787,79 @@ def _best_set(
             if not fits(chosen):
                 continue
             result = run(chosen)
-            if result["npv"] is None:
-                continue
-            if best is None or result["npv"] > best[1]["npv"] + 1:
+            if result["npv"] is not None and (best is None or result["npv"] > best[1]["npv"] + 1):
                 best = (chosen, result)
     else:
         # Процессов много: жадно добавляем тот, что сильнее всего поднимает NPV, пока прирост есть.
-        chosen: frozenset[str] = frozenset()
-        score = None
+        chosen = frozenset()
         while True:
             step = None
             for code in codes:
-                if code in chosen or not fits(chosen | {code}):
-                    continue
-                result = run(chosen | {code})
-                if result["npv"] is not None and (step is None or result["npv"] > step[1]["npv"]):
-                    step = (chosen | {code}, result)
-            if step is None or (score is not None and step[1]["npv"] <= score + 1):
+                if code not in chosen and fits(chosen | {code}):
+                    result = run(chosen | {code})
+                    if result["npv"] is not None and (step is None or result["npv"] > step[1]["npv"]):
+                        step = (chosen | {code}, result)
+            if step is None or (best is not None and step[1]["npv"] <= best[1]["npv"] + 1):
                 break
-            chosen, score = step[0], step[1]["npv"]
-            best = step
+            chosen, best = step[0], step
     if best is None:
-        return {"budget": budget, "codes": [], "names": [], "npv": None, "capex": 0, "payback": None,
-                "current_npv": base["npv"], "same": False, "gain": None, "dropped": [], "added": [],
-                "note": "Ни один выгодный процесс не помещается в бюджет площадки."}
+        return {"budget": budget, "changes": [], "npv": None, "capex": 0, "payback": None, "current_npv": base["npv"], "gain": None,
+                "note": "Ни один процесс не выгоден даже при подборе числа роботов: нужны данные о людях или условия вендора."}
     chosen, result = best
-    ordered = [code for code in codes if code in chosen]
-    same = set(ordered) == set(current)
+    # Нынешний состав сверх бюджета — не вариант, даже если его NPV больше.
+    if base["npv"] is not None and fits(frozenset(current)) and result["npv"] <= base["npv"] + 1:
+        return {"budget": budget, "changes": [], "npv": base["npv"], "capex": base.get("capex"), "payback": base["payback"],
+                "current_npv": base["npv"], "gain": 0.0, "note": "Состав и число роботов уже лучшие из возможных."}
+    changes = []
+    for item in views:
+        code = item["process_code"]
+        if code in chosen and code in tuning:
+            change = tuning[code]
+            changes.append({"kind": "count", "code": code, "name": names[code], "from": change["from"], "to": change["to"],
+                            "reason": f"При {change['to']} вместо {change['from']} процесс выгоден сам по себе: "
+                                      f"NPV {'+' if change['npv'] >= 0 else ''}{_t_plain(change['npv'] / 1_000_000)} млн ₽. "
+                                      "Больше людей, чем есть на процессе, лишние роботы не заменят."})
+        if code in chosen and item["off"]:
+            changes.append({"kind": "on", "code": code, "name": names[code], "reason": "Выгоден в составе объекта — возвращён в расчёт."})
+        if code not in chosen and not item["off"]:
+            changes.append({"kind": "off", "code": code, "name": names[code], "reason": _off_reason(item, solo_npv[code], chosen, names, budget)})
     return {
         "budget": budget,
-        "codes": ordered,
-        "names": [names[code] for code in ordered],
+        "changes": changes,
         "npv": result["npv"],
         "capex": result["capex"],
         "payback": result["payback"],
         "current_npv": base["npv"],
-        "current_capex": sum(capex_of[code] for code in current),
-        "same": same,
         "gain": result["npv"] - base["npv"] if base["npv"] is not None else None,
-        "dropped": [names[code] for code in current if code not in chosen],
-        "added": [names[code] for code in ordered if code not in current],
         "note": ("Наибольший NPV объекта в пределах бюджета площадки. " if budget else "Наибольший NPV объекта; бюджет площадки не задан. ")
-                + "Каждый набор посчитан целиком: процессы одной роли делят людей, посты диспетчеров общие.",
+                + "Каждый вариант посчитан целиком: процессы одной роли делят людей, посты диспетчеров общие.",
     }
+
+
+def _off_reason(item: dict, npv: float | None, chosen: frozenset[str], names: dict[str, str], budget: float | None) -> str:
+    """Почему платформа убрала процесс из итога — словами, которые можно проверить в строке процесса."""
+    if item["status"] == "no_staff":
+        return "Нет данных о людях на процессе: роботы пока только стоят денег. Укажите людей — платформа пересчитает."
+    if npv is None or npv < 0:
+        if item.get("condition"):
+            return f"Невыгоден даже при подборе числа роботов. Окупится, если договориться: {_condition_words(item['condition'])}."
+        return "Невыгоден даже при подборе числа роботов."
+    shared = (item.get("story") or {}).get("shared_with") or []
+    taken = [name for code, name in names.items() if code in chosen and name in shared]
+    if taken:
+        return f"Те же люди уже уходят с процесса «{taken[0]}»: этот процесс добавит только вложения и расходы."
+    if budget:
+        return "Выгоден сам по себе, но в бюджет площадки помещаются более выгодные процессы."
+    return "Выгоден сам по себе, но без него итог объекта больше."
+
+
+def _condition_words(condition: dict) -> str:
+    if condition["scope"] == "subsidy" or condition["scope"] == "combo" and not condition.get("to"):
+        return "господдержка"
+    if condition["key"] == "price_factor":
+        text = f"скидка вендора {_t_plain(round(condition['from'] - condition['to']))}%"
+        return text + (" и господдержка" if condition["scope"] == "combo" else "")
+    return f"{condition['label'].lower()} {_t_plain(condition['to'])} {condition['unit']}"
 
 
 # Чем измеряется работа процесса, если у задачи нет своего потока: поля площадки и единица.

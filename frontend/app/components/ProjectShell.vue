@@ -9,7 +9,7 @@ const props = defineProps<{
   subtitle?: string
   lead?: string
   dense?: boolean
-  substages?: { id: string; label: string; to: string }[]
+  substages?: { id: string; label: string; to: string; tone?: string }[]
   currentSub?: string
   alerts?: Record<string, { title: string; items: string[]; note: string }>
 }>()

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { skippedAlerts } from '~/composables/usePlatformCompare'
-import { PhArrowRight, PhArrowCounterClockwise, PhFloppyDisk } from '@phosphor-icons/vue'
+import { PhArrowRight, PhArrowCounterClockwise, PhCaretDown, PhFloppyDisk } from '@phosphor-icons/vue'
 import {
   figValue,
   millions,
@@ -30,7 +30,8 @@ const params = ref<EconParam[]>([])
 const saving = ref(false)
 const savedNote = ref('')
 const processCode = ref(typeof route.query.process === 'string' ? route.query.process : '')
-const opened = ref<string[]>(['site:whatif', 'site:staff', 'process:whatif', 'process:capex', 'process:opex'])
+/* Группы свёрнуты: сначала видно, что где изменено, а ползунки открываются по клику — чтобы глаза не разбегались. */
+const opened = ref<string[]>([])
 let started = false
 let timer: ReturnType<typeof setTimeout> | undefined
 
@@ -255,7 +256,7 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
               {{ item.process_name }}
             </button>
           </div>
-          <section v-for="section in sections" :key="section.id" class="section">
+          <section v-for="section in sections" :key="section.id" class="k-sec">
             <div v-if="section.title" class="h4">{{ section.title }}</div>
             <p v-if="section.note" class="caption section-note">{{ section.note }}</p>
             <div v-for="group in section.groups" :key="group.id" class="group" :class="{ sub: group.toggle, 'sub-on': group.toggle && subsidyOn(group.toggle) }">
@@ -267,9 +268,9 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
                 </span>
                 <span class="caption">{{ subsidyOn(group.toggle) ? (group.changed ? `изменено ${group.changed}` : 'включена') : 'выключена' }}</span>
               </div>
-              <button v-else type="button" class="group-head" @click="toggleGroup(group.id)">
+              <button v-else type="button" class="group-head" :aria-expanded="opened.includes(group.id)" @click="toggleGroup(group.id)">
                 <span class="label">{{ group.label }}</span>
-                <span class="caption">{{ group.changed ? `изменено ${group.changed}` : `${group.items.length}` }}</span>
+                <span class="caption g-sum" :class="{ changed: group.changed }">{{ group.changed ? `изменено ${group.changed} из ${group.items.length}` : `${group.items.length} · стандарт` }}<PhCaretDown :size="12" weight="bold" class="g-caret" :class="{ up: opened.includes(group.id) }" /></span>
               </button>
               <template v-if="group.toggle ? subsidyOn(group.toggle) : opened.includes(group.id)">
                 <div v-for="item in group.items" :key="item.key" class="knob" :class="{ changed: isChanged(item, group.scope) }">
@@ -363,13 +364,13 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
 .waiting > * { position: relative; z-index: 1; }
 .gone { padding-top: var(--space-12); }
 .wi { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: var(--space-4); align-items: start; }
-.k-in { position: relative; z-index: 1; padding: var(--space-6); display: grid; gap: var(--space-4); }
+.k-in { position: relative; z-index: 1; padding: var(--space-6); display: grid; gap: var(--space-4); align-content: start; }
 .proc-switch { display: flex; flex-wrap: wrap; gap: 6px; }
 .ps { padding: 6px 10px; border-radius: 999px; background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.08); font-size: 13px; font-weight: 650; color: var(--ink-muted); }
 .ps.on { color: var(--ink-strong); box-shadow: inset 0 0 0 1px var(--brand-400); background: #fff; }
 .ps.bad:not(.on) { box-shadow: inset 0 0 0 1px rgba(180, 60, 40, 0.45); }
-.section { display: grid; gap: 6px; }
-.section .h4 { margin: 8px 0 0; }
+.k-sec { display: grid; gap: 6px; }
+.k-sec .h4 { margin: 8px 0 0; }
 .section-note { margin: 0 0 4px; }
 .group.sub { border-radius: 14px; background: rgba(255, 255, 255, 0.45); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); padding: 2px 4px 4px; }
 .group.sub-on { background: #fff; box-shadow: inset 0 0 0 1px var(--brand-400); }
@@ -424,4 +425,8 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
   .sens-row { grid-template-columns: 1fr; }
   .sens-v { text-align: left; }
 }
+.g-sum { display: inline-flex; align-items: center; gap: 6px; }
+.g-sum.changed { color: var(--brand-700); font-weight: 700; }
+.g-caret { color: var(--ink-faint); transition: transform var(--dur-fast) var(--ease); }
+.g-caret.up { transform: rotate(180deg); }
 </style>

@@ -90,8 +90,8 @@ export function usePlatformCompare(projectId: Ref<string>) {
 
   const skipReason = (group: MatchGroup) => {
     if (includedHits(group).length) return ''
-    if (!group.hits.length) return 'В каталоге на этот процесс не назначено роботов.'
-    if (!group.hits.some((hit) => hit.verdict === 'pass')) return 'Ни один робот не прошёл фильтры, и в сравнение его не добавили.'
+    if (!group.hits.length) return 'В каталоге нет роботов для этого процесса.'
+    if (!group.hits.some((hit) => hit.verdict === 'pass')) return 'Ни один робот не подошёл полностью, в сравнение никого не добавили.'
     return 'Подходящих роботов убрали из сравнения.'
   }
 

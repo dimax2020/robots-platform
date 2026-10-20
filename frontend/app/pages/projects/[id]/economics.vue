@@ -12,17 +12,24 @@ import {
   subsidyKey,
   usePlatformEconomy,
   yearsText,
+  conditionText,
+  type EconFix,
   type EconFleet,
+  type EconPlanChange,
+  withPlan,
   type EconProcess,
   type EconScenario,
   type EconSuggestion,
 } from '~/composables/usePlatformEconomy'
 import { replaceQuery } from '~/composables/useQuerySync'
+import { useStepPass } from '~/composables/useStepPass'
 import { fetchErrorMessage } from '~/utils/errors'
 import { isAccent } from '~/utils/accent'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
+/* Данные карточки робота правит только администратор каталога; пользователь видит лишь, что их нет. */
+const { role } = useRole()
 const { project, isDemo, readonly, report, loading, failure, pending, error, source, choices, skipped, load, saveOverrides, restoreProcess, setStaff, inactive } = usePlatformEconomy(id)
 useHead({ title: () => `Экономика · ${project.value?.name ?? 'проект'}` })
 
@@ -33,22 +40,65 @@ watch([() => JSON.stringify(source.value ?? null), () => JSON.stringify(choices.
 
 /* Сверху общая картина, ниже — вкладки, каждая отвечает на один вопрос пользователя. */
 const TABS = [
-  { id: 'processes', label: 'Что роботизировать', question: 'Что роботизировать, а что нет', lead: 'Каждый процесс так, будто роботизируют только его: сколько людей и денег сейчас, что изменится и что останется. Нажмите на строку, чтобы раскрыть процесс, указать людей или поменять количество роботов. Переключатель убирает процесс из общей картины.' },
-  { id: 'people', label: 'Откуда экономия', question: 'За счёт чего экономия', lead: 'Экономия — это люди, чью работу забирают роботы, минус расходы на сами роботы. Сокращение по ТК РФ: 2 месяца уведомления и выплаты до 2 зарплат.' },
-  { id: 'money', label: 'Когда окупится', question: 'Когда вернутся деньги', lead: 'Деньги по годам после налога на прибыль. Первый год неполный: экономия начинается после уведомления, в нём же выплаты при сокращении.' },
-  { id: 'rent', label: 'Купить или арендовать', question: 'Купить роботов или взять в аренду', lead: 'Аренда (RaaS) почти не требует вложений, но платёж каждый месяц. Сравниваем с покупкой и с работой вручную.' },
-  { id: 'support', label: 'Господдержка', question: 'Можно ли дешевле', lead: 'Меры господдержки для покупки за свои средства. Включите меру — общая картина сверху пересчитается.' },
-  { id: 'risk', label: 'Надёжность', question: 'Насколько можно доверять расчёту', lead: 'Какой разброс у результата, где запас прочности и какие данные стоит уточнить у заказчика и вендора.' },
+  { id: 'processes', label: 'Что роботизировать', lead: 'Каждый процесс — как будто роботизируют только его. Нажмите на строку, чтобы открыть его страницу; переключатель убирает процесс из итога.' },
+  { id: 'people', label: 'Откуда экономия', lead: 'Люди, чью работу забирают роботы, минус расходы на сами роботы. Сокращение по ТК РФ: 2 месяца уведомления и до 2 зарплат выплат.' },
+  { id: 'money', label: 'Когда окупится', lead: 'Деньги по годам после налога на прибыль. В первом году — уведомление о сокращении и выплаты.' },
+  { id: 'rent', label: 'Купить или арендовать', lead: 'Аренда почти не требует вложений, но платёж каждый месяц.' },
+  { id: 'support', label: 'Господдержка', lead: 'Включите меру — общая картина пересчитается.' },
+  { id: 'risk', label: 'Надёжность', lead: 'Разброс результата, неудачные сценарии, запас прочности и что уточнить.' },
 ] as const
 type TabId = typeof TABS[number]['id']
 const tab = ref<TabId>(TABS.some((item) => item.id === route.query.tab) ? route.query.tab as TabId : 'processes')
-watch(tab, (current) => replaceQuery({ tab: current === 'processes' ? undefined : current, process: undefined }))
+watch(tab, (current) => replaceQuery({ tab: current === 'processes' ? undefined : current }))
 const activeTab = computed(() => TABS.find((item) => item.id === tab.value)!)
 const tabsRef = ref<HTMLElement | null>(null)
 const goto = (next: string) => {
+  /* «Заполнить людей» ведёт на первый процесс без данных: там вопрос и задаётся. */
+  if (next === 'processes') {
+    const empty = processList.value.find((item) => !item.off && item.story?.needs_staff)
+    if (empty) return navigateTo(stageTo(empty.process_code))
+  }
   tab.value = next as TabId
   nextTick(() => tabsRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
 }
+
+/* Как прошлые шаги: сначала каждый процесс отдельным подшагом, последним — общая картина. */
+const processList = computed(() => (report.value?.processes ?? []).filter((item) => item.included))
+const stageTo = (code: string) => `/projects/${id.value}/economics?process=${code}`
+/* Первый проход — по процессам; пройденный шаг открывается сразу с общей картины. */
+const pass = useStepPass(id, 'economics')
+const view = computed(() => {
+  const asked = typeof route.query.process === 'string' ? route.query.process : ''
+  if (asked === 'total' || processList.value.some((item) => item.process_code === asked)) return asked
+  if (route.query.tab || pass.done.value) return 'total'
+  return processList.value[0]?.process_code ?? 'total'
+})
+watch([view, () => processList.value.length], ([current, count]) => { if (current === 'total' && count) pass.markDone() }, { immediate: true })
+const viewProcess = computed(() => view.value === 'total' ? null : processList.value.find((item) => item.process_code === view.value) ?? null)
+const substages = computed(() => [
+  ...processList.value.map((item) => ({ id: item.process_code, label: item.process_name, to: stageTo(item.process_code), tone: toneOf(item) })),
+  { id: 'total', label: 'Общая картина', to: stageTo('total') },
+])
+const stageIndex = computed(() => substages.value.findIndex((stage) => stage.id === view.value))
+const nextStage = computed(() => substages.value[stageIndex.value + 1] ?? null)
+const forwardLabel = computed(() => !nextStage.value ? 'К what-if' : nextStage.value.id === 'total' ? 'Общая картина' : 'Следующий процесс')
+const goForward = () => navigateTo(nextStage.value ? nextStage.value.to : `/projects/${id.value}/what-if`)
+/* Что сейчас выставлено на процессе — одной строкой в заголовке свёрнутой настройки. */
+const tuneSummary = computed(() => {
+  const item = viewProcess.value
+  if (!item) return ''
+  const row = fleetOf(item.process_code)
+  const count = row?.count_used ?? 0
+  const word = count % 10 === 1 && count % 100 !== 11 ? 'робот' : [2, 3, 4].includes(count % 10) && ![12, 13, 14].includes(count % 100) ? 'робота' : 'роботов'
+  const parts = [
+    `${count.toLocaleString('ru-RU')} ${word}${row?.count_source === 'project' ? ' — своё число' : ''}`,
+    `цена ${knobValue(item.process_code, 'price_factor').toLocaleString('ru-RU')}% карточки`,
+    `сервис ${knobValue(item.process_code, 'service_pct').toLocaleString('ru-RU')}% в год`,
+  ]
+  if (item.suggestions.length) parts.push(`${item.suggestions.length} ${item.suggestions.length === 1 ? 'способ' : item.suggestions.length < 5 ? 'способа' : 'способов'} сделать выгодным`)
+  return parts.join(' · ')
+})
+const fteHours = computed(() => report.value?.params.find((item) => item.key === 'fte_hours')?.value)
 
 const scenarioOf = (key: EconScenario['key']) => report.value?.scenarios.find((item) => item.key === key) ?? null
 const buy = computed(() => scenarioOf('purchase'))
@@ -78,6 +128,7 @@ const setOff = (codes: string[], off: boolean) => applyOverrides((next) => {
   for (const code of codes) {
     if (off) next[`off:${code}`] = 1
     else delete next[`off:${code}`]
+    delete next[`auto:off:${code}`]
   }
 }, `off:${codes.join(',')}`)
 const toggleSubsidy = (code: string) => applyOverrides((next) => {
@@ -94,6 +145,7 @@ const setCount = (row: EconFleet, value: number | null) => applyOverrides((next)
   const key = `count:${row.process_code}`
   if (value == null) delete next[key]
   else next[key] = Math.min(10_000, Math.max(1, Math.round(value)))
+  delete next[`auto:count:${row.process_code}`]
 }, `count:${row.process_code}`)
 const typeCount = (row: EconFleet, event: Event) => {
   const value = Number((event.target as HTMLInputElement).value)
@@ -132,12 +184,18 @@ const applySuggestion = (code: string, item: EconSuggestion) => {
   return navigateTo(`/projects/${id.value}/what-if?${new URLSearchParams({ process: code, tune: item.key, value: String(item.to), scope: item.scope })}`)
 }
 
+/* Выработка робота, указанная в проекте: когда в карточке её нет или вендор назвал свою. */
+const setRate = (code: string, value: number | null) => applyOverrides((next) => {
+  if (value == null) delete next[`rate:${code}`]
+  else next[`rate:${code}`] = value
+}, `rate:${code}`)
+
 /* Люди на процессе: ввод прямо в строке процесса. */
-const saveStaff = async (item: EconProcess, people: number | null, wage: number | null) => {
+const saveStaff = async (item: EconProcess, people: number | null, wage: number | null, cost: number | null = null, other: number | null = null) => {
   busy.value = `staff:${item.process_code}`
   editError.value = ''
   try {
-    await setStaff(item.process_code, item.process_name, people, wage)
+    await setStaff(item.process_code, item.process_name, people, wage, cost, other)
   } catch (err: unknown) {
     editError.value = fetchErrorMessage(err, 'Не удалось сохранить людей на процессе')
   } finally {
@@ -165,25 +223,75 @@ const applyConditions = (items: EconProcess[]) => applyOverrides((next) => {
     if (fix.scope === 'process' || fix.scope === 'combo') next[knobKey(item.process_code, fix.key)] = fix.to
     if (fix.scope === 'combo') for (const code of fix.with ?? []) next[subsidyKey(code)] = 1
     if (fix.scope === 'subsidy') for (const code of fix.key.split(',')) next[subsidyKey(code)] = 1
+    /* С условием процесс выгоден — возвращаем его в итог, даже если платформа его убирала. */
+    delete next[`off:${item.process_code}`]
+    delete next[`auto:off:${item.process_code}`]
   }
 }, 'conditions')
-/* Лучший набор: оставить в расчёте только его процессы, остальные — исключить. */
-const applyBest = () => {
-  const keep = new Set(report.value?.best_set?.codes ?? [])
-  if (!keep.size) return
-  return applyOverrides((next) => {
-    for (const item of processRows.value) {
-      if (keep.has(item.process_code)) delete next[`off:${item.process_code}`]
-      else next[`off:${item.process_code}`] = 1
-    }
-  }, 'best')
+/* План платформы: число роботов и состав процессов она меняет сама и помечает правки auto:*, чтобы их можно было вернуть. */
+const applyPlan = (changes: EconPlanChange[]) => applyOverrides((next) => {
+  const planned = withPlan(next, changes)
+  for (const key of Object.keys(next)) if (!(key in planned)) delete next[key]
+  Object.assign(next, planned)
+}, 'plan')
+/* Правки платформы вносятся сами при первом расчёте проекта. Демо, которое правит администратор, не трогаем: оно общее. */
+const autoTried = ref(false)
+watch(report, (current) => {
+  if (!current || autoTried.value || busy.value) return
+  autoTried.value = true
+  if (isDemo.value && !readonly.value) return
+  if (!overrides.value.auto && current.plan?.changes.length) void applyPlan(current.plan.changes)
+}, { immediate: true })
+/* Процесс, который платформа убрала сама, она же и возвращает, когда он стал выгоден: например, после ввода людей. */
+let returned = ''
+watch([report, busy], ([current, working]) => {
+  if (!current || working || (isDemo.value && !readonly.value) || !overrides.value.auto) return
+  const back = current.plan?.changes.filter((change) => change.kind === 'on') ?? []
+  const key = back.map((change) => change.code).join(',')
+  if (!back.length || key === returned) return
+  returned = key
+  void applyPlan(back)
+})
+const processOf = (code: string) => report.value?.processes?.find((item) => item.process_code === code) ?? null
+const offReason = (code: string) => {
+  const item = processOf(code)
+  if (!item?.story || item.story.needs_staff) return 'Нет данных о людях на процессе: роботы пока только стоят денег. Укажите людей — платформа пересчитает.'
+  if (!item.profitable) return item.condition ? `Невыгоден даже при подборе числа роботов. Окупится ${conditionText(item.condition)}, если договориться.` : 'Невыгоден даже при подборе числа роботов.'
+  const taken = item.story.shared_with.find((name) => active.value.some((other) => other.process_name === name))
+  if (taken) return `Те же люди уже уходят с процесса «${taken}»: этот процесс добавит только вложения и расходы.`
+  return report.value?.plan?.budget ? 'Выгоден сам по себе, но в бюджет помещаются более выгодные процессы.' : 'Выгоден сам по себе, но без него итог объекта больше.'
 }
+const fixes = computed<EconFix[]>(() => Object.keys(overrides.value).flatMap((key): EconFix[] => {
+  if (key.startsWith('auto:count:')) {
+    const code = key.slice('auto:count:'.length)
+    const item = processOf(code)
+    return [{ key, kind: 'count', code, name: item?.process_name ?? code, change: `роботов ${overrides.value[key]} → ${overrides.value[`count:${code}`] ?? '—'}`,
+      reason: `Больше людей, чем есть на процессе, лишние роботы не заменят.${item?.profitable ? ' С этим числом процесс выгоден.' : ''}` }]
+  }
+  if (key.startsWith('auto:off:')) {
+    const code = key.slice('auto:off:'.length)
+    return [{ key, kind: 'off', code, name: processOf(code)?.process_name ?? code, change: 'убран из итога', reason: offReason(code) }]
+  }
+  return []
+}))
+const undoKeys = (next: Record<string, number>, fix: EconFix) => {
+  delete next[fix.key]
+  if (fix.kind === 'off') delete next[`off:${fix.code}`]
+  else {
+    const from = overrides.value[fix.key]
+    if (from == null || from === fleetOf(fix.code)?.count) delete next[`count:${fix.code}`]
+    else next[`count:${fix.code}`] = from
+  }
+}
+const undoFix = (fix: EconFix) => applyOverrides((next) => undoKeys(next, fix), `undo:${fix.key}`)
+const undoAll = () => applyOverrides((next) => { for (const fix of fixes.value) undoKeys(next, fix) }, 'undo')
 const setHorizon = (years: number) => applyOverrides((next) => { next.horizon_years = years }, 'horizon')
 const worst = computed(() => report.value?.stress?.find((item) => item.key === 'all') ?? null)
 const offCodes = computed(() => processRows.value.filter((item) => item.off).map((item) => item.process_code))
-const noStaff = computed(() => active.value.filter((item) => item.story?.needs_staff).length)
+/* Без данных — в том числе процессы, которые платформа убрала из итога: данные по ним всё равно нужны. */
+const noStaff = computed(() => processRows.value.filter((item) => item.story?.needs_staff).length)
 const uncounted = computed(() => report.value?.fleet.filter((row) => row.included && !row.off && row.count_source === 'default').length ?? 0)
-const openCode = ref('')
+const openProcess = (code: string) => navigateTo(stageTo(code))
 const unpriced = computed(() => report.value?.fleet.filter((row) => !row.included) ?? [])
 
 /* Откуда экономия: статьи с формулами. */
@@ -268,9 +376,18 @@ const inactiveOpen = ref(false)
 </script>
 
 <template>
-  <ProjectShell v-if="project" :project="project" :alerts="skippedAlerts(skipped)" current="economics" title="Экономика">
+  <ProjectShell
+    v-if="project"
+    :project="project"
+    :alerts="skippedAlerts(skipped)"
+    current="economics"
+    :substages="report ? substages : undefined"
+    :current-sub="view"
+    title="Экономика"
+    :subtitle="viewProcess ? `по процессу «${viewProcess.process_name}»` : report ? 'общая картина' : undefined"
+  >
     <template #actions>
-      <UiButton :to="`/projects/${project.id}/what-if`" size="lg">К what-if<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
+      <UiButton size="lg" @click="goForward">{{ forwardLabel }}<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
     </template>
 
     <UiCallout v-if="isDemo && !readonly" tone="info" title="Демо-объект">
@@ -279,6 +396,69 @@ const inactiveOpen = ref(false)
 
     <section v-if="(pending || loading) && !report" class="waiting glass"><div class="h3">Считаем экономику</div></section>
     <UiCallout v-else-if="failure || error" tone="danger" title="Экономика не посчиталась">{{ failure || fetchErrorMessage(error, 'Сервер не ответил.') }}</UiCallout>
+    <template v-else-if="report && buy && viewProcess">
+      <UiCallout v-if="editError" tone="danger">{{ editError }}</UiCallout>
+      <EconProcessCard
+        page
+        :process="viewProcess"
+        :busy="!!busy"
+        :horizon="report.horizon_years"
+        :fte-hours="fteHours"
+        @off="(off) => setOff([viewProcess!.process_code], off)"
+        :fixes="fixes.filter((fix) => fix.code === viewProcess!.process_code)"
+        :rate-editable="role === 'admin'"
+        :tune-summary="tuneSummary"
+        :tune-hint="fleetOf(viewProcess.process_code)?.count_source === 'default' ? 'Число роботов не посчитано: формуле не хватает данных площадки, в расчёте 1 робот. Укажите своё число в настройке процесса.' : ''"
+        @staff="(people, wage, cost, other) => saveStaff(viewProcess!, people, wage, cost, other)"
+        @apply="applyConditions([viewProcess!])"
+        @rate="(value) => setRate(viewProcess!.process_code, value)"
+        @undo="undoFix"
+      >
+        <div class="tune">
+          <div class="knobs">
+            <div v-if="fleetOf(viewProcess!.process_code)?.included" class="knob">
+              <span class="caption">Роботов</span>
+              <span class="count">
+                <button type="button" class="step" :disabled="!!busy || (fleetOf(viewProcess!.process_code)!.count_used ?? 1) <= 1" aria-label="Меньше" @click="setCount(fleetOf(viewProcess!.process_code)!, (fleetOf(viewProcess!.process_code)!.count_used ?? 1) - 1)">−</button>
+                <input class="count-in mono-sm" type="number" min="1" max="10000" :value="fleetOf(viewProcess!.process_code)!.count_used ?? 1" :disabled="!!busy" aria-label="Роботов на процессе" @change="typeCount(fleetOf(viewProcess!.process_code)!, $event)" @keydown.enter="($event.target as HTMLInputElement).blur()">
+                <button type="button" class="step" :disabled="!!busy" aria-label="Больше" @click="setCount(fleetOf(viewProcess!.process_code)!, (fleetOf(viewProcess!.process_code)!.count_used ?? 1) + 1)">+</button>
+              </span>
+              <span class="caption">
+                <template v-if="fleetOf(viewProcess!.process_code)!.count_source === 'project'">вручную · <button type="button" class="reset" :disabled="!!busy" @click="setCount(fleetOf(viewProcess!.process_code)!, null)">{{ fleetOf(viewProcess!.process_code)!.count != null ? `по формуле ${fleetOf(viewProcess!.process_code)!.count!.toLocaleString('ru-RU')}` : 'сбросить' }}</button></template>
+                <template v-else-if="fleetOf(viewProcess!.process_code)!.count_source === 'default'"><span class="warn-text">формула не посчитала — укажите своё число</span></template>
+                <template v-else>по формуле подбора</template>
+              </span>
+            </div>
+            <div v-for="knob in KNOBS" :key="knob.key" class="knob">
+              <span class="caption">{{ knob.label }}</span>
+              <span class="count">
+                <button type="button" class="step" :disabled="!!busy || knobValue(viewProcess!.process_code, knob.key) <= knob.min" aria-label="Меньше" @click="setKnob(viewProcess!.process_code, knob.key, Math.max(knob.min, knobValue(viewProcess!.process_code, knob.key) - knob.step))">−</button>
+                <input class="count-in mono-sm" type="number" :min="knob.min" :max="knob.max" :step="knob.step" :value="knobValue(viewProcess!.process_code, knob.key)" :disabled="!!busy" :aria-label="knob.label" @change="typeKnob(viewProcess!.process_code, knob, $event)" @keydown.enter="($event.target as HTMLInputElement).blur()">
+                <button type="button" class="step" :disabled="!!busy || knobValue(viewProcess!.process_code, knob.key) >= knob.max" aria-label="Больше" @click="setKnob(viewProcess!.process_code, knob.key, Math.min(knob.max, knobValue(viewProcess!.process_code, knob.key) + knob.step))">+</button>
+              </span>
+              <span class="caption">{{ knob.unit }} · <button v-if="knobOwn(viewProcess!.process_code, knob.key)" type="button" class="reset" :disabled="!!busy" @click="setKnob(viewProcess!.process_code, knob.key, null)">сбросить</button><template v-else>{{ knob.hint }}</template></span>
+            </div>
+          </div>
+          <div v-if="viewProcess!.suggestions.length" class="fixes">
+            <span class="caption strong">Что сделает процесс выгодным</span>
+            <div class="fix-list">
+              <button v-for="fix in viewProcess!.suggestions" :key="`${fix.scope}:${fix.key}`" type="button" class="fix" :class="fix.scope" :disabled="!!busy" @click="applySuggestion(viewProcess!.process_code, fix)">
+                <span class="fix-scope">{{ SCOPE_LABEL[fix.scope] }}</span>
+                <span class="body-sm strong">{{ fix.label }}</span>
+                <span class="mono-sm">{{ suggestionChange(fix) }}</span>
+                <span class="caption">окупаемость {{ fix.payback != null ? yearsText(fix.payback) : '—' }}</span>
+                <span class="fix-go">{{ fix.scope === 'site' ? 'Открыть в what-if →' : 'Применить' }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </EconProcessCard>
+      <div class="stage-foot">
+        <span class="caption">Процесс {{ stageIndex + 1 }} из {{ processList.length }}. Общая картина сложит выбранные процессы и покажет итог объекта.</span>
+        <UiButton @click="goForward">{{ forwardLabel }}<template #after><PhArrowRight :size="16" weight="bold" /></template></UiButton>
+      </div>
+      <p class="caption prelim">{{ report.disclaimer ?? PRELIMINARY }}</p>
+    </template>
     <template v-else-if="report && buy">
       <EconOverview
         :buy="buy"
@@ -296,14 +476,17 @@ const inactiveOpen = ref(false)
         :uncounted="uncounted"
         :chance="report.chance"
         :worst="worst"
-        :best="report.best_set"
+        :plan="report.plan"
         :busy="!!busy"
         @keep-good="setOff(losers.map((item) => item.process_code), true)"
         @apply-conditions="applyConditions(applicable)"
-        @apply-best="applyBest"
+        @apply-plan="report.plan && applyPlan(report.plan.changes)"
         @horizon="setHorizon"
         @goto="goto"
       >
+        <template v-if="fixes.length" #fixes>
+          <EconFixes :fixes="fixes" :busy="!!busy" @undo="undoFix" @undo-all="undoAll" />
+        </template>
         <template #expert>
           <EconMetrics
             :buy="buy"
@@ -320,10 +503,7 @@ const inactiveOpen = ref(false)
       <UiCallout v-if="editError" tone="danger">{{ editError }}</UiCallout>
 
       <div ref="tabsRef" class="tabs-wrap"><UiTabs v-model="tab" :tabs="tabs" /></div>
-      <div class="q-head">
-        <h2 class="h3">{{ activeTab.question }}</h2>
-        <p class="caption">{{ activeTab.lead }}</p>
-      </div>
+      <p class="caption q-lead">{{ activeTab.lead }}</p>
 
       <!-- Какие процессы выгодны -->
       <template v-if="tab === 'processes'">
@@ -340,53 +520,13 @@ const inactiveOpen = ref(false)
             :process="item"
             :busy="!!busy"
             :horizon="report.horizon_years"
-            :open="openCode === item.process_code"
-            @toggle="openCode = openCode === item.process_code ? '' : item.process_code"
+            :open="false"
+            @toggle="openProcess(item.process_code)"
             @off="(off) => setOff([item.process_code], off)"
-            @staff="(people, wage) => saveStaff(item, people, wage)"
             @apply="applyConditions([item])"
-          >
-            <div class="tune">
-              <div class="knobs">
-                <div v-if="fleetOf(item.process_code)?.included" class="knob">
-                  <span class="caption">Роботов</span>
-                  <span class="count">
-                    <button type="button" class="step" :disabled="!!busy || (fleetOf(item.process_code)!.count_used ?? 1) <= 1" aria-label="Меньше" @click="setCount(fleetOf(item.process_code)!, (fleetOf(item.process_code)!.count_used ?? 1) - 1)">−</button>
-                    <input class="count-in mono-sm" type="number" min="1" max="10000" :value="fleetOf(item.process_code)!.count_used ?? 1" :disabled="!!busy" aria-label="Роботов на процессе" @change="typeCount(fleetOf(item.process_code)!, $event)" @keydown.enter="($event.target as HTMLInputElement).blur()">
-                    <button type="button" class="step" :disabled="!!busy" aria-label="Больше" @click="setCount(fleetOf(item.process_code)!, (fleetOf(item.process_code)!.count_used ?? 1) + 1)">+</button>
-                  </span>
-                  <span class="caption">
-                    <template v-if="fleetOf(item.process_code)!.count_source === 'project'">вручную · <button type="button" class="reset" :disabled="!!busy" @click="setCount(fleetOf(item.process_code)!, null)">{{ fleetOf(item.process_code)!.count != null ? `по формуле ${fleetOf(item.process_code)!.count!.toLocaleString('ru-RU')}` : 'сбросить' }}</button></template>
-                    <template v-else-if="fleetOf(item.process_code)!.count_source === 'default'"><span class="warn-text">формула не посчитала, взят 1</span></template>
-                    <template v-else>по формуле подбора</template>
-                  </span>
-                </div>
-                <div v-for="knob in KNOBS" :key="knob.key" class="knob">
-                  <span class="caption">{{ knob.label }}</span>
-                  <span class="count">
-                    <button type="button" class="step" :disabled="!!busy || knobValue(item.process_code, knob.key) <= knob.min" aria-label="Меньше" @click="setKnob(item.process_code, knob.key, Math.max(knob.min, knobValue(item.process_code, knob.key) - knob.step))">−</button>
-                    <input class="count-in mono-sm" type="number" :min="knob.min" :max="knob.max" :step="knob.step" :value="knobValue(item.process_code, knob.key)" :disabled="!!busy" :aria-label="knob.label" @change="typeKnob(item.process_code, knob, $event)" @keydown.enter="($event.target as HTMLInputElement).blur()">
-                    <button type="button" class="step" :disabled="!!busy || knobValue(item.process_code, knob.key) >= knob.max" aria-label="Больше" @click="setKnob(item.process_code, knob.key, Math.min(knob.max, knobValue(item.process_code, knob.key) + knob.step))">+</button>
-                  </span>
-                  <span class="caption">{{ knob.unit }} · <button v-if="knobOwn(item.process_code, knob.key)" type="button" class="reset" :disabled="!!busy" @click="setKnob(item.process_code, knob.key, null)">сбросить</button><template v-else>{{ knob.hint }}</template></span>
-                </div>
-              </div>
-              <div v-if="item.suggestions.length" class="fixes">
-                <span class="caption strong">Что сделает процесс выгодным</span>
-                <div class="fix-list">
-                  <button v-for="fix in item.suggestions" :key="`${fix.scope}:${fix.key}`" type="button" class="fix" :class="fix.scope" :disabled="!!busy" @click="applySuggestion(item.process_code, fix)">
-                    <span class="fix-scope">{{ SCOPE_LABEL[fix.scope] }}</span>
-                    <span class="body-sm strong">{{ fix.label }}</span>
-                    <span class="mono-sm">{{ suggestionChange(fix) }}</span>
-                    <span class="caption">окупаемость {{ fix.payback != null ? yearsText(fix.payback) : '—' }}</span>
-                    <span class="fix-go">{{ fix.scope === 'site' ? 'Открыть в what-if →' : 'Применить' }}</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </EconProcessCard>
+          />
         </div>
-        <p v-if="unpriced.length" class="caption">Не входят в расчёт без цены: {{ unpriced.map((row) => row.process_name).join(', ') }}.</p>
+        <p v-if="unpriced.length" class="caption">Нет цены робота, в расчёт не входят: {{ unpriced.map((row) => row.process_name).join(', ') }}.</p>
         <section v-if="inactive.length" class="inactive glass">
           <div class="c-in">
             <button type="button" class="c-head fleet-toggle" :aria-expanded="inactiveOpen" @click="inactiveOpen = !inactiveOpen">
@@ -570,10 +710,9 @@ const inactiveOpen = ref(false)
 
 .tabs-wrap { overflow-x: auto; margin: var(--space-4) -2px 0; padding: 2px; scroll-margin-top: 90px; }
 .tabs-wrap :deep(.tabs) { min-width: 940px; }
-.q-head { display: grid; gap: 4px; margin-bottom: calc(var(--space-2) * -1); }
-.q-head .h3, .q-head p { margin: 0; }
-.q-head p { max-width: 90ch; }
+.q-lead { margin: calc(var(--space-2) * -1) 0 calc(var(--space-2) * -1); max-width: 100ch; }
 
+.stage-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
 .p-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .tally { white-space: nowrap; color: var(--ink-muted); margin-right: 6px; }
 .tally b { color: var(--brand-600); }
@@ -589,7 +728,7 @@ const inactiveOpen = ref(false)
 .count-in { width: 64px; height: 30px; border-radius: 9px; text-align: center; background: #fff; box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.12); border: 0; -moz-appearance: textfield; }
 .count-in::-webkit-outer-spin-button, .count-in::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .reset { color: var(--link); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
-.warn-text { color: #9a5b00; font-weight: 700; }
+.warn-text { display: inline-block; padding: 2px 8px; border-radius: 6px; background: #fff3cf; color: #5c3700; font-weight: 700; }
 .fixes { display: grid; gap: 8px; }
 .fix-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
 .fix { display: grid; gap: 4px; align-content: start; text-align: left; padding: 12px 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.08); transition: box-shadow var(--dur-fast) var(--ease); }

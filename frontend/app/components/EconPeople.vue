@@ -6,15 +6,17 @@ import type { EconRelease } from '~/composables/usePlatformEconomy'
 const props = defineProps<{ items: EconRelease[]; dispatchers: number | null; check?: string; ask?: () => void }>()
 
 const fmt = (value: number) => value.toLocaleString('ru-RU', { maximumFractionDigits: 1 })
-const staffed = computed(() => props.items.filter((item) => item.source && item.staff > 0))
+/* Где затраты введены суммой, людей не знаем: такие процессы в счёт людей не входят. */
+const staffed = computed(() => props.items.filter((item) => item.source && item.staff > 0 && !item.by_cost))
 const now = computed(() => staffed.value.reduce((sum, item) => sum + item.staff, 0))
-const gone = computed(() => props.items.reduce((sum, item) => sum + item.fte, 0))
+const gone = computed(() => staffed.value.reduce((sum, item) => sum + item.fte, 0))
 const added = computed(() => props.dispatchers ?? 0)
 const net = computed(() => gone.value - added.value)
 const missing = computed(() => props.items.filter((item) => !item.source || !item.staff).length)
 const max = computed(() => Math.max(1, now.value, gone.value + added.value))
 const where = (item: EconRelease) => {
-  if (item.source === 'task') return `задача площадки: ${fmt(item.staff)} чел.`
+  if (item.by_cost) return `затраты ${fmt((item.cost_month ?? 0) / 1e6)} млн ₽ в месяц`
+  if (item.source === 'task') return `указано на процессе: ${fmt(item.staff)} чел.`
   if (item.source === 'role') return `${item.role}: ${fmt(item.staff * item.split)} чел.${item.split > 1 ? ` на ${item.split} процесса` : ''}`
   return 'нет данных'
 }
@@ -62,18 +64,22 @@ const where = (item: EconRelease) => {
               <span v-if="item.note" class="caption note">{{ item.note }}</span>
               <span v-else-if="item.capped" class="caption note">Не больше, чем людей на часы работы роботов: {{ fmt(item.cap ?? 0) }} чел.</span>
             </th>
-            <td><UiBadge :tone="item.source ? 'info' : 'warn'" size="sm">{{ item.source === 'task' ? 'задача' : item.source === 'role' ? 'роль' : 'нет' }}</UiBadge> <span class="caption">{{ where(item) }}</span></td>
-            <td class="mono">{{ item.staff ? `${Math.round(item.auto * 100)}%` : '—' }}<span v-if="item.auto_note" class="caption block">{{ item.auto_note }}</span></td>
-            <td class="mono strong">{{ item.fte ? `${fmt(item.fte)} чел.` : '0' }}</td>
+            <td><UiBadge :tone="item.source ? 'info' : 'warn'" size="sm">{{ item.by_cost ? 'затраты' : item.source === 'task' ? 'процесс' : item.source === 'role' ? 'роль' : 'нет' }}</UiBadge> <span class="caption">{{ where(item) }}</span></td>
+            <td class="mono">{{ item.work?.coverage != null ? `${Math.round(item.work.coverage * 100)}% операций` : item.staff ? `${Math.round(item.auto * 100)}%` : '—' }}<span v-if="item.auto_note" class="caption block">{{ item.auto_note }}</span></td>
+            <td class="mono strong">{{ item.by_cost ? `${Math.round(item.fte * 100)}% затрат` : item.fte ? `${fmt(item.fte)} чел.` : '0' }}</td>
           </tr>
         </tbody>
       </table>
     </div>
     <p class="caption method">
-      Численность берётся из задач площадки или ролей. Если на роль приходится несколько процессов парка, люди делятся между ними поровну.
-      Люди уходят целыми ставками в каждой смене. Без численности экономия не считается: роботы-часы в людей не превращаем.
-      <template v-if="missing"> У {{ missing }} процессов данных нет — <button v-if="ask" type="button" class="link" @click="ask">вопросы заказчику</button><template v-else>вопросы заказчику на вкладке «Допущения»</template>.</template>
+      Роботы забирают операции: их выработка в час на часы работы площадки против объёма процесса. Уходит столько людей, какую долю операций берут роботы,
+      целыми ставками в каждой смене. Если указаны затраты суммой — уходит та же доля затрат. Без людей или затрат экономия не считается.
+      
     </p>
+    <UiHint v-if="missing">
+      У {{ missing }} процессов нет данных о людях или затратах — экономия по ним не считается.
+      <template v-if="ask" #action><UiButton variant="secondary" size="sm" @click="ask">Вопросы заказчику</UiButton></template>
+    </UiHint>
   </div>
 </template>
 
