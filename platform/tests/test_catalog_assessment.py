@@ -41,7 +41,7 @@ def test_published_card_passes_without_assessment_price_configuration_or_sizing(
     hit = assess(row)
     assert hit['verdict'] == 'pass' and hit['technical_ready']
     assert hit['count'] is None and not hit['sizing_ready'] and not hit['economic_ready']
-    assert {'price_missing', 'price_scope_unconfirmed', 'configuration_missing', 'sizing_model_missing'} <= {r['code'] for r in hit['economic_reasons']}
+    assert {'price_missing', 'price_scope_unconfirmed', 'configuration_missing', 'sizing_input_missing'} <= {r['code'] for r in hit['economic_reasons']}
     assert hit['provenance']['min_aisle_width_m']['source']['kind'] == 'vendor'
     assert hit['resolved_facts']['capabilities'] == ['floor_cleaning']
     assert row.__dict__ == before
@@ -167,7 +167,7 @@ def test_real_inventory_cards_use_catalog_and_report_actual_missing_inputs(index
     assert catalog.values['lift_height_mm'] in (12000, 12500)
     h = match_robots(process_code='warehouse_inventory', process_name='Инвентаризация товаров', site=fixture['site'],
                      rules=rules, bindings=fixture['bindings'], robots=(_robot_view(row, catalog=catalog),))[0]
-    assert h.verdict == 'unknown'
+    assert h.verdict == ('fail' if index == 0 else 'unknown')  # Известная автономность первого — 2 ч при смене 11 ч.
     codes = {r.code for r in h.reasons}
     assert 'robot_attribute_missing' in codes and 'site_condition_missing' in codes
     assert not codes & {'product_review_missing', 'process_profile_unreviewed', 'process_profile_incomplete'}

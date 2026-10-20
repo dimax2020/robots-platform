@@ -223,7 +223,7 @@ class PreviewIn(BaseModel):
 
 
 class MatchIn(BaseModel):
-    site: dict = Field(default_factory=dict)
+    site: dict | None = None
     tasks: list[dict] | None = None
 
 
@@ -231,7 +231,7 @@ class EconomyIn(BaseModel):
     site: dict | None = None
     choices: dict[str, str] = Field(default_factory=dict)
     picks: dict[str, str] | None = None
-    tasks: list[dict] = Field(default_factory=list)
+    tasks: list[dict] | None = None
     preview: dict[str, float] | None = None
 
 

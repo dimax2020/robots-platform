@@ -3,7 +3,18 @@ import type { DemoSyntheticValue } from '~/utils/demoSynthetic'
 import { eligibleForEconomy, includedInTechnicalComparison, automaticChoice, selectionIssue, normalizeCompareStore } from '~/utils/fleetSelection'
 
 export interface RobotSpec { key: string; label: string; unit: string; direction: 'high' | 'low'; value: number }
+export interface SelectionAssumption {
+  key: string; label: string; value: string | number | boolean | string[]; unit: string
+  origin: string; explanation: string; requires_vendor_confirmation: boolean
+  source_id?: number | null; source?: { publisher?: string; url?: string | null } | null
+  references?: { url?: string; title: string; basis?: string; source_id?: number }[]
+}
+export interface AssessmentReason { code: string; message: string; severity: string; field?: string | null; stage?: string }
 export interface MatchHit {
+  applicability?: string
+  assumptions?: SelectionAssumption[]
+  clarifications?: AssessmentReason[]
+  significant_reasons?: AssessmentReason[]
   uses_demo_synthetic?: boolean
   demo_synthetic?: DemoSyntheticValue[]
   vendor_confirmation_fields?: string[]
@@ -107,7 +118,7 @@ export function usePlatformCompare(projectId: Ref<string>) {
     if (saved && !eligibleForEconomy(group.hits.find((h) => h.product_id === saved))) return selectionIssue(group, saved)
     if (chosenId(group)) return ''
     if (!group.hits.length) return 'На процесс не назначено решений.'
-    return 'Нет подтверждённого решения с известным количеством и ценой. ' + (group.hits[0]?.economic_reasons?.[0]?.message || '')
+    return 'Для расчёта уточните применимость, количество или цену решения. Подробности — в сравнении.'
   }
 
   const remainingHit = (group: MatchGroup) => group.hits.find((hit) => hit.product_id === chosenId(group)) ?? null

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { PhArrowRight, PhArrowUpRight, PhCheck, PhPlus, PhRobot, PhX } from '@phosphor-icons/vue'
+import { assessmentLabel, assessmentTone } from '~/utils/assessmentPresentation'
 import { pluralRu } from '~/data/adminLabels'
 import { fetchErrorMessage } from '~/utils/errors'
 import { platformSend } from '~/composables/usePlatform'
@@ -28,19 +29,6 @@ let clock: ReturnType<typeof setInterval> | undefined
 const ranFor = ref('')
 
 const canRun = computed(() => Boolean(project.value))
-const verdictLabel: Record<string, string> = {
-  pass: 'Подходит',
-  conditional: 'С условием',
-  unknown: 'Уточнить',
-  fail: 'Не подходит',
-}
-const verdictTone: Record<string, 'ok' | 'warn' | 'info' | 'danger' | 'neutral'> = {
-  pass: 'ok',
-  conditional: 'warn',
-  unknown: 'info',
-  fail: 'danger',
-}
-
 const elapsed = computed(() => {
   if (!startedAt.value) return '0,0 с'
   const sec = Math.max(0, now.value - startedAt.value) / 1000
@@ -81,7 +69,7 @@ const buttonLabel = computed(() => {
 
 const isImmature = (hit: MatchHit) => hit.notes.some((note) => note.startsWith('Готовность:'))
 const countText = (hit: MatchHit | null) => {
-  if (!hit || hit.count == null) return hit?.count_note || 'количество не задано'
+  if (!hit || hit.count == null) return 'Количество требует уточнения'
   const value = Number(hit.count)
   const text = Number.isInteger(value) ? value.toLocaleString('ru-RU') : value.toLocaleString('ru-RU', { maximumFractionDigits: 1 })
   return `${text} шт.`
@@ -142,7 +130,7 @@ onBeforeUnmount(stopClock)
     :current-sub="activeCode"
     title="Подобранные решения"
     :subtitle="activeGroup ? `по процессу «${activeGroup.process_name}»` : undefined"
-    :lead="loadingMatch ? 'Считаем решения по выбранным процессам. Время на экране — сколько уже идёт расчёт.' : 'Система сама распределила роботов по группам. В сравнение уже попали роботы, которые прошли по всем параметрам. При желании добавьте роботов, которые подходят с условием.'"
+    :lead="loadingMatch ? 'Считаем решения по выбранным процессам. Время на экране — сколько уже идёт расчёт.' : 'Система сама распределила роботов по группам. В сравнении доступны подходящие решения, решения с допущениями и роботы, требующие уточнения. Допущения и вопросы поставщику указаны в подробностях.'"
   >
     <template #actions>
       <UiButton v-if="shell" size="lg" :disabled="loadingMatch" @click="goNext">
@@ -199,7 +187,7 @@ onBeforeUnmount(stopClock)
             <span class="mono-sm">{{ countText(hit) }}</span>
             <RobotReadiness :trl="hit.trl" :stage="hit.stage" :flagged="isImmature(hit)" />
           </div>
-          <UiBadge :tone="verdictTone[hit.verdict] || 'neutral'" size="sm">{{ hit.uses_demo_synthetic && hit.verdict === 'pass' ? 'Подходит при демодопущениях' : verdictLabel[hit.verdict] || hit.verdict }}</UiBadge>
+          <UiBadge :tone="assessmentTone(hit)" size="sm">{{ assessmentLabel(hit) }}</UiBadge>
           <AssessmentStatus :hit="hit" />
           <button
             type="button"

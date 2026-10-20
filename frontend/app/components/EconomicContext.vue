@@ -22,6 +22,12 @@ const capacity = (sizing: EconFleet['sizing']) => {
 <template>
   <AssessmentNotice :report="report">
     <slot />
+    <details v-if="report.assumptions?.length"><summary>Допущения расчёта — что необходимо уточнить</summary>
+      <div v-for="group in report.assumptions" :key="group.process_code + group.product_id">
+        <strong>{{ processName(group.process_code) }} · {{ group.name }}</strong>
+        <AssumptionList :values="group.fields" />
+      </div>
+    </details>
     <details v-if="report.blockers?.length"><summary>Ограничения расчёта · {{ report.blockers.length }}</summary>
       <ul><li v-for="(item, index) in report.blockers" :key="index">{{ processName(item.process_code) }}: {{ item.message }}</li></ul>
     </details>
@@ -30,7 +36,7 @@ const capacity = (sizing: EconFleet['sizing']) => {
     </details>
     <details v-if="report.fleet.length"><summary>Расчётный парк · {{ report.robots }} машин</summary>
       <ul><li v-for="item in report.fleet" :key="item.process_code">{{ item.process_name }}: {{ item.name }} — {{ item.count_used }} шт.
-        <span v-if="item.sizing?.model"> · {{ item.sizing.model }} · рабочие {{ item.sizing.working_count }}, резерв {{ item.sizing.reserve_count }}</span>
+        <span v-if="item.sizing?.model"> · {{ item.sizing.model }}<template v-if="item.sizing.working_count != null"> · рабочие {{ item.sizing.working_count }}, резерв {{ item.sizing.reserve_count }}</template></span>
         <span v-if="item.uses_demo_synthetic"> · расчёт на синтетических входах</span>
         <details v-if="item.sizing?.inputs"><summary>Входы и производительность модели</summary>
           <p>{{ capacity(item.sizing) }}</p>

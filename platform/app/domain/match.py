@@ -196,7 +196,15 @@ def _one(
             problems.append(reason('configuration_error', f'{rule.name}: неизвестный режим проверки'))
             continue
         if rule.formula:
+            # Мягкая проверка без заданного ограничения площадки не доказывает
+            # несовместимость. Сохраняем вопрос для обследования, без блокировки.
+            before = len(problems)
             _formula_rule(rule, site, bindings, robot, problems)
+            if rule.mode == 'conditional':
+                for i in range(before, len(problems)):
+                    p = problems[i]
+                    if p.code == 'site_input_missing' and bindings.get(p.field, p.field) not in policy.get('critical_site_keys', []):
+                        problems[i] = reason(p.code, p.message, field=p.field, severity='info')
             continue
         pairs = _pairs(rule)
         if not pairs or (len(rule.object_keys) != len(rule.robot_keys) and len(rule.object_keys) != 1):
@@ -205,23 +213,25 @@ def _one(
         for object_key, robot_key in pairs:
             site_value = site.get(object_key)
             if site_value is None or site_value == '':
-                problems.append(reason('site_input_missing', f'{rule.name}: не задан параметр объекта «{object_key}»', field=object_key))
+                problems.append(reason('site_input_missing', f'{rule.name}: не задан параметр объекта «{_label(object_key)}»', field=object_key,
+                                       severity='info' if rule.mode == 'conditional' and object_key not in policy.get('critical_site_keys', []) else 'unknown'))
                 continue
             robot_value = robot.attrs.get(robot_key)
             if robot_value is None or robot_value == '':
-                problems.append(_missing_attribute(robot, robot_key, f'{rule.name}: нет «{robot_key}»'))
+                problems.append(_missing_attribute(robot, robot_key, f'{rule.name}: нет «{_label(robot_key)}»'))
                 continue
             ok, detail = _compare(rule.op, robot_value, site_value)
             if ok is None:
                 problems.append(reason('invalid_value', f'{rule.name}: {detail}'))
             elif not ok:
-                problems.append(reason('technical_constraint', f'{rule.name}: {robot_key} {rule.op} {object_key} не выполнено ({detail})',
-                                       severity='conditional' if rule.mode == 'conditional' else 'fail'))
+                problems.append(reason('technical_constraint', f'{rule.name}: ограничение не выполнено ({detail})',
+                                       severity='fail'))
     if readiness:
         problems.extend(reason('readiness_unconfirmed', n) for n in readiness.notes(robot.trl, robot.stage))
     verdict = ('fail' if any(p.severity == 'fail' for p in problems) else
                'unknown' if any(p.severity == 'unknown' for p in problems) else
-               'conditional' if problems else 'pass')
+               'pass')
+    problems = list(dict.fromkeys(problems))
     return MatchHit(robot.id, robot.name, robot.slug, process_code, process_name, verdict,
                     tuple(p.message for p in problems), robot.image_url, robot.trl, robot.stage, tuple(problems))
 
@@ -257,7 +267,7 @@ def _formula_rule(rule: FilterRule, site: dict, bindings: dict[str, str], robot:
         problems.append(reason('configuration_error', f'{rule.name}: формула должна отвечать да или нет'))
     elif not result:
         problems.append(reason('technical_constraint', f'{rule.name}: условие не выполнено',
-                               severity='conditional' if rule.mode == 'conditional' else 'fail'))
+                               severity='fail'))
 
 
 def _pairs(rule: FilterRule) -> list[tuple[str, str]]:

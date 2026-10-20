@@ -139,5 +139,21 @@
       ]
     },
     "expected": null
+  },
+  {
+    "name": "conditional_applicability",
+    "group": {
+      "best_product_id": "a",
+      "hits": [
+        {
+          "product_id": "a",
+          "verdict": "pass",
+          "applicability": "conditional",
+          "count": 12,
+          "economic_ready": true
+        }
+      ]
+    },
+    "expected": "a"
   }
 ]

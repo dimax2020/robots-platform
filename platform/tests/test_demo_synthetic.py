@@ -27,8 +27,8 @@ def row(attrs=None, product_id=ROBOCV):
 
 def test_supplement_scope_and_origin_do_not_encode_results_or_enterprise_inputs():
     data = supplements()
-    assert set(data) == {ROBOCV, PHANTAS, GREETING}
-    assert sum(len(fields) for fields in data.values()) < 30
+    assert {ROBOCV, PHANTAS, GREETING} <= set(data)
+    assert len(data) > 14  # Расширение охватывает несколько классов, не только старые три карточки.
     for fields in data.values():
         assert not set(fields) & {'count', 'roi', 'payback', 'price_rub', 'batch_size', 'availability', 'reserve_count', 'site', 'verdict'}
         for item in fields.values():

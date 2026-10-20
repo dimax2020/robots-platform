@@ -4,6 +4,7 @@ import { fetchErrorMessage } from '~/utils/errors'
 import { platformSend } from '~/composables/usePlatform'
 import { useLiveProject } from '~/composables/useLiveProject'
 import { photoFor } from '~/data/placeholders'
+import { assessmentLabel, assessmentTone } from '~/utils/assessmentPresentation'
 import { eligibleForEconomy } from '~/utils/fleetSelection'
 import { skippedAlerts, usePlatformCompare, type MatchGroup, type MatchHit, type RobotSpec } from '~/composables/usePlatformCompare'
 
@@ -67,9 +68,6 @@ const formatValue = (value: number, unit: string) => {
   return unit ? `${text} ${unit}` : text
 }
 
-const verdictLabel: Record<string, string> = { pass: 'Подходит', conditional: 'С условием', unknown: 'Уточнить', fail: 'Не подходит' }
-const verdictTone: Record<string, 'ok' | 'warn' | 'info' | 'danger' | 'neutral'> = { pass: 'ok', conditional: 'warn', unknown: 'info', fail: 'danger' }
-
 /* Строки таблицы: все характеристики роботов сравнения. Лучшее значение подсвечивается, если оно отличается у разных роботов. */
 const rows = computed(() => {
   const keys = new Map<string, RobotSpec>()
@@ -90,11 +88,6 @@ const take = (hit: MatchHit) => {
   choose(activeGroup.value.process_code, hit.product_id)
   selectionMessage.value = `Выбран ${hit.name}. Экономика этого процесса будет рассчитана для него.`
 }
-
-const clarificationReasons = (hit: MatchHit) => [...new Set((hit.reasons ?? [])
-  .filter((reason) => reason.severity !== 'info')
-  .map((reason) => reason.message)
-  .filter((message) => !hit.notes.includes(message)))]
 
 const forwardLabel = computed(() => {
   if (loadingMatch.value) return 'Считаем…'
@@ -205,16 +198,12 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, 
                   <div class="tags">
                     <span v-if="hit.product_id === chosen?.product_id" class="tag selected"><PhCheckCircle :size="12" weight="fill" /> Выбран</span>
                     <span v-if="hit.product_id === optimal?.product_id" class="tag opt"><PhStar :size="12" weight="fill" /> Оптимальный</span>
-                    <UiBadge :tone="verdictTone[hit.verdict] || 'neutral'" size="sm">{{ hit.uses_demo_synthetic && hit.verdict === 'pass' ? 'Подходит при демодопущениях' : verdictLabel[hit.verdict] || hit.verdict }}</UiBadge>
+                    <UiBadge :tone="assessmentTone(hit)" size="sm">{{ assessmentLabel(hit) }}</UiBadge>
                   </div>
                   <span class="photo"><img :src="photoFor(hit.image_url, hit.name, activeGroup.process_code)" :alt="hit.name"></span>
                   <NuxtLink :to="`/catalog/card/${hit.slug}`" target="_blank" rel="noopener" class="name" :title="`${hit.name}: карточка робота в новой вкладке`">{{ hit.name }}</NuxtLink>
                   <div class="ready"><RobotReadiness :trl="hit.trl" :stage="hit.stage" :flagged="isImmature(hit)" /></div>
-                  <div class="calculation-status caption">
-                    <p>Количество: {{ hit.sizing_ready && hit.count != null ? `${hit.count.toLocaleString('ru-RU')} шт.` : 'не определено' }}</p>
-                    <p>Экономика: {{ eligibleForEconomy(hit) ? (hit.demo_economic_ready ? 'демонстрационный расчёт' : 'доступна к расчёту') : 'недоступна — см. причины ниже' }}</p>
-                    <p v-if="hit.uses_demo_synthetic">Используются демодопущения</p>
-                  </div>
+                  <AssessmentStatus :hit="hit" />
                   <button
                     v-if="eligibleForEconomy(hit)"
                     type="button"
@@ -227,11 +216,7 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, 
                     <template v-else>Выбрать этого робота</template>
                   </button>
                   <p v-else class="unavailable caption">{{ hit.verdict === 'unknown' ? 'Недостаточно данных для расчёта. Робот остаётся в сравнении.' : hit.verdict === 'fail' ? 'Технически несовместим. В экономику не включается.' : 'В экономику пока не включается. Причины — в подробностях.' }}</p>
-                  <details class="assessment-details">
-                    <summary>{{ hit.verdict === 'unknown' || !eligibleForEconomy(hit) && hit.verdict !== 'fail' ? 'Что нужно уточнить' : 'Подробности оценки' }}</summary>
-                    <AssessmentStatus :hit="hit" />
-                    <ul v-if="clarificationReasons(hit).length" class="caption"><li v-for="reason in clarificationReasons(hit)" :key="reason">{{ reason }}</li></ul>
-                  </details>
+
                 </div>
               </th>
               <th class="fill" aria-hidden="true" />

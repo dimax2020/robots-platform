@@ -1,0 +1,1289 @@
+{
+  "checked_at": "2026-10-20",
+  "source": "DEV match API; READ ONLY run_match and project_economy",
+  "process_count": 30,
+  "covered_processes": 11,
+  "verified_economic_alternatives": 14,
+  "rows": [
+    {
+      "project": "demo-warehouse",
+      "process_code": "pallet_storage",
+      "process_name": "Автоматизированное хранение и выдача грузов",
+      "pass": 0,
+      "conditional_pass": 1,
+      "unknown": 1,
+      "fail": 2,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": false,
+      "technical_candidates": [
+        {
+          "product_id": "cebbdfa8-500a-425f-bcbc-ad2dcc106539",
+          "name": "AS-RS P",
+          "count": null,
+          "sizing_model": null,
+          "economic_ready": false,
+          "assumption_fields": [
+            "throughput",
+            "work_time_h"
+          ]
+        }
+      ],
+      "main_reasons": [
+        {
+          "message": "Груз: условие не выполнено",
+          "candidates": 2
+        },
+        {
+          "message": "В каталоге не определён вид решения",
+          "candidates": 1
+        },
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 1
+        },
+        {
+          "message": "Возможность выполнения этой операции не подтверждена",
+          "candidates": 1
+        },
+        {
+          "message": "Автономность смены: условие не выполнено",
+          "candidates": 1
+        }
+      ],
+      "explanation": "AS-RS P технически допустима; нет подходящей модели количества для AS/RS и подтверждённой комплектации."
+    },
+    {
+      "project": "demo-warehouse",
+      "process_code": "cart_towing",
+      "process_name": "Буксировка тележек",
+      "pass": 0,
+      "conditional_pass": 2,
+      "unknown": 0,
+      "fail": 0,
+      "economic_candidates": 2,
+      "economy_verified": true,
+      "no_suitable_candidate": false,
+      "technical_candidates": [
+        {
+          "product_id": "28a5afa8-0473-4f80-99a9-b2922b76810f",
+          "name": "Беспилотный тягач (Когнитив Пилот)",
+          "count": 4.0,
+          "sizing_model": "towing_cycle_v1",
+          "economic_ready": true,
+          "assumption_fields": [
+            "solution_kind",
+            "control_mode",
+            "environments",
+            "execution_class",
+            "configuration_complete",
+            "price_complete",
+            "work_time_h",
+            "charge_time_h",
+            "min_aisle_width_m",
+            "uroven_shuma",
+            "working_speed_loaded_ms",
+            "working_speed_empty_ms"
+          ]
+        },
+        {
+          "product_id": "b4a9ef38-b68a-4c0f-8512-9bc9a718c4e1",
+          "name": "Робот-тягач RoboCV",
+          "count": 4.0,
+          "sizing_model": "towing_cycle_v1",
+          "economic_ready": true,
+          "assumption_fields": [
+            "solution_kind",
+            "control_mode",
+            "environments",
+            "work_time_h",
+            "configuration_complete",
+            "price_complete",
+            "execution_class",
+            "charge_time_h"
+          ]
+        }
+      ],
+      "main_reasons": [],
+      "explanation": "Два исходных тягача; у обоих количество и экономика рассчитаны. Третья карточка ради отрицательного примера не добавлялась."
+    },
+    {
+      "project": "demo-warehouse",
+      "process_code": "tote_delivery",
+      "process_name": "Доставка грузов внутри помещений",
+      "pass": 0,
+      "conditional_pass": 4,
+      "unknown": 28,
+      "fail": 8,
+      "economic_candidates": 4,
+      "economy_verified": true,
+      "no_suitable_candidate": false,
+      "technical_candidates": [
+        {
+          "product_id": "54c0a69e-d3d6-4bfa-a518-88e0d0bd130f",
+          "name": "Keenon ButlerBot W3",
+          "count": 3.0,
+          "sizing_model": "mobile_cycle_v1",
+          "economic_ready": true,
+          "assumption_fields": [
+            "solution_kind",
+            "control_mode",
+            "environments",
+            "capabilities",
+            "execution_class",
+            "configuration_complete",
+            "price_complete",
+            "charge_time_h",
+            "uroven_shuma",
+            "working_speed_loaded_ms",
+            "working_speed_empty_ms"
+          ]
+        },
+        {
+          "product_id": "348aeb14-0468-4224-9f5a-867f4613ed3e",
+          "name": "Робот Keenon S100",
+          "count": 2.0,
+          "sizing_model": "mobile_cycle_v1",
+          "economic_ready": true,
+          "assumption_fields": [
+            "solution_kind",
+            "control_mode",
+            "environments",
+            "capabilities",
+            "execution_class",
+            "configuration_complete",
+            "price_complete",
+            "work_time_h",
+            "charge_time_h",
+            "uroven_shuma",
+            "working_speed_loaded_ms",
+            "working_speed_empty_ms"
+          ]
+        },
+        {
+          "product_id": "cebd9672-1d6b-4fb5-8f87-f776bd7cacca",
+          "name": "Складской робот PUDU T600",
+          "count": 3.0,
+          "sizing_model": "mobile_cycle_v1",
+          "economic_ready": true,
+          "assumption_fields": [
+            "solution_kind",
+            "control_mode",
+            "environments",
+            "capabilities",
+            "execution_class",
+            "configuration_complete",
+            "price_complete",
+            "charge_time_h",
+            "uroven_shuma",
+            "working_speed_loaded_ms",
+            "working_speed_empty_ms"
+          ]
+        },
+        {
+          "product_id": "993d980e-8b91-45e0-9c98-50ffab6e11e4",
+          "name": "Сёмабот (грузоподъемность до 1 500 кг)",
+          "count": 2.0,
+          "sizing_model": "mobile_cycle_v1",
+          "economic_ready": true,
+          "assumption_fields": [
+            "solution_kind",
+            "control_mode",
+            "environments",
+            "capabilities",
+            "execution_class",
+            "configuration_complete",
+            "price_complete",
+            "work_time_h",
+            "charge_time_h",
+            "min_aisle_width_m",
+            "uroven_shuma",
+            "working_speed_loaded_ms",
+            "working_speed_empty_ms"
+          ]
+        }
+      ],
+      "main_reasons": [
+        {
+          "message": "Среда эксплуатации не подтверждена",
+          "candidates": 35
+        },
+        {
+          "message": "Шум: нет «Уровень шума»",
+          "candidates": 35
+        },
+        {
+          "message": "Возможность выполнения этой операции не подтверждена",
+          "candidates": 33
+        },
+        {
+          "message": "Проезд: нет «Минимальная ширина прохода»",
+          "candidates": 32
+        },
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 27
+        }
+      ],
+      "explanation": "Склад: четыре альтернативы в экономике. Аэропорт: нет подтверждения 24 ч работы и применения при −25 °C."
+    },
+    {
+      "project": "demo-warehouse",
+      "process_code": "warehouse_inventory",
+      "process_name": "Инвентаризация товаров",
+      "pass": 0,
+      "conditional_pass": 1,
+      "unknown": 0,
+      "fail": 1,
+      "economic_candidates": 1,
+      "economy_verified": true,
+      "no_suitable_candidate": false,
+      "technical_candidates": [
+        {
+          "product_id": "9dfb0b55-4d9e-47fc-8a28-ad4390147a26",
+          "name": "Робот инвентаризатор",
+          "count": 2.0,
+          "sizing_model": "process.count_formula/warehouse_inventory",
+          "economic_ready": true,
+          "assumption_fields": [
+            "min_aisle_width_m",
+            "work_time_h",
+            "charge_time_h",
+            "execution_class",
+            "working_inventory_rate_h",
+            "configuration_complete",
+            "price_complete"
+          ]
+        }
+      ],
+      "main_reasons": [
+        {
+          "message": "Необходима предусмотренная изготовителем схема перемещения комплекса с тягачом/оператором: условия площадки не указаны",
+          "candidates": 1
+        },
+        {
+          "message": "Автономность смены: условие не выполнено",
+          "candidates": 1
+        },
+        {
+          "message": "Проход инвентаризатора: нет «Минимальная ширина прохода»",
+          "candidates": 1
+        }
+      ],
+      "explanation": "Яндекс: условный допуск и сохранённая формула инвентаризации; AI Stock Counter сохраняет исходные 2 ч и отрицательный допуск."
+    },
+    {
+      "project": "demo-warehouse",
+      "process_code": "order_picking",
+      "process_name": "Комплектация заказов",
+      "pass": 0,
+      "conditional_pass": 2,
+      "unknown": 4,
+      "fail": 3,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": false,
+      "technical_candidates": [
+        {
+          "product_id": "c125ce9a-8f04-4183-a136-5ddbb3c5ae89",
+          "name": "AS-RS B",
+          "count": null,
+          "sizing_model": null,
+          "economic_ready": false,
+          "assumption_fields": [
+            "payload_kg",
+            "work_time_h"
+          ]
+        },
+        {
+          "product_id": "cebbdfa8-500a-425f-bcbc-ad2dcc106539",
+          "name": "AS-RS P",
+          "count": null,
+          "sizing_model": null,
+          "economic_ready": false,
+          "assumption_fields": [
+            "throughput",
+            "work_time_h"
+          ]
+        }
+      ],
+      "main_reasons": [
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 6
+        },
+        {
+          "message": "Среда эксплуатации не подтверждена",
+          "candidates": 5
+        },
+        {
+          "message": "Возможность выполнения этой операции не подтверждена",
+          "candidates": 5
+        },
+        {
+          "message": "Нет критичной характеристики: Время работы",
+          "candidates": 5
+        },
+        {
+          "message": "Автономность смены: нет «Время работы»",
+          "candidates": 5
+        }
+      ],
+      "explanation": "AS-RS B/P технически сравнимы; не выдаём им транспортный цикл AMR и цену готовой системы."
+    },
+    {
+      "project": "demo-warehouse",
+      "process_code": "facade_washing",
+      "process_name": "Мойка фасадов и окон",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 3,
+      "fail": 0,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [
+        {
+          "message": "Для процесса не заданы обязательные технические проверки",
+          "candidates": 3
+        },
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 3
+        },
+        {
+          "message": "Готовность: стадия «Разработка (R&D)»",
+          "candidates": 1
+        }
+      ],
+      "explanation": "Нет обязательных технических проверок и подтверждённого управления. Для аэропорта дополнительно несовместим положительный температурный режим мойки водой."
+    },
+    {
+      "project": "demo-warehouse",
+      "process_code": "roof_inspection",
+      "process_name": "Осмотр кровли",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 0,
+      "fail": 0,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [],
+      "explanation": "Нет связанной карточки с подтверждённым назначением осмотра кровли. Произвольный БПЛА не добавлялся."
+    },
+    {
+      "project": "demo-warehouse",
+      "process_code": "perimeter_security",
+      "process_name": "Охрана и патрулирование территории",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 10,
+      "fail": 2,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [
+        {
+          "message": "Для процесса не заданы обязательные технические проверки",
+          "candidates": 12
+        },
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 10
+        },
+        {
+          "message": "Среда эксплуатации не подтверждена",
+          "candidates": 10
+        },
+        {
+          "message": "Автономность смены: нет «Время работы»",
+          "candidates": 7
+        },
+        {
+          "message": "В каталоге не определён вид решения",
+          "candidates": 3
+        }
+      ],
+      "explanation": "В каталоге есть патрульные платформы, но отсутствуют обязательные инженерные проверки; часть автономностей недостаточна. Данные не заменяют спецификацию процесса."
+    },
+    {
+      "project": "demo-warehouse",
+      "process_code": "palletizing",
+      "process_name": "Паллетирование",
+      "pass": 0,
+      "conditional_pass": 2,
+      "unknown": 0,
+      "fail": 0,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": false,
+      "technical_candidates": [
+        {
+          "product_id": "ee5ed657-fd60-4d73-91e6-084b6528d5d2",
+          "name": "Dobot CR10A Roboterarm",
+          "count": null,
+          "sizing_model": null,
+          "economic_ready": false,
+          "assumption_fields": [
+            "solution_kind",
+            "environments",
+            "control_mode",
+            "execution_class",
+            "work_time_h",
+            "configuration_complete",
+            "price_complete"
+          ]
+        },
+        {
+          "product_id": "1906efb4-3ed1-4882-ad33-2a527ef214ac",
+          "name": "Модель А6-2000",
+          "count": null,
+          "sizing_model": null,
+          "economic_ready": false,
+          "assumption_fields": [
+            "environments",
+            "control_mode",
+            "execution_class",
+            "work_time_h",
+            "configuration_complete",
+            "payload_kg",
+            "price_complete"
+          ]
+        }
+      ],
+      "main_reasons": [],
+      "explanation": "Dobot CR10A и А6-2000 сравнимы для малой тары. Нет модели количества стационарной ячейки; захват, ограждения и интеграция не объявлены готовым комплектом."
+    },
+    {
+      "project": "demo-warehouse",
+      "process_code": "pallet_transport",
+      "process_name": "Перевозка паллет",
+      "pass": 0,
+      "conditional_pass": 3,
+      "unknown": 8,
+      "fail": 2,
+      "economic_candidates": 3,
+      "economy_verified": true,
+      "no_suitable_candidate": false,
+      "technical_candidates": [
+        {
+          "product_id": "ecd7d582-b342-449a-b43b-66288d159a32",
+          "name": "MULE",
+          "count": 6.0,
+          "sizing_model": "mobile_cycle_v1",
+          "economic_ready": true,
+          "assumption_fields": [
+            "solution_kind",
+            "control_mode",
+            "environments",
+            "capabilities",
+            "execution_class",
+            "configuration_complete",
+            "price_complete",
+            "work_time_h",
+            "charge_time_h",
+            "min_aisle_width_m",
+            "uroven_shuma",
+            "working_speed_loaded_ms",
+            "working_speed_empty_ms"
+          ]
+        },
+        {
+          "product_id": "2ffc706d-fe43-4c2b-baad-a624a95ad3ce",
+          "name": "Робот-штабелёр RoboCV",
+          "count": 4.0,
+          "sizing_model": "mobile_cycle_v1",
+          "economic_ready": true,
+          "assumption_fields": [
+            "control_mode",
+            "environments",
+            "execution_class",
+            "configuration_complete",
+            "price_complete",
+            "work_time_h",
+            "charge_time_h",
+            "min_aisle_width_m",
+            "uroven_shuma",
+            "working_speed_loaded_ms",
+            "working_speed_empty_ms"
+          ]
+        },
+        {
+          "product_id": "993d980e-8b91-45e0-9c98-50ffab6e11e4",
+          "name": "Сёмабот (грузоподъемность до 1 500 кг)",
+          "count": 5.0,
+          "sizing_model": "mobile_cycle_v1",
+          "economic_ready": true,
+          "assumption_fields": [
+            "solution_kind",
+            "control_mode",
+            "environments",
+            "capabilities",
+            "execution_class",
+            "configuration_complete",
+            "price_complete",
+            "work_time_h",
+            "charge_time_h",
+            "min_aisle_width_m",
+            "uroven_shuma",
+            "working_speed_loaded_ms",
+            "working_speed_empty_ms"
+          ]
+        }
+      ],
+      "main_reasons": [
+        {
+          "message": "Среда эксплуатации не подтверждена",
+          "candidates": 10
+        },
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 9
+        },
+        {
+          "message": "Проезд: нет «Минимальная ширина прохода»",
+          "candidates": 8
+        },
+        {
+          "message": "В каталоге не определён вид решения",
+          "candidates": 7
+        },
+        {
+          "message": "Возможность выполнения этой операции не подтверждена",
+          "candidates": 7
+        }
+      ],
+      "explanation": "Три альтернативы с рассчитанным количеством и экономикой. Подъём на ярусы не приравнивается к напольному перемещению."
+    },
+    {
+      "project": "demo-warehouse",
+      "process_code": "rack_placement",
+      "process_name": "Размещение грузов на ярусах стеллажей",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 2,
+      "fail": 0,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 1
+        },
+        {
+          "message": "Среда эксплуатации не подтверждена",
+          "candidates": 1
+        },
+        {
+          "message": "Нет критичной характеристики: Время работы. Указана граница, диапазон или отдельный режим, а не однозначное рабочее значение",
+          "candidates": 1
+        },
+        {
+          "message": "Автономность смены: нет «Время работы». Указана граница, диапазон или отдельный режим, а не однозначное рабочее значение",
+          "candidates": 1
+        },
+        {
+          "message": "Нет критичной характеристики: Время работы",
+          "candidates": 1
+        }
+      ],
+      "explanation": "Подъём исходных машин 1,6/7 м ниже исходного хранения 10 м. Карточки остаются unknown по действующим неполным проверкам; технический pass не создавался. Нет подходящего высотного исполнения."
+    },
+    {
+      "project": "demo-warehouse",
+      "process_code": "parcel_sorting",
+      "process_name": "Сортировка грузов и посылок",
+      "pass": 0,
+      "conditional_pass": 1,
+      "unknown": 3,
+      "fail": 1,
+      "economic_candidates": 1,
+      "economy_verified": true,
+      "no_suitable_candidate": false,
+      "technical_candidates": [
+        {
+          "product_id": "3f2aaa1b-2237-4d7b-b215-1ac5ec789ed5",
+          "name": "Ronavi SR (грузоподъемность до 50 кг)",
+          "count": 5.0,
+          "sizing_model": "mobile_cycle_v1",
+          "economic_ready": true,
+          "assumption_fields": [
+            "environments",
+            "execution_class",
+            "min_aisle_width_m",
+            "working_speed_loaded_ms",
+            "working_speed_empty_ms",
+            "working_time_h",
+            "configuration_complete",
+            "price_complete"
+          ]
+        }
+      ],
+      "main_reasons": [
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 3
+        },
+        {
+          "message": "Среда эксплуатации не подтверждена",
+          "candidates": 3
+        },
+        {
+          "message": "Возможность выполнения этой операции не подтверждена",
+          "candidates": 3
+        },
+        {
+          "message": "Проезд: нет «Минимальная ширина прохода»",
+          "candidates": 3
+        },
+        {
+          "message": "Автономность смены: нет «Время работы»",
+          "candidates": 3
+        }
+      ],
+      "explanation": "Ronavi SR: один мобильный рейс к точке сортировки, действующий mobile_cycle_v1. Ronavi SD с неопределённой/короткой автономностью остаётся для сравнения; фанерный сортировщик «Яша» не объявлен универсальным сортировщиком посылок."
+    },
+    {
+      "project": "demo-warehouse",
+      "process_code": "floor_cleaning",
+      "process_name": "Уборка помещений",
+      "pass": 0,
+      "conditional_pass": 2,
+      "unknown": 33,
+      "fail": 30,
+      "economic_candidates": 2,
+      "economy_verified": true,
+      "no_suitable_candidate": false,
+      "technical_candidates": [
+        {
+          "product_id": "4e06a969-ae1a-4977-9edc-d59bbb37f633",
+          "name": "Робот-уборщик Gausium PHANTAS",
+          "count": 5.0,
+          "sizing_model": "cleaning_area_v1",
+          "economic_ready": true,
+          "assumption_fields": [
+            "control_mode",
+            "environments",
+            "capabilities",
+            "min_aisle_width_m",
+            "uroven_shuma",
+            "configuration_complete",
+            "price_complete",
+            "execution_class"
+          ]
+        },
+        {
+          "product_id": "dc2f4a03-da7d-4ba2-8186-b0cfa6cb2a80",
+          "name": "Робот-уборщик Gausium Vacuum 40",
+          "count": 4.0,
+          "sizing_model": "cleaning_area_v1",
+          "economic_ready": true,
+          "assumption_fields": [
+            "environments",
+            "capabilities",
+            "control_mode",
+            "execution_class",
+            "min_aisle_width_m",
+            "uroven_shuma",
+            "effective_cleaning_rate_m2_h",
+            "configuration_complete",
+            "price_complete"
+          ]
+        }
+      ],
+      "main_reasons": [
+        {
+          "message": "Нет критичной характеристики: Минимальная ширина прохода",
+          "candidates": 56
+        },
+        {
+          "message": "Проезд: нет «Минимальная ширина прохода»",
+          "candidates": 56
+        },
+        {
+          "message": "Шум: нет «Уровень шума»",
+          "candidates": 54
+        },
+        {
+          "message": "Среда эксплуатации не подтверждена",
+          "candidates": 52
+        },
+        {
+          "message": "Возможность выполнения этой операции не подтверждена",
+          "candidates": 46
+        }
+      ],
+      "explanation": "Склад: PHANTAS и Vacuum 40 в режимах поддерживающей сухой уборки. Больница: для лимита 30 дБА нет обоснованного тихого режима. Аэропорт: не подтверждены морозостойкость и 24 ч автономности."
+    },
+    {
+      "project": "demo-warehouse",
+      "process_code": "packing",
+      "process_name": "Упаковка продукции",
+      "pass": 0,
+      "conditional_pass": 2,
+      "unknown": 0,
+      "fail": 1,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": false,
+      "technical_candidates": [
+        {
+          "product_id": "92c20e09-7763-4649-bc50-11381fe2818c",
+          "name": "Дельта-робот",
+          "count": null,
+          "sizing_model": null,
+          "economic_ready": false,
+          "assumption_fields": [
+            "environments",
+            "capabilities",
+            "control_mode",
+            "execution_class",
+            "payload_kg",
+            "work_time_h",
+            "configuration_complete",
+            "price_complete"
+          ]
+        },
+        {
+          "product_id": "22b5ba99-bc4f-46a7-9a9b-e4475ecd9fc7",
+          "name": "Роботизированный комплекс по укладке заготовок",
+          "count": null,
+          "sizing_model": null,
+          "economic_ready": false,
+          "assumption_fields": [
+            "environments",
+            "control_mode",
+            "execution_class",
+            "payload_kg",
+            "work_time_h",
+            "configuration_complete",
+            "price_complete"
+          ]
+        }
+      ],
+      "main_reasons": [
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 1
+        },
+        {
+          "message": "Среда эксплуатации не подтверждена",
+          "candidates": 1
+        },
+        {
+          "message": "Груз: условие не выполнено",
+          "candidates": 1
+        },
+        {
+          "message": "Автономность смены: нет «Время работы»",
+          "candidates": 1
+        }
+      ],
+      "explanation": "Два стационарных дельта-решения сравнимы при оценочной нагрузке 3 кг; Mercury B1 с исходным 1 кг не проходит груз 1,8 кг. Модель количества упаковочной линии не создавалась."
+    },
+    {
+      "project": "demo-hospital",
+      "process_code": "biomaterial_delivery",
+      "process_name": "Доставка биоматериалов",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 0,
+      "fail": 5,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 5
+        },
+        {
+          "message": "Подтверждённая среда эксплуатации несовместима с процессом",
+          "candidates": 5
+        },
+        {
+          "message": "Нет критичной характеристики: Грузоподъёмность",
+          "candidates": 5
+        },
+        {
+          "message": "Нет критичной характеристики: Время работы",
+          "candidates": 5
+        },
+        {
+          "message": "Груз: нет «Грузоподъёмность»",
+          "candidates": 5
+        }
+      ],
+      "explanation": "Все пять связанных решений — БПЛА/авиационные комплексы. Они не превращались в комнатных курьеров."
+    },
+    {
+      "project": "demo-hospital",
+      "process_code": "medicine_delivery",
+      "process_name": "Доставка лекарств и медицинских материалов",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 0,
+      "fail": 2,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 1
+        },
+        {
+          "message": "Подтверждённая среда эксплуатации несовместима с процессом",
+          "candidates": 1
+        },
+        {
+          "message": "Возможность выполнения этой операции не подтверждена",
+          "candidates": 1
+        },
+        {
+          "message": "Нет критичной характеристики: Грузоподъёмность",
+          "candidates": 1
+        },
+        {
+          "message": "Нет критичной характеристики: Время работы",
+          "candidates": 1
+        }
+      ],
+      "explanation": "FlashBot оценён без неподтверждённых 29 дБА: выбранный режим не проходит лимит 30 дБА. Второе решение — несовместимый авиационный комплекс."
+    },
+    {
+      "project": "demo-hospital",
+      "process_code": "warehouse_inventory",
+      "process_name": "Инвентаризация товаров",
+      "pass": 0,
+      "conditional_pass": 1,
+      "unknown": 0,
+      "fail": 1,
+      "economic_candidates": 1,
+      "economy_verified": true,
+      "no_suitable_candidate": false,
+      "technical_candidates": [
+        {
+          "product_id": "9dfb0b55-4d9e-47fc-8a28-ad4390147a26",
+          "name": "Робот инвентаризатор",
+          "count": 2.0,
+          "sizing_model": "process.count_formula/warehouse_inventory",
+          "economic_ready": true,
+          "assumption_fields": [
+            "min_aisle_width_m",
+            "work_time_h",
+            "charge_time_h",
+            "execution_class",
+            "working_inventory_rate_h",
+            "configuration_complete",
+            "price_complete"
+          ]
+        }
+      ],
+      "main_reasons": [
+        {
+          "message": "Необходима предусмотренная изготовителем схема перемещения комплекса с тягачом/оператором: условия площадки не указаны",
+          "candidates": 1
+        },
+        {
+          "message": "Автономность смены: условие не выполнено",
+          "candidates": 1
+        },
+        {
+          "message": "Проход инвентаризатора: нет «Минимальная ширина прохода»",
+          "candidates": 1
+        }
+      ],
+      "explanation": "Яндекс: условный допуск и сохранённая формула инвентаризации; AI Stock Counter сохраняет исходные 2 ч и отрицательный допуск."
+    },
+    {
+      "project": "demo-hospital",
+      "process_code": "facade_washing",
+      "process_name": "Мойка фасадов и окон",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 3,
+      "fail": 0,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [
+        {
+          "message": "Для процесса не заданы обязательные технические проверки",
+          "candidates": 3
+        },
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 3
+        },
+        {
+          "message": "Готовность: стадия «Разработка (R&D)»",
+          "candidates": 1
+        }
+      ],
+      "explanation": "Нет обязательных технических проверок и подтверждённого управления. Для аэропорта дополнительно несовместим положительный температурный режим мойки водой."
+    },
+    {
+      "project": "demo-hospital",
+      "process_code": "perimeter_security",
+      "process_name": "Охрана и патрулирование территории",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 12,
+      "fail": 0,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [
+        {
+          "message": "Для процесса не заданы обязательные технические проверки",
+          "candidates": 12
+        },
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 10
+        },
+        {
+          "message": "Среда эксплуатации не подтверждена",
+          "candidates": 10
+        },
+        {
+          "message": "Автономность смены: нет «Время работы»",
+          "candidates": 7
+        },
+        {
+          "message": "В каталоге не определён вид решения",
+          "candidates": 3
+        }
+      ],
+      "explanation": "В каталоге есть патрульные платформы, но отсутствуют обязательные инженерные проверки; часть автономностей недостаточна. Данные не заменяют спецификацию процесса."
+    },
+    {
+      "project": "demo-hospital",
+      "process_code": "ward_service",
+      "process_name": "Помощь пациентам в отделениях",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 0,
+      "fail": 0,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [],
+      "explanation": "Нет связанной карточки нужного назначения. Реабилитационный ортез и курьер медикаментов не объявлялись роботами помощи пациентам в отделениях."
+    },
+    {
+      "project": "demo-hospital",
+      "process_code": "floor_cleaning",
+      "process_name": "Уборка помещений",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 37,
+      "fail": 28,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [
+        {
+          "message": "Нет критичной характеристики: Минимальная ширина прохода",
+          "candidates": 56
+        },
+        {
+          "message": "Проезд: нет «Минимальная ширина прохода»",
+          "candidates": 56
+        },
+        {
+          "message": "Шум: нет «Уровень шума»",
+          "candidates": 54
+        },
+        {
+          "message": "Среда эксплуатации не подтверждена",
+          "candidates": 52
+        },
+        {
+          "message": "Возможность выполнения этой операции не подтверждена",
+          "candidates": 46
+        }
+      ],
+      "explanation": "Склад: PHANTAS и Vacuum 40 в режимах поддерживающей сухой уборки. Больница: для лимита 30 дБА нет обоснованного тихого режима. Аэропорт: не подтверждены морозостойкость и 24 ч автономности."
+    },
+    {
+      "project": "demo-airport",
+      "process_code": "tote_delivery",
+      "process_name": "Доставка грузов внутри помещений",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 26,
+      "fail": 14,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [
+        {
+          "message": "Груз: не задан параметр объекта «load»",
+          "candidates": 40
+        },
+        {
+          "message": "Минимальная температура: нет «Температура, минимум»",
+          "candidates": 40
+        },
+        {
+          "message": "Среда эксплуатации не подтверждена",
+          "candidates": 35
+        },
+        {
+          "message": "Шум: нет «Уровень шума»",
+          "candidates": 35
+        },
+        {
+          "message": "Возможность выполнения этой операции не подтверждена",
+          "candidates": 33
+        }
+      ],
+      "explanation": "Склад: четыре альтернативы в экономике. Аэропорт: нет подтверждения 24 ч работы и применения при −25 °C."
+    },
+    {
+      "project": "demo-airport",
+      "process_code": "passenger_service",
+      "process_name": "Информирование и сопровождение посетителей",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 22,
+      "fail": 4,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [
+        {
+          "message": "Груз: не задан параметр объекта «load»",
+          "candidates": 26
+        },
+        {
+          "message": "Среда эксплуатации не подтверждена",
+          "candidates": 23
+        },
+        {
+          "message": "Минимальная температура: нет «Температура, минимум»",
+          "candidates": 23
+        },
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 22
+        },
+        {
+          "message": "Автономность смены: нет «Время работы»",
+          "candidates": 21
+        }
+      ],
+      "explanation": "Комнатные сервисные роботы не получили выдуманные −25 °C и 24 ч от АКБ. Дополнительно требует ревизии грузовой критерий информационного сервиса."
+    },
+    {
+      "project": "demo-airport",
+      "process_code": "facade_washing",
+      "process_name": "Мойка фасадов и окон",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 0,
+      "fail": 3,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [
+        {
+          "message": "Для процесса не заданы обязательные технические проверки",
+          "candidates": 3
+        },
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 3
+        },
+        {
+          "message": "Минимальная температура: ограничение не выполнено (5 <= -25)",
+          "candidates": 3
+        },
+        {
+          "message": "Готовность: стадия «Разработка (R&D)»",
+          "candidates": 1
+        }
+      ],
+      "explanation": "Нет обязательных технических проверок и подтверждённого управления. Для аэропорта дополнительно несовместим положительный температурный режим мойки водой."
+    },
+    {
+      "project": "demo-airport",
+      "process_code": "territory_inspection",
+      "process_name": "Обследование территории",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 3,
+      "fail": 0,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [
+        {
+          "message": "Для процесса не заданы обязательные технические проверки",
+          "candidates": 3
+        },
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 3
+        },
+        {
+          "message": "Среда эксплуатации не подтверждена",
+          "candidates": 3
+        },
+        {
+          "message": "Автономность смены: нет «Время работы»",
+          "candidates": 3
+        },
+        {
+          "message": "Минимальная температура: нет «Температура, минимум»",
+          "candidates": 3
+        }
+      ],
+      "explanation": "Есть наземные платформы и авиационное решение, но отсутствуют обязательные инженерные проверки. Модель полёта/обследования не добавлялась."
+    },
+    {
+      "project": "demo-airport",
+      "process_code": "roof_inspection",
+      "process_name": "Осмотр кровли",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 0,
+      "fail": 0,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [],
+      "explanation": "Нет связанной карточки с подтверждённым назначением осмотра кровли. Произвольный БПЛА не добавлялся."
+    },
+    {
+      "project": "demo-airport",
+      "process_code": "perimeter_security",
+      "process_name": "Охрана и патрулирование территории",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 10,
+      "fail": 2,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [
+        {
+          "message": "Для процесса не заданы обязательные технические проверки",
+          "candidates": 12
+        },
+        {
+          "message": "Минимальная температура: нет «Температура, минимум»",
+          "candidates": 11
+        },
+        {
+          "message": "Способ управления не подтверждён",
+          "candidates": 10
+        },
+        {
+          "message": "Среда эксплуатации не подтверждена",
+          "candidates": 10
+        },
+        {
+          "message": "Автономность смены: нет «Время работы»",
+          "candidates": 7
+        }
+      ],
+      "explanation": "В каталоге есть патрульные платформы, но отсутствуют обязательные инженерные проверки; часть автономностей недостаточна. Данные не заменяют спецификацию процесса."
+    },
+    {
+      "project": "demo-airport",
+      "process_code": "baggage_transport",
+      "process_name": "Перевозка багажа",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 0,
+      "fail": 1,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [
+        {
+          "message": "Автономность смены: условие не выполнено",
+          "candidates": 1
+        },
+        {
+          "message": "Минимальная температура: нет «Температура, минимум»",
+          "candidates": 1
+        }
+      ],
+      "explanation": "Восьмичасовая оценка тягача вместо прежних неподтверждённых 24 ч; нет опубликованного зимнего паспорта. Исходные 24 ч смены и −25 °C сохранены."
+    },
+    {
+      "project": "demo-airport",
+      "process_code": "apron_transport",
+      "process_name": "Перевозка грузов на перроне",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 0,
+      "fail": 0,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [],
+      "explanation": "Нет связанной карточки. В каталоге есть аэропортовый тягач, но без подтверждённых 24 ч/климата и спецификации перронного процесса новая связь не создавалась ради заполнения списка."
+    },
+    {
+      "project": "demo-airport",
+      "process_code": "floor_cleaning",
+      "process_name": "Уборка помещений",
+      "pass": 0,
+      "conditional_pass": 0,
+      "unknown": 33,
+      "fail": 32,
+      "economic_candidates": 0,
+      "economy_verified": false,
+      "no_suitable_candidate": true,
+      "technical_candidates": [],
+      "main_reasons": [
+        {
+          "message": "Минимальная температура: нет «Температура, минимум»",
+          "candidates": 65
+        },
+        {
+          "message": "Нет критичной характеристики: Минимальная ширина прохода",
+          "candidates": 56
+        },
+        {
+          "message": "Проезд: нет «Минимальная ширина прохода»",
+          "candidates": 56
+        },
+        {
+          "message": "Шум: нет «Уровень шума»",
+          "candidates": 54
+        },
+        {
+          "message": "Среда эксплуатации не подтверждена",
+          "candidates": 52
+        }
+      ],
+      "explanation": "Склад: PHANTAS и Vacuum 40 в режимах поддерживающей сухой уборки. Больница: для лимита 30 дБА нет обоснованного тихого режима. Аэропорт: не подтверждены морозостойкость и 24 ч автономности."
+    }
+  ]
+}

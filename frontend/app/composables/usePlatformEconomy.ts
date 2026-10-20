@@ -3,7 +3,7 @@ import type { DemoSyntheticGroup } from '~/utils/demoSynthetic'
 import { fetchErrorMessage } from '~/utils/errors'
 import { platformSend } from '~/composables/usePlatform'
 import { useLiveProject } from '~/composables/useLiveProject'
-import { usePlatformCompare, type MatchGroup } from '~/composables/usePlatformCompare'
+import { usePlatformCompare, type MatchGroup, type SelectionAssumption } from '~/composables/usePlatformCompare'
 
 export type EconSource = 'card' | 'fleet' | 'site' | 'norm' | 'project' | 'calc'
 
@@ -31,6 +31,8 @@ export interface EconFig {
 }
 
 export interface EconFleet {
+  applicability?: string
+  assumptions?: SelectionAssumption[]
   uses_demo_synthetic?: boolean
   sizing?: { model?: string; working_count?: number; reserve_count?: number; inputs?: Record<string, number>;
     input_provenance?: Record<string, { label?: string; unit?: string; origin?: string; source_id?: number | null }>; [key: string]: unknown }
@@ -148,6 +150,7 @@ export interface EconProcess {
 }
 
 export interface EconReport {
+  assumptions?: { process_code: string; product_id: string; name: string; fields: SelectionAssumption[] }[]
   uses_demo_synthetic?: boolean
   demo_synthetic?: DemoSyntheticGroup[]
   project_id: string

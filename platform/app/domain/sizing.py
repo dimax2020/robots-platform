@@ -7,6 +7,22 @@ import re
 
 from app.domain.assessment import Reason, reason, valid_count
 from app.domain.formula import _number
+from app.domain.specs import display_label
+
+SIZING_LABELS = {
+    'flow_per_day': 'Суточный поток', 'route_len_m': 'Длина маршрута',
+    't_load_s': 'Время загрузки', 't_unload_s': 'Время выгрузки', 'batch_size': 'Размер партии',
+    'availability': 'Техническая доступность', 'reserve_count': 'Резерв парка',
+    'shift_hours': 'Длительность смены', 'shifts_per_day': 'Смен в сутки',
+    'clean_area_m2': 'Площадь уборки', 'cleaning_passes_per_day': 'Проходов уборки в сутки',
+    'cleaning_window_h': 'Рабочее окно уборки', 'effective_cleaning_rate_m2_h': 'Рабочая производительность уборки',
+    'cart_tare_kg': 'Масса тары тележки', 'pallet_mass_kg': 'Масса груза',
+    'working_speed_loaded_ms': 'Рабочая скорость с грузом', 'working_speed_empty_ms': 'Рабочая скорость возврата',
+}
+
+
+def input_label(key):
+    return SIZING_LABELS.get(key, display_label(key))
 
 
 @dataclass(frozen=True)
@@ -32,13 +48,13 @@ def size_equipment(profile: dict, facts: dict, site: dict, robot: dict, task: di
     policy = profile.get('sizing') or {}
     model = policy.get('model') if isinstance(policy, dict) else None
     if not model:
-        return SizingResult(None, (reason('sizing_model_missing', 'Для этого решения не определена модель количества', stage='sizing'),))
+        return SizingResult(None, (reason('sizing_model_missing', 'Для оценки количества уточните у поставщика производительность решения для выбранной операции и рабочий режим на объекте', stage='sizing'),))
     if not isinstance(model, str):
         return SizingResult(None, (reason('sizing_configuration_error', 'Некорректный идентификатор модели количества', stage='sizing'),))
     if model in {'towing_cycle_v1', 'cleaning_area_v1'}:
         return _operational_model(model, policy, facts, {**site, **(task or {})}, robot)
     if model != 'mobile_cycle_v1':
-        return SizingResult(None, (reason('sizing_model_unknown', 'Модель количества не поддерживается', stage='sizing'),), model)
+        return SizingResult(None, (reason('sizing_model_unknown', 'Для оценки количества требуется инженерная проверка производительности и рабочего режима решения', stage='sizing'),), model)
     if facts.get('execution_class') != 'mobile_transport':
         return SizingResult(None, (reason('sizing_incompatible', 'Транспортный цикл применим только к мобильному транспортному роботу', stage='sizing'),), model)
     if policy.get('flow_unit') != 'items/day' or policy.get('quantity_unit') != 'machines':
@@ -53,14 +69,14 @@ def size_equipment(profile: dict, facts: dict, site: dict, robot: dict, task: di
         raw = values.get(k)
         n = _quantity(raw)
         if n is None:
-            problems.append(reason('sizing_input_missing' if raw in (None, '') else 'sizing_input_invalid', f'Для расчёта количества требуется «{k}»', field=k, stage='sizing'))
+            problems.append(reason('sizing_input_missing' if raw in (None, '') else 'sizing_input_invalid', f'Для расчёта количества требуется «{input_label(k)}»', field=k, stage='sizing'))
         else:
             env[k] = n
     for k in ('speed_loaded_ms', 'speed_empty_ms'):
         raw = robot.get(k)
         n = _quantity(raw)
         if n is None:
-            problems.append(reason('sizing_attribute_missing', f'Для расчёта количества требуется «{k}»', field=k, stage='sizing'))
+            problems.append(reason('sizing_attribute_missing', f'Для расчёта количества требуется «{input_label(k)}»', field=k, stage='sizing'))
         else:
             env[k] = n
     if problems:
@@ -105,7 +121,7 @@ def _operational_model(model, policy, facts, inputs, robot):
         required['payload_kg'] = robot.get('payload_kg')
     values = {k: _quantity(v) for k, v in required.items()}
     problems = [reason('sizing_input_missing' if required[k] in (None, '') else 'sizing_input_invalid',
-                       f'Для модели количества требуется корректное «{k}»', field=k, stage='sizing') for k, v in values.items() if v is None]
+                       f'Для оценки количества уточните «{input_label(k)}»', field=k, stage='sizing') for k, v in values.items() if v is None]
     if problems:
         return SizingResult(None, tuple(problems), model)
     v = values

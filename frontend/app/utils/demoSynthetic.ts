@@ -7,6 +7,7 @@ export interface DemoSyntheticValue {
   explanation: string
   vendor_confirmed: false
   requires_vendor_confirmation: boolean
+  references?: { url?: string; title: string; basis?: string; source_id?: number }[]
   category?: 'site' | 'finance'
 }
 

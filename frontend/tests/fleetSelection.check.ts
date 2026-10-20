@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { assessmentLabel, countExplanation, significantReasons } from '../app/utils/assessmentPresentation'
 import { buildProcess, emptyLayout, processReady } from '../app/sim/templates'
 import { readFileSync } from 'node:fs'
 import { automaticChoice, eligibleForEconomy, includedInTechnicalComparison, selectionIssue, normalizeCompareStore } from '../app/utils/fleetSelection'
@@ -25,7 +26,8 @@ assert.equal(automaticChoice({ hits: [demo], calculation_mode: 'demo', demo_best
 assert.equal(automaticChoice({ hits: [demo], demo_best_product_id: 'demo' }), '')
 assert.equal(eligibleForEconomy({ ...demo, calculation_mode: 'ordinary' }), false)
 for (const verdict of ['unknown', 'fail', 'conditional']) assert.equal(eligibleForEconomy({ ...demo, verdict }), false)
-for (const verdict of ['unknown', 'conditional', 'fail']) assert.equal(includedInTechnicalComparison({ ...preliminary, verdict }), false)
+for (const verdict of ['unknown', 'conditional']) assert.equal(includedInTechnicalComparison({ ...preliminary, verdict }), true)
+assert.equal(includedInTechnicalComparison({ ...preliminary, verdict: 'fail' }), false)
 for (const count of [NaN, Infinity, -1, 1.2]) assert.equal(eligibleForEconomy({ product_id: 'a', verdict: 'pass', count, economic_ready: true }), false)
 console.log(`${cases.length} общих сценариев выбора + границы чисел: OK`)
 
@@ -38,3 +40,9 @@ for (const count of [null, 0, -1, 1.5, Infinity]) {
   assert.equal(proc.robot.count, 0)
   assert.equal(processReady(emptyLayout({}), proc), false)
 }
+
+const assumed = { ...preliminary, applicability: 'conditional', economic_ready: true, count: 10, name: 'Тест', slug: 'test', notes: [] }
+assert.equal(assessmentLabel(assumed), 'Подходит при допущениях')
+assert.equal(eligibleForEconomy(assumed), true)
+assert.equal(countExplanation(assumed), '10 шт.')
+assert.equal(significantReasons({ ...assumed, reasons: [{ code: 'optional', severity: 'info', message: 'Некритичное уточнение' }] }).length, 0)

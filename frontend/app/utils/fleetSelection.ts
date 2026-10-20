@@ -14,8 +14,8 @@ export interface EligibilityGroup {
   calculation_mode?: string
   hits: EligibilityHit[]
 }
-/** Технически подходящее решение можно сравнивать до определения количества и цены. */
-export const includedInTechnicalComparison = (hit: EligibilityHit): boolean => hit.verdict === 'pass'
+/** Подходящие и неопределённые решения доступны для технического сравнения. */
+export const includedInTechnicalComparison = (hit: EligibilityHit): boolean => ['pass', 'unknown', 'conditional'].includes(hit.verdict)
 export const eligibleForEconomy = (hit: EligibilityHit | undefined): boolean => Boolean(
   hit && hit.verdict === 'pass' && (hit.economic_ready === true || hit.calculation_mode === 'demo' && hit.demo_economic_ready === true)
   && typeof hit.count === 'number' && Number.isFinite(hit.count) && Number.isInteger(hit.count) && hit.count > 0,
@@ -26,7 +26,7 @@ export function automaticChoice(group: EligibilityGroup): string {
   return eligibleForEconomy(hit) ? hit!.product_id : ''
 }
 export function selectionIssue(group: EligibilityGroup, chosenId: string): string {
-  if (!chosenId) return 'Нет подтверждённого решения с известным количеством и ценой.'
+  if (!chosenId) return 'Нет подходящего решения с рассчитанным количеством и известной ценой.'
   const hit = group.hits.find((h) => h.product_id === chosenId)
   if (!hit) return 'Сохранённое решение отсутствует в текущем подборе. Выберите его заново.'
   if (!eligibleForEconomy(hit)) return hit.economic_reasons?.map((r) => r.message).join('; ')

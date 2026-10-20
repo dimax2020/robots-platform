@@ -10,6 +10,9 @@ defineProps<{ values: DemoSyntheticValue[] }>()
       <li v-for="item in values" :key="item.key">
         <strong>{{ item.label }}: {{ formatDemoValue(item.value) }} {{ item.unit }}</strong>
         <span>{{ item.explanation }}</span>
+        <small v-for="ref in item.references" :key="ref.url || ref.title">
+          Ориентир: <a v-if="ref.url && /^https?:\/\//.test(ref.url)" :href="ref.url" target="_blank" rel="noopener noreferrer">{{ ref.title }}</a><span v-else>{{ ref.title }}</span>
+        </small>
         <small>Происхождение: {{ formatOrigin(item.origin) }} · {{ item.requires_vendor_confirmation ? 'требуется подтверждение вендора' : 'требуется проверка параметров и оценки' }}</small>
       </li>
     </ul>

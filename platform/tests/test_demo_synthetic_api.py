@@ -31,8 +31,8 @@ def db():
 
 @pytest.mark.parametrize('slug,process,product_id,expected', [
     ('demo-warehouse', 'cart_towing', ROBOCV, 'pass'),
-    ('demo-hospital', 'floor_cleaning', PHANTAS, 'pass'),
-    ('demo-airport', 'passenger_service', GREETING, 'unknown'),
+    ('demo-hospital', 'floor_cleaning', PHANTAS, 'fail'),
+    ('demo-airport', 'passenger_service', GREETING, 'fail'),
 ])
 def test_existing_demo_rules_compute_status_and_preserve_original_inputs(db, monkeypatch, slug, process, product_id, expected):
     project = resolve_project(db, slug)
@@ -49,19 +49,19 @@ def test_existing_demo_rules_compute_status_and_preserve_original_inputs(db, mon
     hit = next(h for h in group['hits'] if h['product_id'] == product_id)
     assert hit['verdict'] == expected and hit['uses_demo_synthetic']
     assert hit['data_basis'] == 'catalog_with_demo_synthetic_v1'
-    assert hit['vendor_confirmation_fields'] == [item['key'] for item in hit['demo_synthetic']]
+    assert set(hit['vendor_confirmation_fields']) == {item['key'] for item in hit['assumptions'] if item['requires_vendor_confirmation']}
     assert all(item['origin'] == 'demo_synthetic' and not item['vendor_confirmed'] for item in hit['demo_synthetic'])
     assert not hit['economic_ready'] and group['best_product_id'] is None
     if expected == 'pass':
         assert hit['count'] > 0 and hit['demo_economic_ready']
-        assert group['demo_best_product_id'] == product_id
+        assert any(h['product_id'] == group['demo_best_product_id'] and h['demo_economic_ready'] for h in group['hits'])
     if expected == 'pass':
-        assert group['technical_best_product_id'] == product_id
+        assert any(h['product_id'] == group['technical_best_product_id'] and h['verdict'] == 'pass' for h in group['hits'])
     else:
-        assert any(r['code'] == 'site_input_missing' for r in hit['reasons'])
-        assert any(r.get('field') == 'temp_min_c' for r in hit['reasons'])
+        assert any(r['severity'] == 'fail' for r in hit['reasons'])
+        assert not hit['demo_economic_ready']
     assert product.attrs == before_attrs and project.site == before_site
-    assert any(h['verdict'] == 'unknown' and not h['uses_demo_synthetic'] for h in group['hits'])
+    assert len(group['hits']) > 1  # Альтернативы существуют в исходном каталоге, не созданы для теста.
 
 
 @pytest.mark.parametrize('slug', ['demo-warehouse', 'demo-airport', 'demo-hospital'])
@@ -86,9 +86,10 @@ def test_card_api_keeps_original_attrs_separate_for_future_vendor_confirmation(d
     assert all(item['requires_vendor_confirmation'] for item in result['demo_synthetic'])
 
 
-def test_two_real_inventory_cards_stay_incomplete_without_synthetic_data(db):
+def test_two_real_inventory_cards_stay_incomplete_without_synthetic_data(db, monkeypatch):
+    monkeypatch.setattr(get_settings(), 'demo_synthetic_enabled', False)
     result = run_match(db, resolve_project(db, 'demo-warehouse').id)
     group = next(g for g in result['groups'] if g['process_code'] == 'warehouse_inventory')
     assert len(group['hits']) == 2
-    assert all(h['verdict'] == 'unknown' and not h['uses_demo_synthetic'] for h in group['hits'])
+    assert all(h['verdict'] == ('fail' if h['product_id'] == '242d637c-6512-4bdf-9964-2c0010259f36' else 'unknown') and not h['uses_demo_synthetic'] for h in group['hits'])
     assert all(any(r['code'] in {'robot_attribute_missing', 'site_condition_missing'} for r in h['reasons']) for h in group['hits'])

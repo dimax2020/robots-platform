@@ -10,6 +10,7 @@ import re
 
 from app.domain.assessment import KINDS, CONTROLS, checked, reason
 from app.domain.specs import NUMERIC_UNITS, definitions, normalize_attrs
+from app.domain.formula import _number
 
 
 CAPABILITY_TERMS = {
@@ -70,8 +71,16 @@ def resolve_catalog(row, metadata=None, *, process_code='', process_name='', sou
             issues[key] = 'Конфликт опубликованных значений'
         source = (sources or {}).get(source_id) or {}
         if source.get('kind') in {'assumption', 'analogue'}:
-            values.pop(key, None)
-            issues[key] = 'Допущение или аналог не является характеристикой опубликованного изделия'
+            # Численное допущение допустимо только с явным обоснованием и единицами.
+            # Оно остаётся оценочным входом, а не паспортным фактом изделия.
+            explanation = raw.get('explanation') or raw.get('rationale') or source.get('title')
+            numeric = key in NUMERIC_UNITS or definitions().get(key, {}).get('datatype') == 'number'
+            unit_ok = key in NUMERIC_UNITS or raw.get('unit') == definitions().get(key, {}).get('unit')
+            if numeric and unit_ok and key in values and _number(values[key]) is not None and not isinstance(values[key], bool) and isinstance(explanation, str) and explanation.strip():
+                provenance[key].update(origin='catalog_assumption', explanation=explanation.strip())
+            else:
+                values.pop(key, None)
+                issues[key] = 'Для допущения или аналога нужны обоснование и однозначные единицы'
     for issue in normalization:
         key = issue.get('canonical_key', issue.get('key'))
         if issue['reason'] not in {'repaired_legacy_conversion'}:
@@ -207,6 +216,8 @@ def resolve_catalog(row, metadata=None, *, process_code='', process_name='', sou
                 provenance['fact.capabilities'] = {'value': caps, 'derived_from': positive}
     if 'execution_class' not in facts and process_code in {'pallet_transport', 'cart_towing', 'tote_delivery', 'baggage_transport', 'medicine_delivery', 'biomaterial_delivery'} and facts.get('control_mode') == 'autonomous' and re.search(r'мобильн|самоход', purpose):
         derive('execution_class', 'mobile_transport', ['purpose', 'summary'])
+    if 'execution_class' not in facts and process_code == 'floor_cleaning' and process_code in facts.get('capabilities', []) and facts.get('solution_kind') == 'robot' and facts.get('control_mode') == 'autonomous' and re.search(r'мобильн|самоход', purpose):
+        derive('execution_class', 'mobile_cleaning', ['purpose', 'summary'])
     site_conditions = {}
     infrastructure = texts.get('infrastructure_req', '')
     if re.search(r'QR.маркиров|требуется QR', infrastructure, re.I) and not re.search(r'без QR|опциональн[^.;]{0,30}QR', infrastructure, re.I):
@@ -218,4 +229,6 @@ def resolve_catalog(row, metadata=None, *, process_code='', process_name='', sou
     catalog = CatalogAssessment(facts, values, provenance, issues, errors, site_conditions)
     from app.domain.demo_synthetic import apply_supplements
     catalog.demo_synthetic = apply_supplements(row, catalog, process_code=process_code) if allow_demo else []
+    from app.domain.selection_assumptions import assume_return_speed
+    assume_return_speed(row, catalog)
     return catalog

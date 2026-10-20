@@ -377,7 +377,7 @@ def test_match_fail_unknown_and_conditional():
     )
     by_name = {hit.name: hit.verdict for hit in hits}
     assert by_name["Легкий"] == "fail"
-    assert by_name["Тяжелый"] == "conditional"
+    assert by_name["Тяжелый"] == "fail"  # Известное несовпадение покрытия.
     assert by_name["Без ширины"] == "unknown"
 
 

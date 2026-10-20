@@ -57,7 +57,8 @@ def test_automatic_and_explicit_empty_are_distinguishable():
     assert any(b['code'] == 'process_not_selected' for b in empty['blockers'])
 
 
-def test_existing_demo_projects_are_incomplete_and_asrs_is_not_150():
+def test_existing_demo_projects_are_incomplete_and_asrs_is_not_150(monkeypatch):
+    monkeypatch.setattr(get_settings(), 'demo_synthetic_enabled', False)
     with session_factory()() as db:
         for slug in ['demo-warehouse', 'demo-airport', 'demo-hospital']:
             project = resolve_project(db, slug)
@@ -92,7 +93,8 @@ def test_metadata_does_not_change_original_catalog_or_origins():
             assert db.get(ProductAssessmentRow, item['id']).data == item['data']
 
 
-def test_positive_api_selection_from_published_catalog_without_product_assessment(monkeypatch):
+@pytest.mark.parametrize('assumed', [False, True])
+def test_positive_api_selection_from_published_catalog_without_product_assessment(monkeypatch, assumed):
     """Опубликованные структурированные факты проходят API без отдельного подтверждения."""
     from uuid import uuid4
     from sqlalchemy.orm import Session
@@ -108,6 +110,10 @@ def test_positive_api_selection_from_published_catalog_without_product_assessmen
         obj = ObjectTypeRow(code=code, name='Проверка')
         process = ProcessRow(code=code, name='Перевозка')
         published = {**ATTRS, **{k: v for k, v in FACTS.items() if k not in {'version', 'reviewed', 'evidence'}}, 'capabilities': [code]}
+        if assumed:
+            for key in ['configuration_complete', 'price_complete', 'speed_empty_ms']:
+                published.pop(key)
+        expected_count = 12 if assumed else 10
         product = ProductRow(id=uuid4(), slug=code, name='Опубликованный тестовый робот', price_rub=1000,
                              attrs={k: {'status': 'known', 'value': v, 'source_id': 2} for k, v in published.items()})
         db.add_all([obj, process, product]); db.flush()
@@ -127,15 +133,20 @@ def test_positive_api_selection_from_published_catalog_without_product_assessmen
         assert matched.status_code == 200, matched.text
         group = matched.json()['groups'][0]
         assert group['hits'][0]['verdict'] == 'pass'
-        assert group['hits'][0]['economic_ready'] is True and group['hits'][0]['count'] == 10
-        assert group['hits'][0]['data_basis'] == 'published_catalog_v1'
+        assert group['hits'][0]['economic_ready'] is True and group['hits'][0]['count'] == expected_count
+        assert group['hits'][0]['applicability'] == ('conditional' if assumed else 'pass')
+        assert bool(group['hits'][0]['assumptions']) == assumed
         assert group['technical_best_product_id'] == product_id
         assert group['best_product_id'] == product_id
         automatic = client.post('/api/v1/catalog/preview/economy', json=body).json()
         chosen = client.post('/api/v1/catalog/preview/economy', json={**body, 'picks': {code: product_id}}).json()
         empty = client.post('/api/v1/catalog/preview/economy', json={**body, 'picks': {}}).json()
-        assert automatic['complete'] is True and automatic['robots'] == 10
+        assert automatic['complete'] is True and automatic['robots'] == expected_count
         assert automatic['fleet'] == chosen['fleet']
+        assert bool(automatic['assumptions']) == assumed
+        if assumed:
+            assert automatic['fleet'][0]['applicability'] == 'conditional'
+            assert any(a['key'] == 'speed_empty_ms' for a in automatic['fleet'][0]['assumptions'])
         assert empty['fleet'] == [] and empty['status'] == 'incomplete'
         assert empty['scenarios'][1]['payback']['value'] is None
         product.price_rub = None
@@ -151,15 +162,35 @@ def test_positive_api_selection_from_published_catalog_without_product_assessmen
         connection.close()
 
 
-def test_real_inventory_api_has_concrete_reasons_instead_of_review_gates():
+def test_real_inventory_api_has_concrete_reasons_instead_of_review_gates(monkeypatch):
+    monkeypatch.setattr(get_settings(), 'demo_synthetic_enabled', False)
     with session_factory()() as db:
         result = run_match(db, resolve_project(db, 'demo-warehouse').id)
         group = next(g for g in result['groups'] if g['process_code'] == 'warehouse_inventory')
         assert len(group['hits']) == 2
         assert group['best_product_id'] is None and group['technical_best_product_id'] is None
         for hit in group['hits']:
-            assert hit['verdict'] == 'unknown' and not hit['economic_ready']
+            assert hit['verdict'] == ('fail' if hit['product_id'] == '242d637c-6512-4bdf-9964-2c0010259f36' else 'unknown') and not hit['economic_ready']
             assert hit['resolved_facts']['capabilities'] == ['warehouse_inventory']
             assert hit['provenance']['lift_height_mm']['source']['url']
             assert not any(r['code'] in {'product_review_missing', 'process_profile_unreviewed', 'process_profile_incomplete'} for r in hit['reasons'])
             assert any(r['field'] == 'min_aisle_width_m' for r in hit['reasons'])
+
+
+def test_omitted_api_inputs_keep_saved_project_data(monkeypatch):
+    """Переход к экономике не требует повторной передачи сохранённых задач."""
+    monkeypatch.setattr(get_settings(), 'demo_synthetic_enabled', True)
+    client = TestClient(app)
+    with session_factory()() as db:
+        for slug in ['demo-warehouse', 'demo-airport', 'demo-hospital']:
+            project = resolve_project(db, slug)
+            expected = run_match(db, project.id)
+            actual = client.post(f'/api/v1/projects/{slug}/match', json={}).json()
+            assert actual['groups'] == expected['groups']
+            expected_report = project_economy(db, project.id, None, None)
+            actual_report = client.post(f'/api/v1/projects/{slug}/economy', json={}).json()
+            assert actual_report['fleet'] == expected_report['fleet']
+            assert actual_report['scenarios'] == expected_report['scenarios']
+            # Явно пустые входы сохраняют своё значение, не заменяются сохранёнными.
+            empty = client.post(f'/api/v1/projects/{slug}/match', json={'site': {}, 'tasks': []}).json()
+            assert empty['groups'] == run_match(db, project.id, site={}, tasks=[])['groups']

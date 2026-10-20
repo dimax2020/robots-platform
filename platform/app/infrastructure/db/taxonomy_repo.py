@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.domain.economy import NORM_BY_KEY, NORMS, TYPE_NORMS, blend_by_type, calculate, clamp_overrides, scale_load, scale_task_flows
 from app.domain.layout_items import clean_items, default_items
 from app.domain.formula import _number, identifiers
-from app.domain.specs import CANON_LABELS
+from app.domain.specs import CANON_LABELS, display_label
 from app.domain.assessment import economy_eligible, select_hit, reason, valid_count, checked
 from app.domain.sizing import size_equipment
 from app.domain.catalog_assessment import resolve_catalog
@@ -871,10 +871,17 @@ def _tasks_by_code(tasks: list | None) -> dict[str, dict]:
     return found
 
 
-def _candidate_payload(hit, row, facts, profile, values, task, catalog=None, *, demo=False, input_fields=()):
+def _candidate_payload(hit, row, facts, profile, values, task, catalog=None, *, demo=False, input_fields=(), quantity_context=None):
+    from app.domain.selection_assumptions import catalog_assumptions, commercial_assumptions, sizing_profile
     catalog = catalog or resolve_catalog(row, facts, process_code=hit.process_code, process_name=hit.process_name, site=values)
     facts = catalog.facts
     profile, _ = checked(profile, product=False)
+    profile = sizing_profile(profile, hit.process_code, facts)
+    assumptions = [*catalog_assumptions(catalog), *catalog.demo_synthetic]
+    commercial = [a for a in commercial_assumptions(facts, _number(row.price_rub))
+                  if not any(r.field == a['key'] for r in catalog.reasons)]
+    assumptions.extend(commercial)
+    assumed_commercial = {a['key'] for a in commercial}
     sizing_values = dict(catalog.values)
     for kind in ('loaded', 'empty'):
         raw = (row.attrs or {}).get(f'speed_{kind}_ms') or {}
@@ -897,6 +904,11 @@ def _candidate_payload(hit, row, facts, profile, values, task, catalog=None, *, 
     if policy.get('rate_basis') == 'robot_mode' and catalog.values.get('effective_cleaning_rate_m2_h') is not None:
         sizing_task['effective_cleaning_rate_m2_h'] = catalog.values['effective_cleaning_rate_m2_h']
     sizing = size_equipment(profile, facts, values, sizing_values, sizing_task)
+    if demo and policy.get('reuse_catalog_formula') is True:
+        from app.domain.demo_synthetic import catalog_inventory_quantity
+        sizing = catalog_inventory_quantity(catalog, values, quantity_context)
+        if sizing.details.get('throughput_parameter') == 'working_inventory_rate_h':
+            mode_sources['throughput'] = {**catalog.provenance['working_inventory_rate_h'], 'parameter': 'working_inventory_rate_h'}
     if mode_errors:
         from app.domain.sizing import SizingResult
         sizing = SizingResult(None, tuple(mode_errors), sizing.model)
@@ -919,17 +931,29 @@ def _candidate_payload(hit, row, facts, profile, values, task, catalog=None, *, 
     if count == 0:
         economic_reasons.append(reason('no_equipment_required', 'При нулевой потребности парк роботизации не формируется', stage='economy').as_dict())
     if hit.verdict != 'pass':
-        economic_reasons.append(reason('technical_not_confirmed', 'В экономический парк допускаются только подтверждённые решения', stage='economy').as_dict())
+        economic_reasons.append(reason('technical_not_confirmed', 'Перед расчётом экономики уточните обязательные условия технической применимости', stage='economy').as_dict())
     if _number(row.price_rub) is None or _number(row.price_rub) <= 0:
         economic_reasons.append(reason('price_missing', 'Отсутствует необходимая положительная цена решения', stage='economy').as_dict())
-    if facts.get('price_complete') is not True:
+    if facts.get('price_complete') is not True and 'price_complete' not in assumed_commercial:
         economic_reasons.append(reason('price_scope_unconfirmed', 'Не подтверждено, что цена покрывает необходимую комплектацию решения', stage='economy').as_dict())
-    if facts.get('configuration_complete') is not True:
+    if facts.get('configuration_complete') is not True and 'configuration_complete' not in assumed_commercial:
         economic_reasons.append(reason('configuration_missing', 'Не определена комплектность решения для экономического расчёта', stage='economy').as_dict())
+    clarifications = [r.as_dict() for r in hit.reasons if r.severity != 'fail']
+    clarifications.extend(economic_reasons)
+    clarifications.extend({'code': 'optional_attribute_missing', 'field': key, 'severity': 'info',
+                           'message': 'Уточнить у вендора: ' + str(raw.get('label') or display_label(key))}
+                          for key, raw in (row.attrs or {}).items()
+                          if isinstance(raw, dict) and raw.get('status') == 'unknown'
+                          and not any(r.get('field') == key for r in clarifications))
+    clarifications = list({(r.get('code'), r.get('field'), r['message']): r for r in clarifications}.values())
     return {
         'product_id': hit.product_id, 'name': hit.name, 'slug': hit.slug,
         'verdict': hit.verdict, 'notes': list(hit.notes),
         'reasons': [r.as_dict() for r in hit.reasons],
+        'applicability': 'conditional' if hit.verdict == 'pass' and assumptions else hit.verdict,
+        'assumptions': assumptions,
+        'significant_reasons': [r.as_dict() for r in hit.reasons if r.severity in {'fail', 'unknown'}],
+        'clarifications': clarifications,
         'technical_ready': hit.verdict == 'pass',
         'sizing_ready': count is not None,
         'economic_ready': not demo and not catalog.demo_synthetic and hit.verdict == 'pass' and count is not None and not economic_reasons,
@@ -940,11 +964,11 @@ def _candidate_payload(hit, row, facts, profile, values, task, catalog=None, *, 
         'count': count, 'count_note': '; '.join(r.message for r in sizing_reasons),
         'sizing': {'model': sizing.model, 'reasons': [r.as_dict() for r in sizing_reasons], **sizing.details, 'origin': 'calculated', 'uses_demo_synthetic': demo, 'input_provenance': input_provenance},
         'specs': _compare_specs(catalog.values),
-        'data_basis': 'catalog_with_demo_synthetic_v1' if catalog.demo_synthetic else 'published_catalog_v1', 'provenance': catalog.provenance,
+        'data_basis': 'catalog_with_demo_synthetic_v1' if catalog.demo_synthetic else 'catalog_with_assumptions_v1' if assumptions else 'published_catalog_v1', 'provenance': catalog.provenance,
         'resolved_facts': facts,
         'uses_demo_synthetic': bool(catalog.demo_synthetic),
         'demo_synthetic': catalog.demo_synthetic,
-        'vendor_confirmation_fields': [item['key'] for item in catalog.demo_synthetic],
+        'vendor_confirmation_fields': list(dict.fromkeys(item['key'] for item in assumptions if item.get('requires_vendor_confirmation'))),
     }
 
 
@@ -956,7 +980,8 @@ def _match_groups(db: Session, object_type_id: int, processes: list, values: dic
     groups = []
     for process in processes:
         profile = profiles.get(process.id, {})
-        demo_process = (plan or {}).get('processes', {}).get(process.code)
+        demo_process = ((plan or {}).get('processes', {}).get(process.code)
+                        or (plan or {}).get('technical_processes', {}).get(process.code))
         if demo_process and not profile.get('sizing'):
             profile = {**profile, 'sizing': demo_process['sizing']}
         bindings = {row.input_key: row.site_key for row in db.scalars(select(ObjectInputBindingRow).where(
@@ -970,7 +995,10 @@ def _match_groups(db: Session, object_type_id: int, processes: list, values: dic
         hits = match_robots(process_code=process.code, process_name=process.name, site=values, rules=rules,
                             robots=robots, bindings=bindings, readiness=readiness, profile=profile)
         by_id = {str(row.id): row for row in rows}
-        payloads = [_candidate_payload(hit, by_id[hit.product_id], facts_map.get(hit.product_id, {}), profile, values, by_task.get(process.code), catalogs[hit.product_id], demo=bool(demo_process), input_fields=[entry for group in input_groups if group['process_code'] in ('', process.code) for entry in group['fields']]) for hit in hits]
+        quantity_context = {'process_code': process.code, 'formula': process.count_formula,
+                            'inputs': tuple((r['key'], r['label']) for r in (process.count_inputs or [])),
+                            'bindings': bindings, 'flow_unit': (profile.get('sizing') or {}).get('flow_unit')}
+        payloads = [_candidate_payload(hit, by_id[hit.product_id], facts_map.get(hit.product_id, {}), profile, values, by_task.get(process.code), catalogs[hit.product_id], demo=bool(demo_process), input_fields=[entry for group in input_groups if group['process_code'] in ('', process.code) for entry in group['fields']], quantity_context=quantity_context) for hit in hits]
         eligible = {h['product_id'] for h in payloads if economy_eligible(h)}
         counted = [(hit, next(h['count'] for h in payloads if h['product_id'] == hit.product_id), '') for hit in hits if hit.product_id in eligible]
         attributes = {key: catalog.values for key, catalog in catalogs.items()}
@@ -1302,6 +1330,8 @@ def _economy_report(
             "raas_available": raas,
             "solution_type": product_types.get(hit["product_id"], ""),
             "sizing": hit.get('sizing'),
+            "assumptions": hit.get('assumptions', []),
+            "applicability": hit.get('applicability', hit['verdict']),
             "uses_demo_synthetic": bool(plan),
             "operating_hours_per_day": (hit.get('sizing') or {}).get('operating_hours_per_day'),
         })
@@ -1327,6 +1357,13 @@ def _economy_report(
     for item, row in zip(report['fleet'], rows):
         item['sizing'] = row.get('sizing')
         item['uses_demo_synthetic'] = bool(plan)
+        item['assumptions'] = row.get('assumptions', [])
+        item['applicability'] = row.get('applicability')
+    report['assumptions'] = [
+        {'process_code': group['process_code'], 'product_id': hit['product_id'], 'name': hit['name'],
+         'fields': hit.get('assumptions', [])} for group, hit in picked if hit.get('assumptions')]
+    if report['assumptions']:
+        report['disclaimer'] += ' Расчёт предварительный: используются явно указанные допущения. Уточните характеристики и состав поставки у вендора.'
     report["coverage"] = {"requested_processes": len(matched["groups"]), "included_processes": len(picked)}
     report["selection_policy"] = "demo_economic_ready_v1" if plan else "confirmed_economic_ready_v1"
     report["selection_mode"] = "automatic" if picks is None else "explicit"
@@ -1416,7 +1453,8 @@ def _best(counted: list, attrs: dict[str, dict], rank_key: str, rank_order: str,
 
 def _robot_view(row: ProductRow, assessment: dict | None = None, *, catalog=None) -> RobotView:
     catalog = catalog or resolve_catalog(row, assessment)
-    return RobotView(str(row.id), row.name, row.slug, catalog.values, row.image_url, row.trl, row.availability or None,
+    from app.domain.demo_synthetic import technical_mode_values
+    return RobotView(str(row.id), row.name, row.slug, technical_mode_values(catalog), row.image_url, row.trl, row.availability or None,
                      catalog.facts, catalog.issues, tuple(r for r in catalog.reasons if r.stage in {'functional', 'technical'}), catalog.site_conditions)
 
 
