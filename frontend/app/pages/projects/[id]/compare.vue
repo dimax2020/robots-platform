@@ -173,6 +173,7 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void load() }, 
 
 
     <template v-if="!loadingMatch && !pending && !matchError && activeGroup && pool.length">
+      <OperationContext :operation="activeGroup.operation" />
       <div class="selection-summary" :class="{ unselected: !chosen }" role="status" aria-live="polite" aria-atomic="true">
         <template v-if="selectionMessage"><PhCheckCircle :size="20" weight="fill" /><span>{{ selectionMessage }}</span></template>
         <template v-else-if="chosen"><PhCheckCircle :size="20" weight="fill" /><span>{{ isConfirmed(activeGroup.process_code) ? 'Ваш выбор для экономики' : 'Выбор платформы для экономики' }}: <strong>{{ chosen.name }}</strong></span></template>

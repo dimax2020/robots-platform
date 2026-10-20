@@ -38,7 +38,12 @@ export interface MatchHit {
   specs?: RobotSpec[]
   sizing?: { model?: string | null; reasons: { code: string; message: string }[] }
 }
-export interface MatchGroup { process_code: string; process_name: string; best_product_id?: string | null; demo_best_product_id?: string | null; calculation_mode?: string; technical_best_product_id?: string | null; hits: MatchHit[] }
+export interface OperationContext {
+  zone: string; explanation: string
+  fields: Record<string, { label: string; value: string | number | boolean; unit: string; explanation: string }>
+  effective_fields: Record<string, string | number | boolean>
+}
+export interface MatchGroup { process_code: string; process_name: string; best_product_id?: string | null; demo_best_product_id?: string | null; calculation_mode?: string; technical_best_product_id?: string | null; hits: MatchHit[]; operation?: OperationContext | null }
 
 interface CompareStore {
   extra: Record<string, string[]>

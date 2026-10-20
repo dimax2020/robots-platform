@@ -115,9 +115,12 @@ def test_manifest_has_no_outlier_batteries_silent_cleaners_or_ready_results():
                 if entry['value'] > 12:
                     assert 'сетев' in entry['explanation']  # Сетевой рабочий режим, не чудо-АКБ.
             if key=='uroven_shuma': assert 45 <= entry['value'] <= 70
-    assert 'temp_min_c' not in data['28a5afa8-0473-4f80-99a9-b2922b76810f']  # Нет выдуманного зимнего паспорта.
-    assert manifest()['projects']['demo-hospital']['processes'].keys() == {'warehouse_inventory'}
-    assert not manifest()['projects']['demo-airport']['processes']
+    climate = data['28a5afa8-0473-4f80-99a9-b2922b76810f']['temp_min_c']
+    assert climate['value'] > 0 and 'apron_transport' not in climate['process_codes']
+    for slug,total in [('demo-warehouse',14),('demo-hospital',7),('demo-airport',9)]:
+        plan=manifest()['projects'][slug]
+        assert len({**plan['processes'],**plan['technical_processes']})==total
+        assert all(p['operation']['zone'] for p in {**plan['processes'],**plan['technical_processes']}.values())
 
 
 @pytest.fixture
@@ -152,9 +155,9 @@ def test_every_process_is_audited_and_every_eligible_alternative_reaches_economy
                 elif hit['verdict'] in {'unknown','fail'}:
                     assert not hit['economic_ready']
         assert project.site==old
+        report=project_economy(db,project.id,None,None)
+        assert report['complete'] and report['fleet']
         if slug=='demo-airport':
-            assert not any(h['verdict']=='pass' for g in matched['groups'] for h in g['hits'])
-            report=project_economy(db,project.id,None,None)
-            assert not report['complete'] and not report['fleet']
-            assert all(s['payback']['value'] is None for s in report['scenarios'])
+            apron=next(g for g in matched['groups'] if g['process_code']=='apron_transport')
+            assert not any(h['verdict']=='pass' for h in apron['hits'])
     assert seen==30 and selected>=14

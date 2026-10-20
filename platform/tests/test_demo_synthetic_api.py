@@ -31,8 +31,8 @@ def db():
 
 @pytest.mark.parametrize('slug,process,product_id,expected', [
     ('demo-warehouse', 'cart_towing', ROBOCV, 'pass'),
-    ('demo-hospital', 'floor_cleaning', PHANTAS, 'fail'),
-    ('demo-airport', 'passenger_service', GREETING, 'fail'),
+    ('demo-hospital', 'floor_cleaning', PHANTAS, 'pass'),
+    ('demo-airport', 'passenger_service', GREETING, 'pass'),
 ])
 def test_existing_demo_rules_compute_status_and_preserve_original_inputs(db, monkeypatch, slug, process, product_id, expected):
     project = resolve_project(db, slug)
@@ -67,13 +67,12 @@ def test_existing_demo_rules_compute_status_and_preserve_original_inputs(db, mon
 @pytest.mark.parametrize('slug', ['demo-warehouse', 'demo-airport', 'demo-hospital'])
 def test_incomplete_economy_keeps_origin_even_without_selected_fleet(db, slug):
     report = project_economy(db, resolve_project(db, slug).id, None, None)
-    assert report['status'] == ('incomplete' if slug == 'demo-airport' else 'demo_estimate') and report['uses_demo_synthetic']
+    assert report['status'] == 'demo_estimate' and report['uses_demo_synthetic']
     assert report['demo_synthetic']
     assert 'синтетические' in report['disclaimer'] and 'не подтверждены вендором' in report['disclaimer']
-    if slug == 'demo-airport':
-        assert all(s['capex']['value'] is None and s['payback']['value'] is None for s in report['scenarios'])
-    else:
-        assert all(s['capex']['value'] is not None for s in report['scenarios'])
+    assert all(s['capex']['value'] is not None for s in report['scenarios'])
+    empty=project_economy(db,resolve_project(db,slug).id,None,None,picks={})
+    assert empty['status']=='incomplete' and empty['demo_synthetic'] and not empty['fleet']
 
 
 def test_card_api_keeps_original_attrs_separate_for_future_vendor_confirmation(db):

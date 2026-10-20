@@ -18,17 +18,21 @@ NOTICE = 'В оценке присутствуют синтетические д
 FACT_FIELDS = {'solution_kind', 'control_mode', 'execution_class', 'environments', 'capabilities', 'equipment', 'configuration_complete', 'price_complete'}
 FACT_LABELS = {'solution_kind': 'Вид решения', 'control_mode': 'Управление', 'environments': 'Среда эксплуатации',
                'capabilities': 'Выполняемые операции', 'execution_class': 'Класс исполнения'}
-MODE_UNITS = {'uroven_shuma': 'дБА', 'temp_min_c': '°C', 'working_time_h': 'ч', 'working_inventory_rate_h': 'мест/ч',
+MODE_UNITS = {'uroven_shuma': 'дБА', 'temp_min_c': '°C', 'temp_max_c': '°C',
+              'inspection_height_m': 'м', 'facade_reach_m': 'м', 'wind_max_ms': 'м/с',
+              'working_time_h': 'ч', 'working_inventory_rate_h': 'мест/ч',
               'working_speed_loaded_ms': 'м/с', 'working_speed_empty_ms': 'м/с',
               'effective_cleaning_rate_m2_h': 'м²/ч'}
-TASK_LABELS = dict(flow_per_day='Суточный поток тележек', route_len_m='Маршрут в одну сторону', t_load_s='Сцепка и загрузка',
-    t_unload_s='Расцепка и выгрузка', batch_size='Тележек в составе', cart_tare_kg='Масса тары тележки',
+TASK_LABELS = dict(flow_per_day='Суточный поток', route_len_m='Маршрут в одну сторону', t_load_s='Сцепка и загрузка',
+    t_unload_s='Расцепка и выгрузка', batch_size='Единиц в партии или составе', cart_tare_kg='Масса тары тележки',
     working_speed_loaded_ms='Рабочая скорость с грузом', working_speed_empty_ms='Рабочая скорость возврата',
     availability='Техническая доступность', reserve_count='Резерв парка', staff_fte_now='Исходная численность операции',
     clean_area_m2='Площадь участка уборки', cleaning_passes_per_day='Проходов уборки в сутки',
     cleaning_window_h='Окно уборки', effective_cleaning_rate_m2_h='Полезная производительность уборки')
 TASK_LABELS['working_time_h'] = 'Оценочное время работы выбранного режима'
 TASK_LABELS['working_inventory_rate_h'] = 'Оценочная производительность инвентаризации'
+TASK_LABELS.update(inspection_height_m='Высота фотоосмотра', facade_reach_m='Досягаемость фасадной мойки',
+                   wind_max_ms='Допустимый рабочий ветер')
 
 
 @lru_cache(maxsize=1)
@@ -76,15 +80,63 @@ def project_inputs(plan, site, tasks):
             task = {'process_code': code, 'name': process['name']}
             tasks.append(task)
         fields = []
-        for key, entry in process['task'].items():
+        for key, entry in process.get('task', {}).items():
             # Ставка конкретной роли задачи отличается от средней ставки объекта.
             # Сохранённая ставка самой задачи всегда имеет приоритет.
             role_rate = key == 'staff_salary_year_rub' and bool(entry.get('labor_role'))
             if task.get(key) is None and (site.get(key) is None or role_rate):
                 task[key] = deepcopy(entry['value'])
                 fields.append({'key': key, 'label': TASK_LABELS.get(key, key), **deepcopy(entry), 'category': 'site', 'vendor_confirmed': False, 'requires_vendor_confirmation': False})
+        # Условия операции — отдельная область, а не изменение требований объекта.
+        # Явные входы задачи (включая 0/False) сильнее DEV-сценария.
+        for key, entry in process.get('operation', {}).get('fields', {}).items():
+            if task.get(key) is None:
+                task[key] = deepcopy(entry['value'])
+                fields.append({'key': key, **deepcopy(entry), 'category': 'operation',
+                               'scope': code, 'base_site_value': deepcopy(site.get(key)),
+                               'vendor_confirmed': False, 'requires_vendor_confirmation': False})
         applied.append({'process_code': code, 'process_name': process['name'], 'product_id': '', 'name': 'Допущения задачи', 'fields': fields})
     return site, tasks, applied
+
+
+def operation_context(process, site, task, profile, rules, bindings):
+    """Только явно зарегистрированная DEV-операция; обычный подбор не меняется."""
+    from app.domain.match import FilterRule
+    operation = (process or {}).get('operation')
+    if not enabled() or not operation:
+        return site, profile, rules, bindings
+    values = deepcopy(site)
+    # Здесь уже подготовленные входы задачи, включая What-if нагрузки.
+    values.update({key: value for key, value in (task or {}).items()
+                   if value is not None and not key.startswith('__')})
+    settings = operation.get('engineering', {})
+    profile = {**deepcopy(profile), **deepcopy(settings.get('profile', {}))}
+    validate_metadata(profile, product=False)
+    omitted = settings.get('omit_rules', {})
+    if any(not explanation.strip() for explanation in omitted.values()):
+        raise ValueError('Удаление проверки требует инженерного обоснования')
+    rules = tuple(rule for rule in rules if rule.name not in omitted)
+    if settings.get('bindings', {}).get('shift') == 'autonomy_required_h':
+        from dataclasses import replace
+        rules = tuple(replace(rule, name='Работа между зарядками и обслуживанием')
+                      if rule.formula == 'robot.work_time_h >= shift' else rule for rule in rules)
+    for definition in settings.get('checks', []):
+        if definition['op'] not in {'>=', '<=', '=='}:
+            raise ValueError('DEV-проверка должна сравнивать характеристики, а не задавать модель количества')
+        rules += (FilterRule(definition['name'], (definition['site_key'],),
+                             (definition['robot_key'],), definition['op'], 'hard'),)
+    return values, profile, rules, {**bindings, **settings.get('bindings', {})}
+
+
+def operation_links(process):
+    """Адресные связи существующих карточек с обоснованием, без записи в БД."""
+    if not enabled():
+        return []
+    links = (process or {}).get('operation', {}).get('product_links', [])
+    for entry in links:
+        if entry.get('origin') != ORIGIN or not entry.get('explanation') or not entry.get('references'):
+            raise ValueError('DEV-связь требует назначения и источника')
+    return deepcopy(links)
 
 
 @lru_cache(maxsize=1)
@@ -220,3 +272,44 @@ def catalog_inventory_quantity(catalog, site, context):
     return SizingResult(count, (), model, {'inputs': details, 'formula': formula,
         'throughput_parameter': 'working_inventory_rate_h' if use_mode else 'throughput',
         'formula_source': 'process.count_formula', 'flow_unit': 'locations/hour', 'quantity_unit': 'machines'})
+
+
+def catalog_process_quantity(catalog, site, context, robot, task):
+    """Привязка сохранённых моделей к их физическим операциям, без новых формул."""
+    from app.domain.assessment import reason, valid_count
+    from app.domain.formula import _number, build_env, identifiers
+    from app.domain.match import robot_count, formula_with_task
+    from app.domain.sizing import SizingResult
+    if context.get('process_code') == 'warehouse_inventory':
+        return catalog_inventory_quantity(catalog, site, context)
+    code = context.get('process_code')
+    expected = {'perimeter_security': 'ground_patrol', 'territory_inspection': 'ground_patrol',
+                'passenger_service': 'indoor_visitor_service'}
+    model = 'process.count_formula/' + str(code)
+    if (code not in expected or catalog.facts.get('execution_class') != expected[code]
+            or context.get('flow_unit') != 'missions/day' or not context.get('formula')):
+        return SizingResult(None, (reason('sizing_incompatible', 'Сохранённая модель не соответствует типу решения и рабочей операции', stage='sizing'),), model)
+    hours, shifts = (_number(site.get(k)) for k in ('shift_hours', 'shifts_per_day'))
+    if (hours is None or shifts is None or hours <= 0 or shifts <= 0 or hours * shifts > 24
+            or any(isinstance(site.get(k), bool) for k in ('shift_hours', 'shifts_per_day'))):
+        return SizingResult(None, (reason('sizing_input_invalid', 'Уточните рабочее время операции: от 0 до 24 часов в сутки', stage='sizing'),), model)
+    if code == 'passenger_service':
+        # Существующая функция подстановки входов задачи, без изменения выражения.
+        if any(_number((task or {}).get(k)) is None or isinstance((task or {}).get(k), bool)
+               or _number((task or {}).get(k)) < 0 for k in ('flow_per_day', 'route_len_m')):
+            return SizingResult(None, (reason('sizing_input_missing', 'Уточните число сопровождений и длину маршрута', stage='sizing'),), model)
+        formula = formula_with_task(context['formula'], task)
+    else:
+        # В сохранённой модели 24 обхода и геометрия периметра через площадь.
+        # Это не произвольный поток и не модель полёта.
+        if _number(site.get('area_m2')) is None or _number(site['area_m2']) <= 0:
+            return SizingResult(None, (reason('sizing_input_missing', 'Уточните площадь патрулируемого участка', stage='sizing'),), model)
+        formula = context['formula']
+    count, note = robot_count(formula, context['inputs'], context['bindings'], site, robot)
+    if count is None or not valid_count(count):
+        return SizingResult(None, (reason('sizing_input_missing', 'Уточните рабочую скорость и параметры маршрута. ' + note, stage='sizing'),), model)
+    status, env, _ = build_env(formula, {k for k, _ in context['inputs']}, context['bindings'], site, robot)
+    inputs = {key.removeprefix('robot.'): env[key] for key in identifiers(formula) if key in env} if status == 'ok' else {}
+    return SizingResult(count, (), model, {'inputs': inputs, 'formula': formula,
+        'formula_source': 'process.count_formula', 'flow_unit': 'missions/day', 'quantity_unit': 'machines',
+        'operating_hours_per_day': hours * shifts})

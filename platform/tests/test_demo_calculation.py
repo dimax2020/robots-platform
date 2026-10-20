@@ -58,12 +58,12 @@ def test_input_precedence_and_production_isolation(dev, monkeypatch):
     project = SimpleNamespace(slug='demo-hospital', is_demo=True)
     plan = project_plan(project)
     site = {'area_m2':45000, 'clean_area_m2':20000}
-    tasks = [{'process_code':'floor_cleaning', 'availability':.5}]
+    tasks = [{'process_code':'floor_cleaning', 'availability':.5, 'clean_area_m2':9000}]
     old = deepcopy((site, tasks))
     _, prepared, groups = project_inputs(plan, site, tasks)
-    assert 'clean_area_m2' not in prepared[0] and prepared[0]['availability'] == .5
+    assert prepared[0]['clean_area_m2'] == 9000 and prepared[0]['availability'] == .5
     assert (site, tasks) == old
-    assert not any(v['key'] in {'clean_area_m2','availability'} for v in groups[0]['fields'])
+    assert not any(v['key'] in {'clean_area_m2','availability'} for g in groups if g['process_code']=='floor_cleaning' for v in g['fields'])
     assert project_plan(SimpleNamespace(slug='demo-hospital', is_demo=False)) is None
     assert project_plan(SimpleNamespace(slug='ordinary', is_demo=True)) is None
     monkeypatch.setattr(get_settings(), 'demo_synthetic_enabled', False)
@@ -102,7 +102,8 @@ def test_real_demo_pipeline_and_whatif(db, dev, slug, code, count):
         changed = project_economy(db, project.id, None, None, preview=preview)
         assert changed['scenarios'][1]['effect']['value'] != buy['effect']['value']
     loaded = project_economy(db, project.id, None, None, preview={'load_factor':200})
-    assert loaded['robots'] > report['robots'] if slug == 'demo-warehouse' else loaded['robots'] == report['robots']
+    assert loaded['robots'] > report['robots']
+    assert next(r for r in loaded['fleet'] if r['process_code']=='warehouse_inventory')['count_used'] == 2
     empty = project_economy(db, project.id, None, None, picks={})
     assert empty['status'] == 'incomplete' and not empty['fleet']
     invalid = project_economy(db, project.id, None, None, picks={code:'invalid'})
@@ -116,15 +117,17 @@ def test_production_demos_remain_strict(db, monkeypatch):
     assert report['status'] == 'incomplete' and not report['uses_demo_synthetic']
     assert not any(h['demo_economic_ready'] or h['uses_demo_synthetic'] for g in run_match(db,project.id)['groups'] for h in g['hits'])
 
-def test_airport_keeps_technical_blockers(db, dev):
+def test_airport_terminal_is_warm_and_perron_keeps_technical_blockers(db, dev):
     project = resolve_project(db,'demo-airport')
     result = run_match(db,project.id)
     greeting = next(h for g in result['groups'] for h in g['hits'] if h['slug']=='orionstar-greetingbot-mini-service-roboter')
-    assert greeting['verdict']=='fail' and greeting['count'] is None
-    assert any(r['severity']=='fail' and 'температура' in r['message'].lower() for r in greeting['reasons'])
+    assert greeting['verdict']=='pass' and greeting['count'] > 0
+    apron=next(g for g in result['groups'] if g['process_code']=='apron_transport')
+    assert all(h['verdict']!='pass' for h in apron['hits'])
+    assert project.site['temp_min_c']==-25 and project.site['shift_hours']==24
     report=project_economy(db,project.id,None,None)
-    assert report['status']=='incomplete' and not report['fleet']
-    assert all(s['tco']['value'] is None for s in report['scenarios'])
+    assert report['status']=='demo_estimate' and report['fleet']
+    assert not any(r['process_code']=='apron_transport' for r in report['fleet'])
 
 def test_real_economy_http_api(dev):
     if '_test' not in get_settings().database_url: pytest.skip('Нужна отдельная БД')
@@ -158,7 +161,7 @@ def test_duplicate_task_allocation_is_incomplete_not_double_counted(db, dev):
     tasks = [{'process_code':'warehouse_inventory', 'staff_fte_now':.5},
              {'process_code':'warehouse_inventory', 'staff_fte_now':.5}]
     report = project_economy(db, project.id, None, None, tasks=tasks)
-    assert report['status']=='incomplete' and not report['fleet']
+    assert report['status']=='incomplete' and not any(r['process_code']=='warehouse_inventory' for r in report['fleet'])
     hit = next(h for g in run_match(db,project.id,tasks=tasks)['groups'] if g['process_code']=='warehouse_inventory'
                for h in g['hits'] if h['product_id']=='9dfb0b55-4d9e-47fc-8a28-ad4390147a26')
     assert hit['count'] is None and any(r['code']=='task_allocation_conflict' for r in hit['sizing']['reasons'])
@@ -183,5 +186,5 @@ def test_sizing_provenance_tracks_scaled_value_and_original_origin(db, dev):
     source=cleaner['sizing']['input_provenance']['cleaning_passes_per_day']
     assert source['origin']=='demo_synthetic' and source['base_value']==1 and source['value']==2
     assert source['transformation']=='load_factor'
-    price=cleaner['price_rub']
-    assert price==1399900
+    from app.infrastructure.db.models import ProductRow
+    assert cleaner['price_rub']==float(db.get(ProductRow,cleaner['product_id']).price_rub)

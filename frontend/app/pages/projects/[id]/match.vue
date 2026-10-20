@@ -169,6 +169,7 @@ onBeforeUnmount(stopClock)
     </section>
 
     <template v-else>
+      <OperationContext :operation="activeGroup.operation" />
       <div class="tally glass" :class="{ empty: !compared }">
         <span class="tally-ico"><PhRobot :size="22" weight="duotone" /></span>
         <span class="tally-text">

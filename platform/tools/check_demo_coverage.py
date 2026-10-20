@@ -33,7 +33,7 @@ def coverage(verify_economy=False):
                                           'sizing_model':hit['sizing']['model'],'economic_ready':hit['demo_economic_ready'] or hit['economic_ready'],
                                           'assumption_fields':[a['key'] for a in hit['assumptions']]})
                     else:
-                        blockers.update(r['message'] for r in hit['reasons'] if r['severity']!='info')
+                        blockers.update({r['message'] for r in hit['reasons'] if r['severity']!='info'})
                     if hit['demo_economic_ready'] or hit['economic_ready']:
                         eligible.append(hit['product_id'])
                         if verify_economy:
@@ -45,6 +45,7 @@ def coverage(verify_economy=False):
                                **{key:counts[key] for key in ('pass','conditional_pass','unknown','fail')},
                                'economic_candidates':len(eligible),'economy_verified':verify_economy and bool(eligible),
                                'no_suitable_candidate':not technical,'technical_candidates':technical,
+                               'operation':group.get('operation'),
                                'main_reasons':[{'message':message,'candidates':count} for message,count in blockers.most_common(5)]})
         db.rollback()
     return output

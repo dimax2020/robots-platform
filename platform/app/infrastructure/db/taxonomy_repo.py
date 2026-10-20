@@ -1,5 +1,6 @@
 import json
 import re
+from copy import deepcopy
 from uuid import UUID, uuid4
 
 from sqlalchemy import delete, func, select, text
@@ -878,17 +879,21 @@ def _candidate_payload(hit, row, facts, profile, values, task, catalog=None, *, 
     profile, _ = checked(profile, product=False)
     profile = sizing_profile(profile, hit.process_code, facts)
     assumptions = [*catalog_assumptions(catalog), *catalog.demo_synthetic]
+    assumptions.extend(deepcopy(entry) for entry in input_fields if entry.get('category') == 'operation')
     commercial = [a for a in commercial_assumptions(facts, _number(row.price_rub))
                   if not any(r.field == a['key'] for r in catalog.reasons)]
     assumptions.extend(commercial)
     assumed_commercial = {a['key'] for a in commercial}
-    sizing_values = dict(catalog.values)
+    from app.domain.demo_synthetic import technical_mode_values
+    sizing_values = technical_mode_values(catalog) if demo else dict(catalog.values)
     for kind in ('loaded', 'empty'):
         raw = (row.attrs or {}).get(f'speed_{kind}_ms') or {}
         if raw.get('status') == 'known' and not raw.get('conflict') and raw.get('unit') == 'м/с':
             sizing_values[f'speed_{kind}_limit_ms'] = raw.get('value')
     sizing_task = dict(task or {})
     mode_sources = {}
+    if 'work_time_h' not in catalog.values and 'work_time_h' in sizing_values:
+        mode_sources['work_time_h'] = {**catalog.provenance.get('working_time_h', {}), 'parameter': 'working_time_h'}
     mode_errors = []
     policy = profile.get('sizing') or {}
     if policy.get('speed_basis') == 'working_mode':
@@ -905,8 +910,8 @@ def _candidate_payload(hit, row, facts, profile, values, task, catalog=None, *, 
         sizing_task['effective_cleaning_rate_m2_h'] = catalog.values['effective_cleaning_rate_m2_h']
     sizing = size_equipment(profile, facts, values, sizing_values, sizing_task)
     if demo and policy.get('reuse_catalog_formula') is True:
-        from app.domain.demo_synthetic import catalog_inventory_quantity
-        sizing = catalog_inventory_quantity(catalog, values, quantity_context)
+        from app.domain.demo_synthetic import catalog_process_quantity
+        sizing = catalog_process_quantity(catalog, values, quantity_context, sizing_values, sizing_task)
         if sizing.details.get('throughput_parameter') == 'working_inventory_rate_h':
             mode_sources['throughput'] = {**catalog.provenance['working_inventory_rate_h'], 'parameter': 'working_inventory_rate_h'}
     if mode_errors:
@@ -964,9 +969,9 @@ def _candidate_payload(hit, row, facts, profile, values, task, catalog=None, *, 
         'count': count, 'count_note': '; '.join(r.message for r in sizing_reasons),
         'sizing': {'model': sizing.model, 'reasons': [r.as_dict() for r in sizing_reasons], **sizing.details, 'origin': 'calculated', 'uses_demo_synthetic': demo, 'input_provenance': input_provenance},
         'specs': _compare_specs(catalog.values),
-        'data_basis': 'catalog_with_demo_synthetic_v1' if catalog.demo_synthetic else 'catalog_with_assumptions_v1' if assumptions else 'published_catalog_v1', 'provenance': catalog.provenance,
+        'data_basis': 'catalog_with_demo_synthetic_v1' if demo else 'catalog_with_assumptions_v1' if assumptions else 'published_catalog_v1', 'provenance': catalog.provenance,
         'resolved_facts': facts,
-        'uses_demo_synthetic': bool(catalog.demo_synthetic),
+        'uses_demo_synthetic': bool(catalog.demo_synthetic) or any(a.get('category') == 'operation' for a in assumptions),
         'demo_synthetic': catalog.demo_synthetic,
         'vendor_confirmation_fields': list(dict.fromkeys(item['key'] for item in assumptions if item.get('requires_vendor_confirmation'))),
     }
@@ -989,16 +994,44 @@ def _match_groups(db: Session, object_type_id: int, processes: list, values: dic
         rules = tuple(FilterRule(item.name, tuple(item.object_keys or []), tuple(item.robot_keys or []), item.op, item.mode,
                                  tuple((r.get('key', ''), r.get('label', '')) for r in (item.inputs or []) if isinstance(r, dict)), item.formula or '')
                       for item in db.scalars(select(ProcessFilterRow).where(ProcessFilterRow.process_id == process.id).order_by(ProcessFilterRow.id)))
+        from app.domain.demo_synthetic import operation_context, operation_links
+        task = by_task.get(process.code)
+        process_values, profile, rules, bindings = operation_context(demo_process, values, task, profile, rules, bindings)
         rows = products_for_process(db, process.id)
-        catalogs = {str(row.id): resolve_catalog(row, facts_map.get(str(row.id)), process_code=process.code, process_name=process.name, sources=sources, site=values, allow_demo=bool(plan)) for row in rows}
+        links = operation_links(demo_process)
+        existing = {str(row.id) for row in rows}
+        for link in links:
+            if link['product_id'] not in existing:
+                row = db.get(ProductRow, UUID(link['product_id']))
+                if row is None:
+                    raise ValueError('DEV-связь с отсутствующей карточкой: ' + link['product_id'])
+                rows.append(row)
+                existing.add(str(row.id))
+        catalogs = {str(row.id): resolve_catalog(row, facts_map.get(str(row.id)), process_code=process.code, process_name=process.name, sources=sources, site=process_values, allow_demo=bool(plan)) for row in rows}
         robots = tuple(_robot_view(row, catalog=catalogs[str(row.id)]) for row in rows)
-        hits = match_robots(process_code=process.code, process_name=process.name, site=values, rules=rules,
+        hits = match_robots(process_code=process.code, process_name=process.name, site=process_values, rules=rules,
                             robots=robots, bindings=bindings, readiness=readiness, profile=profile)
         by_id = {str(row.id): row for row in rows}
         quantity_context = {'process_code': process.code, 'formula': process.count_formula,
                             'inputs': tuple((r['key'], r['label']) for r in (process.count_inputs or [])),
                             'bindings': bindings, 'flow_unit': (profile.get('sizing') or {}).get('flow_unit')}
-        payloads = [_candidate_payload(hit, by_id[hit.product_id], facts_map.get(hit.product_id, {}), profile, values, by_task.get(process.code), catalogs[hit.product_id], demo=bool(demo_process), input_fields=[entry for group in input_groups if group['process_code'] in ('', process.code) for entry in group['fields']], quantity_context=quantity_context) for hit in hits]
+        input_fields = [entry for group in input_groups if group['process_code'] in ('', process.code) for entry in group['fields']]
+        if demo_process and demo_process.get('operation'):
+            operation = demo_process['operation']
+            input_fields.append({'key': 'operation_scope', 'label': 'Рабочая зона и режим',
+                                 'value': operation['zone'], 'unit': '', 'origin': 'demo_synthetic',
+                                 'explanation': operation['explanation'], 'category': 'operation',
+                                 'scope': process.code, 'requires_vendor_confirmation': False})
+        payloads = []
+        for hit in hits:
+            linked_fields = [
+                {'key': 'process_link', 'label': 'Назначение решения', 'unit': '', 'value': process.name,
+                 'category': 'operation', 'requires_vendor_confirmation': True, **link}
+                for link in links if link['product_id'] == hit.product_id]
+            payloads.append(_candidate_payload(
+                hit, by_id[hit.product_id], facts_map.get(hit.product_id, {}), profile,
+                process_values, task, catalogs[hit.product_id], demo=bool(demo_process),
+                input_fields=[*input_fields, *linked_fields], quantity_context=quantity_context))
         eligible = {h['product_id'] for h in payloads if economy_eligible(h)}
         counted = [(hit, next(h['count'] for h in payloads if h['product_id'] == hit.product_id), '') for hit in hits if hit.product_id in eligible]
         attributes = {key: catalog.values for key, catalog in catalogs.items()}
@@ -1011,6 +1044,9 @@ def _match_groups(db: Session, object_type_id: int, processes: list, values: dic
                        'demo_best_product_id': demo_best, 'calculation_mode': 'demo' if demo_process else 'ordinary',
                        'technical_best_product_id': technical_best,
                        'selection_policy': 'confirmed_economic_ready_v1',
+                       'operation': ({**deepcopy(demo_process['operation']),
+                                      'effective_fields': {key: process_values.get(key) for key in demo_process['operation'].get('fields', {})}}
+                                     if demo_process and demo_process.get('operation') else None),
                        'layout_items': process.layout_items or default_items(process.code), 'hits': payloads})
     return groups
 
