@@ -997,6 +997,7 @@ def _candidate_payload(hit, row, facts, profile, values, task, catalog=None, *, 
         'calculation_mode': 'demo' if demo else 'ordinary',
         'economic_reasons': economic_reasons,
         'image_url': hit.image_url, 'trl': hit.trl, 'stage': hit.stage,
+        'manufacturer': (getattr(row, 'manufacturer', None) or '').strip() or None,
         'count': count, 'count_note': '; '.join(r.message for r in sizing_reasons),
         'sizing': {'model': sizing.model, 'reasons': [r.as_dict() for r in sizing_reasons], **sizing.details, 'origin': 'calculated', 'uses_demo_synthetic': demo, 'input_provenance': input_provenance},
         'specs': _compare_specs(catalog.values),
@@ -1083,6 +1084,8 @@ def _match_groups(db: Session, object_type_id: int, processes: list, values: dic
         groups.append({'process_code': process.code, 'process_name': process.name, 'best_product_id': best,
                        'demo_best_product_id': demo_best, 'calculation_mode': 'demo' if demo_process else 'ordinary',
                        'technical_best_product_id': technical_best,
+                       # Правило выбора лучшего: по характеристике процесса, а если её нет — самый дешёвый.
+                       'rank_key': process.rank_key or '', 'rank_order': process.rank_order or 'asc',
                        'selection_policy': 'confirmed_economic_ready_v1',
                        'operation': ({**deepcopy(demo_process['operation']),
                                       'effective_fields': {key: process_values.get(key) for key in demo_process['operation'].get('fields', {})}}

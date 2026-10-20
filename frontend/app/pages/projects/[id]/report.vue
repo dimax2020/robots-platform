@@ -63,7 +63,8 @@ const SCEN_ROWS = [
   { key: 'change', label: 'Изменение затрат к базе' },
   { key: 'effect', label: 'Годовой эффект' },
   { key: 'payback', label: 'Срок окупаемости' },
-  { key: 'roi', label: 'ROI за горизонт' },
+  { key: 'profit', label: 'Чистая прибыль за горизонт, за вычетом CAPEX' },
+  { key: 'roe', label: 'ROE в год' },
   { key: 'tco', label: 'TCO за горизонт' },
   { key: 'npv', label: 'NPV' },
 ] as const
@@ -221,6 +222,11 @@ const SCEN_ROWS = [
                 <span class="small muted">{{ robot.process }}{{ robot.inTotal ? '' : ' · не в итоге' }}</span>
                 <strong>{{ robot.name }}</strong>
                 <span class="small mono">{{ robot.count }} · {{ robot.price }} · парк {{ robot.cost }}</span>
+                <template v-if="robot.choice">
+                  <span class="small"><b>Почему он.</b> {{ robot.choice.why }}</span>
+                  <span class="small"><b>Сколько.</b> {{ robot.choice.count }}</span>
+                  <span class="small"><b>В CAPEX.</b> {{ robot.choice.money }}</span>
+                </template>
                 <span v-if="robot.specs.length" class="small">{{ robot.specs.join(' · ') }}</span>
                 <span v-for="note in robot.notes" :key="note" class="small muted">{{ note }}</span>
               </div>
@@ -271,24 +277,9 @@ const SCEN_ROWS = [
           </table>
         </section>
 
-        <!-- Е. Формулы и подстановка (ТЗ 3.5.8). -->
+        <!-- Е. Надёжность. -->
         <section class="sheet">
-          <h2 class="ap"><span>Е</span>Формулы и подстановка</h2>
-          <p class="small muted">Каждая величина — формула, числа и источник каждой переменной.</p>
-          <template v-for="group in doc.formulas.value" :key="group.title">
-            <h3>{{ group.title }}</h3>
-            <div class="formulas">
-              <div v-for="fig in group.figs" :key="`${group.title}-${fig.key}`" class="f-tile">
-                <div class="f-head"><span>{{ fig.label }}</span></div>
-                <EconFormula dense brief :fig="fig" />
-              </div>
-            </div>
-          </template>
-        </section>
-
-        <!-- Ж. Надёжность. -->
-        <section class="sheet">
-          <h2 class="ap"><span>Ж</span>Надёжность расчёта</h2>
+          <h2 class="ap"><span>Е</span>Надёжность расчёта</h2>
           <h3>Если пойдёт хуже</h3>
           <table class="tbl">
             <colgroup><col style="width: 26%"><col style="width: 16%"><col style="width: 18%"><col style="width: 40%"></colgroup>
@@ -310,9 +301,9 @@ const SCEN_ROWS = [
           <p class="small muted">Диапазоны — из источников нормативов, а где их нет — по уровню достоверности: закон ±5%, данные ±10%, оценка ±20%, допущение ±35%.</p>
         </section>
 
-        <!-- З. Схема объекта (ТЗ 3.7.4). -->
+        <!-- Ж. Схема объекта (ТЗ 3.7.4). -->
         <section v-if="doc.floors.value.length" class="sheet">
-          <h2 class="ap"><span>З</span>Схема объекта</h2>
+          <h2 class="ap"><span>Ж</span>Схема объекта</h2>
           <p class="small muted">Расстановка из шага «Визуализация»: рабочие зоны, точки погрузки и выгрузки, зарядка. Прогон смены с роботами — на шаге визуализации.</p>
           <template v-for="floor in doc.floors.value" :key="floor.id">
             <h3>{{ floor.name }}</h3>
@@ -320,9 +311,9 @@ const SCEN_ROWS = [
           </template>
         </section>
 
-        <!-- И. Допущения и источники. -->
+        <!-- З. Допущения и источники. -->
         <section class="sheet">
-          <h2 class="ap"><span>И</span>Допущения и источники данных</h2>
+          <h2 class="ap"><span>З</span>Допущения и источники данных</h2>
           <p class="small">
             <template v-if="doc.changed.value.length">Изменены в проекте: {{ doc.changed.value.map((item) => item.label.toLowerCase()).join(', ') }}.</template>
             <template v-else>Своих значений в проекте нет: расчёт на условиях объекта и стандарте платформы.</template>
@@ -337,9 +328,9 @@ const SCEN_ROWS = [
           <ol class="list small"><li v-for="(item, index) in doc.sources.value" :key="index">{{ item }}</li></ol>
         </section>
 
-        <!-- К. Методика, аренда, ограничения. -->
+        <!-- И. Методика, аренда, ограничения. -->
         <section class="sheet">
-          <h2 class="ap"><span>К</span>Методика, модель аренды и ограничения</h2>
+          <h2 class="ap"><span>И</span>Методика, модель аренды и ограничения</h2>
           <h3>Как считали</h3>
           <ul class="list small">
             <li>Количество роботов — по формуле процесса: пиковая потребность в операциях на эффективную производительность робота с учётом готовности и резерва.</li>
@@ -362,8 +353,23 @@ const SCEN_ROWS = [
           </template>
           <p class="note">{{ REPORT_NOTE }} Дата расчёта: {{ doc.today }}.</p>
         </section>
+
+        <!-- К. Формулы и подстановка (ТЗ 3.5.8): последним приложением, справочно. -->
+        <section class="sheet">
+          <h2 class="ap"><span>К</span>Формулы и подстановка</h2>
+          <p class="small muted">Каждая величина — формула, числа и источник каждой переменной.</p>
+          <template v-for="group in doc.formulas.value" :key="group.title">
+            <h3>{{ group.title }}</h3>
+            <div class="formulas">
+              <div v-for="fig in group.figs" :key="`${group.title}-${fig.key}`" class="f-tile">
+                <div class="f-head"><span>{{ fig.label }}</span></div>
+                <EconFormula dense brief :fig="fig" />
+              </div>
+            </div>
+          </template>
+        </section>
       </template>
-      <p v-else class="more no-print">Приложения — объект, решения и парк, экономика процессов, статьи затрат, формулы, надёжность, схема, допущения и источники — в полном отчёте. <button type="button" class="link" @click="mode = 'full'">Показать полностью</button></p>
+      <p v-else class="more no-print">Приложения — объект, решения и парк, экономика процессов, статьи затрат, надёжность, схема, допущения и источники, методика и все формулы — в полном отчёте. <button type="button" class="link" @click="mode = 'full'">Показать полностью</button></p>
     </article>
   </ProjectShell>
   <section v-else class="container gone">

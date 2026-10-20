@@ -44,6 +44,7 @@ const metrics = computed<Metric[]>(() => {
     { key: 'pi', label: 'PI', value: fmt(pi, 2), hint: 'приведённый ₽ на ₽ вложений', tone: (pi ?? 0) >= 1 ? 'good' : 'bad', fig: b.pi },
     { key: 'payback', label: 'PBP / DPP', value: `${b.payback.value != null ? fmt(b.payback.value) : '—'} / ${b.dpp?.value != null ? fmt(b.dpp.value) : '—'}`, hint: 'лет: простая / дисконтированная', fig: b.dpp ?? b.payback },
     { key: 'roi', label: 'Чистый ROI', value: b.roi.value != null ? `${fmt(b.roi.value, 0)}%` : '—', hint: `за ${props.horizon} лет после возврата CAPEX`, tone: (b.roi.value ?? 0) >= 0 ? 'good' : 'bad', fig: b.roi },
+    { key: 'roe', label: 'ROE в год', value: b.roe?.value != null ? `${fmt(b.roe.value, 1)}%` : '—', hint: 'прибыль после амортизации и налога на вложенный капитал', tone: (b.roe?.value ?? 0) >= (rate.value ?? 0) ? 'good' : 'bad', fig: b.roe ?? null },
     { key: 'eac', label: 'EAC', value: money(eacBuy), hint: eacNow != null ? `в год против ${money(eacNow)} вручную` : 'в год с учётом вложений', tone: eacBuy != null && eacNow != null && eacBuy <= eacNow ? 'good' : 'bad', fig: b.eac },
     { key: 'tco', label: `TCO ${props.horizon} лет`, value: money(b.tco.value), hint: props.asis ? `вручную ${money(props.asis.tco.value)}` : 'без налогов и дисконта', fig: b.tco },
     { key: 'rate', label: 'Ставка r', value: rate.value != null ? `${fmt(rate.value)}%` : '—', hint: 'реальная: ключевая ЦБ за вычетом цели по инфляции', fig: props.discount },

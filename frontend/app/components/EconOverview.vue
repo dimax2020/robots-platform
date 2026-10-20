@@ -134,7 +134,7 @@ const tiles = computed<Tile[]>(() => [
   { key: 'capex', label: 'Вложения', value: millions(capex.value), hint: 'один раз: роботы, внедрение, интеграция', fig: props.buy.capex },
   { key: 'effect', label: 'Экономия в год', value: `${saving.value >= 0 ? '' : '−'}${millions(Math.abs(saving.value))}`, hint: 'меньше людей минус расходы на роботов', fig: props.buy.effect, tone: saving.value > 0 ? 'good' : 'bad' },
   { key: 'payback', label: 'Окупаемость', value: payback.value != null ? yearsText(payback.value) : 'нет', hint: `когда вложения вернутся · горизонт ${props.horizon} лет`, fig: props.buy.payback, tone: payback.value != null && payback.value <= props.horizon ? 'good' : 'bad' },
-  { key: 'net', label: `Итог за ${props.horizon} лет`, value: signedMillions(net.value), hint: 'чистыми: после налогов и возврата вложений', fig: props.buy.roi, tone: (net.value ?? 0) >= 0 ? 'good' : 'bad' },
+  { key: 'net', label: `Чистая прибыль за ${props.horizon} лет`, value: signedMillions(props.buy.net_profit?.value ?? net.value), hint: `после налога и за вычетом вложений${props.buy.roe?.value != null ? ` · ROE ${fmt(props.buy.roe.value)}% в год` : ''}`, fig: props.buy.net_profit ?? props.buy.roi, tone: (props.buy.net_profit?.value ?? net.value ?? 0) >= 0 ? 'good' : 'bad' },
 ])
 const open = ref('')
 const opened = computed(() => tiles.value.find((tile) => tile.key === open.value)?.fig ?? null)
@@ -244,7 +244,7 @@ const pct = (value: number) => `${Math.max(0.4, (value / scale.value) * 100)}%`
 .tile { display: grid; gap: 4px; align-content: start; text-align: left; padding: 16px 18px; border-radius: 18px; background: #fff; box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.08); transition: box-shadow var(--dur-fast) var(--ease); }
 .tile:hover, .tile.on { box-shadow: inset 0 0 0 1.5px var(--brand-400); }
 .t-label { font-size: 14px; font-weight: 700; color: var(--ink-body); }
-.t-val { font-family: var(--font-mono); font-weight: 700; font-size: clamp(24px, 2.2vw, 34px); line-height: 1.1; letter-spacing: -0.02em; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
+.t-val { font-family: var(--font-mono); font-weight: 700; font-size: clamp(22px, 1.8vw, 32px); line-height: 1.1; letter-spacing: -0.02em; color: var(--ink-strong); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tile.good .t-val { color: var(--brand-700); }
 .tile.bad .t-val { color: #c0392b; }
 .how { margin-top: 4px; color: var(--link); font-weight: 600; opacity: 0; transition: opacity var(--dur-fast) var(--ease); }

@@ -1,27 +1,16 @@
 <script setup lang="ts">
+import { PhMapPin } from '@phosphor-icons/vue'
 import type { OperationContext } from '~/composables/usePlatformCompare'
-import { formatDemoValue } from '~/utils/demoSynthetic'
+
+/** Где работает процесс — одной меткой. Технические условия демо-расчёта пользователю не показываем. */
 defineProps<{ operation?: OperationContext | null }>()
 </script>
 
 <template>
-  <UiCallout v-if="operation" tone="info" :title="operation.zone">
-    <p>{{ operation.explanation }}</p>
-    <details>
-      <summary>Условия операции · допущения DEV</summary>
-      <dl>
-        <template v-for="(field, key) in operation.fields" :key="key">
-          <dt>{{ field.label }}</dt>
-          <dd>{{ formatDemoValue(operation.effective_fields[key] ?? field.value) }} {{ field.unit }}. {{ field.explanation }}</dd>
-        </template>
-      </dl>
-    </details>
-  </UiCallout>
+  <span v-if="operation?.zone" class="zone caption"><PhMapPin :size="14" weight="bold" />Рабочая зона: {{ operation.zone }}</span>
 </template>
 
 <style scoped>
-p { margin: 0 0 8px; }
-summary { cursor: pointer; }
-dt { font-weight: 600; margin-top: 8px; }
-dd { margin-left: 0; }
+.zone { display: inline-flex; align-items: center; gap: 6px; justify-self: start; padding: 6px 12px; border-radius: 999px; background: rgba(15, 20, 19, 0.05); color: var(--ink-body); font-weight: 600; }
+.zone svg { color: var(--brand-600); }
 </style>

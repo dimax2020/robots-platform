@@ -106,6 +106,7 @@ const conclusion = computed(() => {
     </header>
 
     <template v-if="expanded">
+    <slot name="why" />
     <UiHint v-if="countFix">
       Платформа изменила число роботов: {{ countFix.change.replace('роботов ', '') }}. {{ countFix.reason }}
       <template #action><UiButton variant="secondary" size="sm" :disabled="busy" @click="emit('undo', countFix)">Вернуть как было</UiButton></template>

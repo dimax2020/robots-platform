@@ -901,6 +901,8 @@ def _asis(s: dict) -> dict:
         "effect_lines": [],
         "payback": _fig("payback", "Срок окупаемости", None, "лет", r"\text{PBP}_{\text{AS-IS}}\ \text{не считается}", "", [], "Вложений нет."),
         "roi": _fig("roi", "Чистый ROI", None, "%", r"\text{ROI}_{\text{AS-IS}}\ \text{не считается}", "", []),
+        "net_profit": _fig("net_profit", f"Чистая прибыль за {horizon} лет", 0.0, "₽", r"\text{ЧП}_{\text{AS-IS}} = 0", "= 0", [], "Базовая точка: без роботов ни вложений, ни экономии."),
+        "roe": _fig("roe", "ROE в год", None, "%", r"\text{ROE}_{\text{AS-IS}}\ \text{не считается}", "", [], "Вложений нет."),
         "npv": _fig("npv", "NPV", 0.0, "₽", r"\text{NPV}_{\text{AS-IS}} = 0", "= 0", [], none),
         "irr": _fig("irr", "IRR", None, "%", r"\text{IRR}_{\text{AS-IS}}\ \text{не считается}", "", [], none),
         "dpp": _fig("dpp", "Дисконтированная окупаемость", None, "лет", r"\text{DPP}_{\text{AS-IS}}\ \text{не считается}", "", [], none),
@@ -1113,6 +1115,7 @@ def _robot_scenario(
     )
     pi = _pi_fig(flow["npv"], capex_value, rate, owned)
     eac = _eac_fig(s, flow["npv"], rate)
+    net_profit, roe = _profit_figs(s, flow, capex_value, capex_var, owned)
     support_total = sum(support["frp"](year) for year in range(1, horizon + 1))
     annual = opex_value + after_value
     grown = sum(extra)
@@ -1152,6 +1155,8 @@ def _robot_scenario(
         "effect_lines": [saving, _negate(opex), *support["year_lines"]],
         "payback": payback,
         "roi": roi,
+        "net_profit": net_profit,
+        "roe": roe,
         # У аренды вложения — только во внедрение на площадке: их окупаемость и ROI — для сравнения по единым показателям.
         "implementation_payback": None if owned else flow["pbp"],
         "implementation_roi": None if owned else flow["roi"],
@@ -2337,6 +2342,8 @@ def _cashflow(s: dict, capex: float, saved: float, opex: float, dep_base: float,
     inflow = 0.0
     flows = [-capex]
     base_opex = opex
+    # Чистая прибыль по годам: CAPEX входит в расходы долями через амортизацию, налог на прибыль вычтен.
+    net_income = 0.0
     for year in range(1, horizon + 1):
         # Платёж, который дорожает по договору: в год t он больше на (1 + g)^(t−1).
         opex = base_opex + (growing[0] * ((1 + growing[1]) ** (year - 1) - 1) if growing else 0.0)
@@ -2354,6 +2361,7 @@ def _cashflow(s: dict, capex: float, saved: float, opex: float, dep_base: float,
         cost = expensed if year == 1 else 0.0
         profit = saving - opex - paid - dep - cost + frp
         tax_value = tax * profit
+        net_income += profit - tax_value
         operating = saving - opex - paid + frp - tax_value - reinvest
         # Остаточная стоимость — по линейному износу: техника стоит столько же, как бы её ни списывали.
         # Если баланс ниже (ускоренная амортизация), с разницы платится налог.
@@ -2380,6 +2388,7 @@ def _cashflow(s: dict, capex: float, saved: float, opex: float, dep_base: float,
             "payouts_rub": -paid,
             "support_rub": frp,
             "depreciation_rub": dep,
+            "net_income_rub": profit - tax_value,
             "tax_rub": -tax_value,
             "residual_rub": residual,
             "reinvest_rub": -reinvest,
@@ -2399,6 +2408,7 @@ def _cashflow(s: dict, capex: float, saved: float, opex: float, dep_base: float,
         "dpp": dpp,
         "roi": (inflow - capex) / capex * 100 if capex > 0 else None,
         "inflow": inflow,
+        "net_income": net_income,
         "residual": rows[-1]["residual_rub"] if rows else 0.0,
         "asset_start": dep_base,
         "rate": rate,
@@ -2650,6 +2660,38 @@ def _annuity(rate: float, years: float) -> float:
     if abs(rate) < 1e-9:
         return 1 / years
     return rate / (1 - (1 + rate) ** -years)
+
+
+def _profit_figs(s: dict, flow: dict, capex: float, capex_var: dict, owned: bool) -> tuple[dict, dict]:
+    """Чистая прибыль за горизонт после возврата всех вложений и ROE: прибыль после налога на вложенный рубль в год."""
+    horizon = s["horizon"]
+    tax = s["p"]["profit_tax_pct"]
+    net = flow["inflow"] - capex
+    inflow_var = _var(r"\sum CF_t + V_T", "Деньги за горизонт после налога, с остаточной стоимостью техники", flow["inflow"], "₽", "calc", "Экономия ФОТ минус эксплуатация, выплаты при сокращении, повторная закупка парка и налог на прибыль.")
+    net_profit = _fig(
+        "net_profit", f"Чистая прибыль за {horizon} лет", net, "₽",
+        r"\text{ЧП} = \sum_{t=1}^{T} CF_t + V_T - \text{CAPEX}",
+        rf"{_t(flow['inflow'])} - {_t(capex)} = {_t(net)}\ \text{{₽}}",
+        [inflow_var, capex_var, _t_var(s)],
+        "Сколько денег остаётся у объекта за горизонт, когда все вложения уже вернулись: после налога на прибыль, выплат при сокращении и повторной закупки парка."
+        if owned else "Для аренды вложения — только подготовка площадки; платёж аренды уже вычтен из потока каждого года.",
+    )
+    average = flow["net_income"] / horizon
+    roe_value = average / capex * 100 if capex > 0 else None
+    roe = _fig(
+        "roe", "ROE в год", roe_value, "%",
+        r"\text{ROE} = \dfrac{\overline{\text{ЧП}}_{\text{год}}}{\text{Капитал}} \times 100\%,\quad \text{ЧП}_t = (\Delta\text{ФОТ} - \text{OPEX} - \text{Выплаты}_t - \text{Аморт}_t) \times (1 - t_{\text{приб}})",
+        rf"\dfrac{{{_t(average)}}}{{{_t(capex)}}} \times 100\% = {_t(roe_value, 1)}\%" if roe_value is not None else r"\text{вложений нет}",
+        [
+            _var(r"\overline{\text{ЧП}}_{\text{год}}", "Чистая прибыль в среднем за год", average, "₽/год", "calc", "После амортизации вложений и налога на прибыль."),
+            _var(r"\text{Капитал}", "Собственный капитал = вложения (CAPEX)", capex, "₽", "calc"),
+            _var(r"t_{\text{приб}}", "Налог на прибыль", tax, "%", "norm"),
+        ],
+        ("Финансирование — собственные средства, поэтому капитал равен CAPEX. CAPEX вычитается из прибыли долями через амортизацию, так что это доходность уже за вычетом вложений."
+         if owned else "Капитал — вложения во внедрение на площадке; платёж аренды — в расходах каждого года.")
+        if roe_value is not None else "Вложений нет: доходность на капитал не считается.",
+    )
+    return net_profit, roe
 
 
 def _pi_fig(npv: float, capex: float, rate: float, owned: bool) -> dict:

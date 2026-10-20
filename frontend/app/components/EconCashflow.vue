@@ -2,7 +2,8 @@
 import { signedMillions, type EconCashRow, type EconScenario } from '~/composables/usePlatformEconomy'
 
 /** Деньги по годам: что приходит и уходит каждый год, столбиками и таблицей. Год 0 — вложения. */
-const props = defineProps<{ scenario: EconScenario }>()
+/* other — вторая схема (покупка или аренда): её итог по годам строками под таблицей, чтобы сравнить не переключаясь. */
+const props = defineProps<{ scenario: EconScenario; other?: EconScenario | null }>()
 
 interface Part { key: keyof EconCashRow; label: string; color: string }
 const PARTS: Part[] = [
@@ -16,7 +17,8 @@ const PARTS: Part[] = [
 ]
 const rows = computed(() => props.scenario.cashflow ?? [])
 const capex = computed(() => props.scenario.capex.value ?? 0)
-const parts = computed(() => PARTS.filter((part) => rows.value.some((row) => Math.abs(Number(row[part.key]) || 0) > 1)))
+/* У аренды «эксплуатация» — это прежде всего платёж за аренду: так и подписываем. */
+const parts = computed(() => PARTS.map((part) => part.key === 'opex_rub' && props.scenario.key === 'raas' ? { ...part, label: 'Аренда и обслуживание' } : part).filter((part) => rows.value.some((row) => Math.abs(Number(row[part.key]) || 0) > 1)))
 
 /* Рисуем в реальную ширину контейнера: так подписи не растягиваются вместе с графиком. */
 const box = ref<HTMLElement | null>(null)
@@ -78,6 +80,23 @@ const table = computed(() => [
 ])
 const totals = computed(() => [-capex.value, ...rows.value.map((row) => row.cf_rub)])
 const cumulative = computed(() => [-capex.value, ...rows.value.map((row) => row.cumulative)])
+const NAMES: Record<string, string> = { purchase: 'покупка', raas: 'аренда' }
+const name = (item: EconScenario) => NAMES[item.key] ?? item.title.toLowerCase()
+const compare = computed(() => {
+  const other = props.other
+  if (!other?.cashflow?.length) return null
+  const start = -(other.capex.value ?? 0)
+  const flow = [start, ...other.cashflow.map((row) => row.cf_rub)]
+  const total = [start, ...other.cashflow.map((row) => row.cumulative)]
+  return {
+    title: `Для сравнения: ${name(other)}`,
+    rows: [
+      { label: 'Поток года', values: flow },
+      { label: 'Накоплено', values: total },
+      { label: `Разница: ${name(other)} − ${name(props.scenario)}`, values: total.map((value, index) => value - (cumulative.value[index] ?? 0)), diff: true },
+    ],
+  }
+})
 const depreciation = computed(() => [0, ...rows.value.map((row) => row.depreciation_rub)])
 </script>
 
@@ -117,6 +136,13 @@ const depreciation = computed(() => [0, ...rows.value.map((row) => row.depreciat
           <tr class="total"><th>Поток года</th><td v-for="(value, index) in totals" :key="index" :class="{ neg: value < 0 }">{{ mln(value) }}</td></tr>
           <tr class="total"><th>Накоплено</th><td v-for="(value, index) in cumulative" :key="index" :class="{ neg: value < 0 }">{{ mln(value) }}</td></tr>
           <tr class="aside"><th>Амортизация, уменьшает налог</th><td v-for="(value, index) in depreciation" :key="index">{{ cell(value) }}</td></tr>
+          <template v-if="compare">
+            <tr class="sec"><th :colspan="totals.length + 1">{{ compare.title }}</th></tr>
+            <tr v-for="row in compare.rows" :key="row.label" :class="{ diff: row.diff }">
+              <th>{{ row.label }}</th>
+              <td v-for="(value, index) in row.values" :key="index" :class="{ neg: value < -1, pos: row.diff && value > 1 }">{{ row.diff ? (Math.abs(value) < 1 ? '—' : `${value > 0 ? '+' : ''}${mln(value)}`) : mln(value) }}</td>
+            </tr>
+          </template>
         </tbody>
       </table>
     </div>
@@ -147,4 +173,6 @@ svg { width: 100%; height: auto; display: block; }
 .tbl td.pos { color: var(--brand-700); }
 .tbl tr.total th, .tbl tr.total td { font-weight: 700; border-top: 1.5px solid rgba(15, 20, 19, 0.18); }
 .tbl tr.aside th, .tbl tr.aside td { color: var(--ink-muted); font-size: 12px; }
+.tbl tr.sec th { padding-top: 20px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--ink-muted); }
+.tbl tr.diff th, .tbl tr.diff td { font-weight: 700; }
 </style>

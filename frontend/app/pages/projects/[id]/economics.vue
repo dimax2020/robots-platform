@@ -5,6 +5,7 @@ import {
   millions,
   monthsText,
   rentPaybackText,
+  robotChoice,
   PARAM_GROUPS,
   PRELIMINARY,
   rubles,
@@ -23,7 +24,7 @@ import {
   type EconSuggestion,
 } from '~/composables/usePlatformEconomy'
 import { replaceQuery } from '~/composables/useQuerySync'
-import { useStepPass } from '~/composables/useStepPass'
+import { STEP_SUMMARY, useProcessFocus, useStepPass } from '~/composables/useStepPass'
 import { fetchErrorMessage } from '~/utils/errors'
 import { isAccent } from '~/utils/accent'
 
@@ -31,7 +32,7 @@ const route = useRoute()
 const id = computed(() => route.params.id as string)
 /* Данные карточки робота правит только администратор каталога; пользователь видит лишь, что их нет. */
 const { role } = useRole()
-const { project, isDemo, readonly, report, loading, failure, pending, error, source, choices, skipped, load, saveOverrides, restoreProcess, setStaff, inactive } = usePlatformEconomy(id)
+const { project, isDemo, readonly, report, loading, failure, pending, error, source, choices, skipped, load, saveOverrides, restoreProcess, setStaff, inactive, groups: matchGroups } = usePlatformEconomy(id)
 useHead({ title: () => `Экономика · ${project.value?.name ?? 'проект'}` })
 
 /* В демо только просмотр: правки живут в предпросмотре и в проект не пишутся. */
@@ -68,14 +69,31 @@ const processList = computed(() => (report.value?.processes ?? []).filter((item)
 const stageTo = (code: string) => `/projects/${id.value}/economics?process=${code}`
 /* Первый проход — по процессам; пройденный шаг открывается сразу с общей картины. */
 const pass = useStepPass(id, 'economics')
+const focus = useProcessFocus(id)
 const view = computed(() => {
   const asked = typeof route.query.process === 'string' ? route.query.process : ''
   if (asked === 'total' || processList.value.some((item) => item.process_code === asked)) return asked
-  if (route.query.tab || pass.done.value) return 'total'
-  return processList.value[0]?.process_code ?? 'total'
+  if (route.query.tab) return 'total'
+  return focus.pick(processList.value.map((item) => item.process_code), pass.done.value, 'total')
 })
+watch(view, (code) => { if (report.value) focus.set(code === 'total' ? STEP_SUMMARY : code) })
 watch([view, () => processList.value.length], ([current, count]) => { if (current === 'total' && count) pass.markDone() }, { immediate: true })
 const viewProcess = computed(() => view.value === 'total' ? null : processList.value.find((item) => item.process_code === view.value) ?? null)
+/* Процессы слева: у каждого — экономия в год или чего не хватает. */
+const railMeta = (item: EconProcess) => {
+  if (item.off) return 'не в итоге'
+  if (item.story?.needs_staff) return 'нужны данные о людях'
+  const saving = item.story?.saving_year
+  if (saving == null) return ''
+  return `${saving >= 0 ? '+' : '−'}${millions(Math.abs(saving))} в год${item.profitable ? '' : ' · невыгоден'}`
+}
+const rail = computed(() => report.value && processList.value.length ? {
+  summary: { id: 'total', label: 'Общая картина', to: stageTo('total'), meta: buy.value?.payback.value != null ? `окупится за ${yearsText(buy.value.payback.value)}` : 'итог по объекту' },
+  items: processList.value.map((item) => {
+    const tone = toneOf(item)
+    return { id: item.process_code, label: item.process_name, to: stageTo(item.process_code), tone: tone === 'ok' ? 'ok' : tone === 'off' ? 'off' : 'warn', meta: railMeta(item) }
+  }),
+} : null)
 const substages = computed(() => [
   ...processList.value.map((item) => ({ id: item.process_code, label: item.process_name, to: stageTo(item.process_code), tone: toneOf(item) })),
   { id: 'total', label: 'Общая картина', to: stageTo('total') },
@@ -275,6 +293,11 @@ const fixes = computed<EconFix[]>(() => Object.keys(overrides.value).flatMap((ke
   }
   return []
 }))
+/* Почему этот робот, сколько и как он в CAPEX — для страницы процесса. */
+const choiceOf = (code: string) => {
+  const auto = overrides.value[`auto:count:${code}`]
+  return robotChoice(matchGroups.value.find((group) => group.process_code === code), fleetOf(code) ?? undefined, processOf(code)?.story?.capex ?? null, auto != null ? auto : null, Boolean(processOf(code)?.off))
+}
 const undoKeys = (next: Record<string, number>, fix: EconFix) => {
   delete next[fix.key]
   if (fix.kind === 'off') delete next[`off:${fix.code}`]
@@ -318,13 +341,26 @@ const compareRows = computed(() => {
       { label: 'Затраты в год', values: cols.map((item) => millions(item?.annual_cost)) },
       { label: 'Экономия в год', values: cols.map((item) => item?.key === 'asis' ? 'база' : millions(item?.effect.value)) },
       { label: 'Окупаемость', values: cols.map(pay) },
-      { label: `Итог за ${report.value?.horizon_years ?? 5} лет`, values: cols.map((item) => item?.key === 'asis' ? '0' : signedMillions(item?.cashflow?.at(-1)?.cumulative ?? null)) },
+      { label: `Чистая прибыль за ${report.value?.horizon_years ?? 5} лет, за вычетом вложений`, values: cols.map((item) => item?.key === 'asis' ? '0' : signedMillions(item?.net_profit?.value ?? item?.cashflow?.at(-1)?.cumulative ?? null)) },
+      { label: 'ROE в год', values: cols.map((item) => item?.key === 'asis' || item?.roe?.value == null ? '—' : `${item.roe.value.toLocaleString('ru-RU', { maximumFractionDigits: 1 })}%${item.key === 'raas' ? ' · на внедрение' : ''}`) },
       { label: 'Выгода с учётом стоимости денег (NPV)', values: cols.map((item) => item?.key === 'asis' ? '0' : signedMillions(item?.npv?.value)) },
       { label: 'Год работы с учётом вложений (EAC)', values: cols.map((item) => millions(item?.eac?.value)), expert: true },
     ],
   }
 })
 const switchOpen = ref(false)
+
+/* «Когда окупится»: обе схемы на одном графике и короткий вывод по каждой; таблица по годам — для выбранной схемы. */
+const flowKey = ref<'purchase' | 'raas'>('purchase')
+const flowOf = computed(() => (flowKey.value === 'raas' ? rent.value : null) ?? buy.value)
+const paybackLines = computed(() => {
+  const out: { key: string; title: string; text: string }[] = []
+  const b = buy.value
+  if (b) out.push({ key: 'purchase', title: 'Покупка', text: b.payback.value != null ? `вложения ${millions(b.capex.value)} вернутся за ${yearsText(b.payback.value)}` : `вложения ${millions(b.capex.value)} не возвращаются` })
+  const r = rent.value
+  if (r) out.push({ key: 'raas', title: 'Аренда', text: (r.capex.value ?? 0) <= 0 ? 'вложений нет — в плюсе с первого года' : r.implementation_payback != null ? `внедрение ${millions(r.capex.value)} вернётся за ${yearsText(r.implementation_payback)}` : `внедрение ${millions(r.capex.value)} не возвращается` })
+  return out
+})
 /* Индексация аренды по договору: в постоянных ценах важна только часть сверх инфляции. */
 const rentGrowth = computed(() => {
   const value = report.value?.params.find((item) => item.key === 'raas_growth_pct')?.value
@@ -392,7 +428,7 @@ const inactiveOpen = ref(false)
     :project="project"
     :alerts="skippedAlerts(skipped)"
     current="economics"
-    :substages="report ? substages : undefined"
+    :rail="rail"
     :current-sub="view"
     title="Экономика"
     :subtitle="viewProcess ? `по процессу «${viewProcess.process_name}»` : report ? 'общая картина' : undefined"
@@ -431,6 +467,7 @@ const inactiveOpen = ref(false)
         @rate="(value) => setRate(viewProcess!.process_code, value)"
         @undo="undoFix"
       >
+        <template v-if="choiceOf(viewProcess.process_code)" #why><EconWhy :choice="choiceOf(viewProcess.process_code)!" /></template>
         <div class="tune">
           <div class="knobs">
             <div v-if="fleetOf(viewProcess!.process_code)?.included" class="knob">
@@ -600,13 +637,22 @@ const inactiveOpen = ref(false)
         <section class="card glass">
           <div class="c-in">
             <div class="h4">Накоплено с начала: старт в минусе на вложения, пересечение нуля — окупаемость</div>
-            <EconCashChart :scenarios="[buy]" picked="purchase" />
+            <ul class="pay-list">
+              <li v-for="line in paybackLines" :key="line.key" class="body-sm"><i :class="`pay-${line.key}`" /><b>{{ line.title }}:</b> {{ line.text }}</li>
+            </ul>
+            <EconCashChart :scenarios="[buy, ...(rent ? [rent] : [])]" picked="purchase" />
           </div>
         </section>
-        <section v-if="buy.cashflow?.length" class="card glass">
+        <section v-if="flowOf?.cashflow?.length" class="card glass">
           <div class="c-in">
-            <div class="h4">Что приходит и уходит каждый год</div>
-            <EconCashflow :scenario="buy" />
+            <div class="c-head">
+              <div class="h4">Что приходит и уходит каждый год: {{ flowKey === 'raas' && rent ? 'аренда' : 'покупка' }}</div>
+              <div v-if="rent?.cashflow?.length" class="seg" role="radiogroup" aria-label="Схема">
+                <button type="button" role="radio" :aria-checked="flowKey === 'purchase'" :class="{ on: flowKey === 'purchase' }" @click="flowKey = 'purchase'">Покупка</button>
+                <button type="button" role="radio" :aria-checked="flowKey === 'raas'" :class="{ on: flowKey === 'raas' }" @click="flowKey = 'raas'">Аренда</button>
+              </div>
+            </div>
+            <EconCashflow :scenario="flowOf" :other="flowKey === 'raas' ? buy : rent" />
           </div>
         </section>
       </template>
@@ -776,6 +822,14 @@ const inactiveOpen = ref(false)
 .dim { color: var(--ink-muted) !important; }
 
 .verdict { margin: 0; }
+.pay-list { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 0; padding: 0; list-style: none; }
+.pay-list i { display: inline-block; width: 18px; height: 4px; border-radius: 2px; margin-right: 8px; vertical-align: 3px; }
+.pay-purchase { background: var(--brand-600); }
+.pay-raas { background: #c98a1c; }
+.seg { display: inline-flex; padding: 3px; border-radius: 999px; background: rgba(15, 20, 19, 0.06); flex: none; }
+.seg button { height: 28px; padding: 0 12px; border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--ink-muted); }
+.seg button:hover { color: var(--ink-strong); }
+.seg button.on { background: #fff; color: var(--brand-700); box-shadow: 0 1px 3px rgba(15, 20, 19, 0.15); }
 .cmp { width: 100%; border-collapse: collapse; }
 .cmp th, .cmp td { padding: 10px 8px; border-bottom: 1px solid rgba(15, 20, 19, 0.06); text-align: right; white-space: nowrap; }
 .cmp thead th { font-size: 13px; font-weight: 700; color: var(--ink-muted); }

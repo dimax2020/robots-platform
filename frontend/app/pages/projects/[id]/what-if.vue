@@ -233,7 +233,7 @@ const headline = computed<Headline[]>(() => {
   const eff = diff(now.effect.value, was?.effect.value, true, (v) => millions(v), 50_000)
   rows.push({ key: 'effect', label: 'Экономия в год', value: millions(now.effect.value), was: was ? millions(was.effect.value) : '', ...eff })
   const net = diff(netOf(now), netOf(was), true, (v) => millions(v), 50_000)
-  rows.push({ key: 'net', label: `Итог за ${horizon} лет`, value: money(netOf(now)), was: was ? money(netOf(was)) : '', ...net })
+  rows.push({ key: 'net', label: `Чистая прибыль за ${horizon} лет`, value: money(netOf(now)), was: was ? money(netOf(was)) : '', ...net })
   const npv = diff(now.npv?.value, was?.npv?.value, true, (v) => millions(v), 50_000)
   rows.push({ key: 'npv', label: 'NPV', value: money(now.npv?.value), was: was ? money(was.npv?.value) : '', ...npv })
   return rows

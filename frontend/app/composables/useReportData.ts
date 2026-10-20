@@ -11,6 +11,7 @@ import {
   millions,
   PRELIMINARY,
   rentPaybackText,
+  robotChoice,
   signedMillions,
   usePlatformEconomy,
   withPlan,
@@ -91,7 +92,7 @@ export function useReportData(id: Ref<string>) {
     const payback = b.payback.value
     const npv = b.npv?.value ?? null
     if (payback != null && payback <= horizon.value && (npv ?? 0) >= 0) {
-      return { tone: 'ok' as const, title: `Роботизация окупится за ${yearsText(payback)}`, why: `Вложив ${millions(b.capex.value)} один раз, объект будет тратить на ${millions(b.effect.value)} в год меньше. Итог за ${horizon.value} лет — ${signedMillions(netOf(b))}.` }
+      return { tone: 'ok' as const, title: `Роботизация окупится за ${yearsText(payback)}`, why: `Вложив ${millions(b.capex.value)} один раз, объект будет тратить на ${millions(b.effect.value)} в год меньше. Чистая прибыль за ${horizon.value} лет за вычетом вложений — ${signedMillions(b.net_profit?.value ?? netOf(b))}.` }
     }
     if (payback != null) return { tone: 'warn' as const, title: `Окупится только за ${yearsText(payback)}`, why: 'С учётом стоимости денег вложения возвращаются слишком поздно.' }
     return { tone: 'bad' as const, title: `Роботизация не окупится за ${yearsText(horizon.value)}`, why: 'Роботы и их обслуживание обходятся дороже, чем люди, которых они заменяют.' }
@@ -104,7 +105,7 @@ export function useReportData(id: Ref<string>) {
       { label: 'Вложения', value: millions(b.capex.value), note: 'один раз, без НДС' },
       { label: 'Экономия в год', value: millions(b.effect.value), note: 'люди минус расходы на роботов' },
       { label: 'Окупаемость', value: b.payback.value != null ? yearsText(b.payback.value) : 'нет', note: `горизонт ${horizon.value} лет` },
-      { label: `Итог за ${horizon.value} лет`, value: signedMillions(netOf(b)), note: `NPV ${signedMillions(b.npv?.value ?? null)}` },
+      { label: `Чистая прибыль за ${horizon.value} лет`, value: signedMillions(b.net_profit?.value ?? netOf(b)), note: `за вычетом вложений${b.roe?.value != null ? ` · ROE ${fmt(b.roe.value)}% в год` : ''}` },
     ]
   })
 
@@ -159,6 +160,8 @@ export function useReportData(id: Ref<string>) {
       effect: item.key === 'asis' ? 'база' : millions(item.effect.value),
       payback: item.key === 'asis' ? '—' : item.key === 'raas' ? rentPaybackText(item) : item.payback.value != null ? yearsText(item.payback.value) : 'нет',
       roi: item.key === 'asis' ? '—' : item.key === 'raas' ? pct(item.implementation_roi) : pct(item.roi.value),
+      profit: item.key === 'asis' ? '0' : signedMillions(item.net_profit?.value ?? null),
+      roe: item.key === 'asis' || item.roe?.value == null ? '—' : `${fmt(item.roe.value)}%`,
       tco: millions(item.tco.value),
       npv: item.key === 'asis' ? '0' : signedMillions(item.npv?.value ?? null),
       best: item.key !== 'asis' && (item.npv?.value ?? -Infinity) === Math.max(buy.value?.npv?.value ?? -Infinity, rent.value?.npv?.value ?? -Infinity),
@@ -188,7 +191,7 @@ export function useReportData(id: Ref<string>) {
   const formulas = computed(() => {
     const b = buy.value
     if (!b) return []
-    const main = [b.capex, b.opex, b.effect, b.payback, b.roi, b.tco, b.npv, b.irr, b.dpp, b.pi, b.eac, report.value?.discount].filter((fig): fig is EconFig => Boolean(fig && fig.tex))
+    const main = [b.capex, b.opex, b.effect, b.payback, b.net_profit, b.roe, b.roi, b.tco, b.npv, b.irr, b.dpp, b.pi, b.eac, report.value?.discount].filter((fig): fig is EconFig => Boolean(fig && fig.tex))
     return [
       { title: 'Итоговые показатели покупки', figs: main },
       { title: 'Статьи CAPEX', figs: b.capex_lines.filter((fig) => fig.tex) },
@@ -207,12 +210,13 @@ export function useReportData(id: Ref<string>) {
       process: row.process_name,
       name: row.name,
       image: photoFor(row.image_url, row.name, row.process_code),
-      count: row.count_used != null ? `${fmt(row.count_used, 0)} шт.${row.count_source === 'default' ? ' (количество не посчитано)' : row.count_source === 'project' ? ' (задано в проекте)' : ''}` : '—',
+      count: row.count_used != null ? `${fmt(row.count_used, 0)} шт.${row.count_source === 'default' ? ' (количество не посчитано)' : row.count_source === 'project' ? (overrides.value[`auto:count:${row.process_code}`] != null ? ' (подобрала платформа)' : ' (задано в проекте)') : ''}` : '—',
       price: row.price_rub != null ? `${fmt(row.price_rub / 1e6, 2)} млн ₽ за шт.` : 'нет цены',
       cost: row.cost_rub != null ? millions(row.cost_rub) : '—',
       inTotal: row.included && !view?.off,
       specs: (hit?.specs ?? []).filter((spec) => spec.key !== 'price_rub' && !/цена/i.test(spec.label)).slice(0, 6).map((spec) => `${spec.label}: ${fmt(spec.value, 2)}${spec.unit ? ` ${spec.unit}` : ''}`),
       notes: (hit?.notes ?? []).filter((note) => !isSynthetic({ message: note })).slice(0, 3),
+      choice: robotChoice(group, row, view?.story?.capex ?? null, overrides.value[`auto:count:${row.process_code}`] ?? null, Boolean(view?.off)),
       fig: row.fig,
     }
   }))
@@ -291,19 +295,28 @@ export function useReportData(id: Ref<string>) {
 
   /* Правки платформы: что она поменяла сама. */
   const overrides = computed(() => report.value?.effective_overrides ?? report.value?.saved_overrides ?? {})
-  const fixes = computed(() => Object.keys(overrides.value).flatMap((key) => {
+  /* Правки платформы одной строкой на вид правки: одинаковая причина не повторяется у каждого процесса. */
+  const fixes = computed(() => {
     const name = (code: string) => processes.value.find((item) => item.process_code === code)?.process_name ?? code
-    if (key.startsWith('auto:count:')) {
-      const code = key.slice('auto:count:'.length)
-      return [`${name(code)}: роботов ${overrides.value[key]} → ${overrides.value[`count:${code}`] ?? '—'} — больше людей, чем есть на процессе, лишние роботы не заменят`]
+    const counts: string[] = []
+    const off: string[] = []
+    const noStaff: string[] = []
+    for (const key of Object.keys(overrides.value)) {
+      if (key.startsWith('auto:count:')) {
+        const code = key.slice('auto:count:'.length)
+        counts.push(`${name(code).toLowerCase()} ${overrides.value[key]} → ${overrides.value[`count:${code}`] ?? '—'}`)
+      } else if (key.startsWith('auto:off:')) {
+        const code = key.slice('auto:off:'.length)
+        const item = processes.value.find((row) => row.process_code === code)
+        ;(item?.story?.needs_staff ? noStaff : off).push(name(code).toLowerCase())
+      }
     }
-    if (key.startsWith('auto:off:')) {
-      const code = key.slice('auto:off:'.length)
-      const item = processes.value.find((row) => row.process_code === code)
-      return [`${name(code)}: убран из итога — ${item?.story?.needs_staff ? 'нет данных о людях на процессе' : 'невыгоден или те же люди уже уходят с другого процесса'}`]
-    }
-    return []
-  }))
+    const out: string[] = []
+    if (counts.length) out.push(`Меньше роботов — ${counts.join(', ')}: людей на процессе меньше, лишние роботы никого не заменят.`)
+    if (off.length) out.push(`Убраны из итога — ${off.join(', ')}: невыгодны или те же люди уже уходят с другого процесса.`)
+    if (noStaff.length) out.push(`Убраны из итога — ${noStaff.join(', ')}: нет данных о людях на процессе.`)
+    return out
+  })
 
   /* Деньги по годам — таблица. */
   const cashTable = computed(() => {
@@ -341,6 +354,8 @@ export function useReportData(id: Ref<string>) {
       ['IRR', pct(b.irr?.value), `Доходность вложений; ставка дисконтирования ${pct(r.discount?.value)}`],
       ['PI', fmt(b.pi?.value, 2), 'Приведённый рубль на рубль вложений'],
       ['Окупаемость простая / дисконтированная', `${b.payback.value != null ? yearsText(b.payback.value) : '—'} / ${b.dpp?.value != null ? yearsText(b.dpp.value) : '—'}`, 'Без остаточной стоимости техники'],
+      ['Чистая прибыль', signedMillions(b.net_profit?.value ?? null), `За ${horizon.value} лет после налога и за вычетом всех вложений (CAPEX)`],
+      ['ROE в год', pct(b.roe?.value), 'Прибыль после амортизации вложений и налога на собственный капитал, равный CAPEX'],
       ['Чистый ROI', pct(b.roi.value), `За ${horizon.value} лет после возврата вложений`],
       ['EAC покупки / вручную', `${millions(b.eac?.value)} / ${millions(asis.value?.eac?.value)}`, 'Годовая стоимость операций после налога с учётом вложений'],
       ['TCO покупки / вручную', `${millions(b.tco.value)} / ${millions(asis.value?.tco.value)}`, `Сумма затрат за ${horizon.value} лет без налогов и дисконта`],
@@ -387,7 +402,7 @@ export function useReportData(id: Ref<string>) {
     if (!report.value) return []
     const out: TableSheet[] = [
       { name: 'Итог', rows: [['Проект', project.value?.name ?? ''], ['Объект', objectLine.value], ['Дата', today], ['Вывод', verdict.value.title], ['Почему', verdict.value.why], ...kpis.value.map((k) => [k.label, `${k.value} (${k.note})`]), ['Купить или арендовать', rentLine.value]] },
-      { name: 'Сценарии', headed: true, rows: [['Сценарий', 'CAPEX', 'Затраты в год', 'Изменение к базе', 'Годовой эффект', 'Окупаемость', 'ROI', `TCO за ${horizon.value} лет`, 'NPV'], ...scenarioTable.value.map((row) => [row.title, row.capex, row.cost, row.change, row.effect, row.payback, row.roi, row.tco, row.npv])] },
+      { name: 'Сценарии', headed: true, rows: [['Сценарий', 'CAPEX', 'Затраты в год', 'Изменение к базе', 'Годовой эффект', 'Окупаемость', `Чистая прибыль за ${horizon.value} лет`, 'ROE в год', 'ROI', `TCO за ${horizon.value} лет`, 'NPV'], ...scenarioTable.value.map((row) => [row.title, row.capex, row.cost, row.change, row.effect, row.payback, row.profit, row.roe, row.roi, row.tco, row.npv])] },
       { name: 'CAPEX и OPEX', headed: true, rows: [['Статья', 'Покупка', 'Аренда'],
         ['CAPEX', statement.value.buyCapexTotal, statement.value.rentCapexTotal],
         ...[...new Set([...statement.value.buyCapex, ...statement.value.rentCapex].map((line) => line.label))].map((label) => [`  ${label}`, statement.value.buyCapex.find((line) => line.label === label)?.value ?? '—', statement.value.rentCapex.find((line) => line.label === label)?.value ?? '—']),

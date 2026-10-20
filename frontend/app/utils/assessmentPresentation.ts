@@ -1,13 +1,11 @@
 import type { MatchHit } from '../composables/usePlatformCompare'
 
-export const assessmentLabel = (hit: MatchHit): string => {
-  if (hit.verdict === 'pass' && (hit.applicability === 'conditional' || hit.assumptions?.length || hit.uses_demo_synthetic)) return 'Подходит при допущениях'
-  return ({ pass: 'Подходит', unknown: 'Требуется уточнение', fail: 'Несовместим', conditional: 'Требуется уточнение' } as Record<string, string>)[hit.verdict] || 'Требуется уточнение'
-}
+/* Статус робота для пользователя — три слова. Допущения демо-расчёта пользователю не показываем: подходящий робот просто «Подходит». */
+export const assessmentLabel = (hit: MatchHit): string =>
+  ({ pass: 'Подходит', fail: 'Не подходит' } as Record<string, string>)[hit.verdict] || 'Уточнить'
 export const assessmentTone = (hit: MatchHit): 'ok' | 'warn' | 'info' | 'danger' => {
   if (hit.verdict === 'fail') return 'danger'
-  if (hit.verdict !== 'pass') return 'info'
-  return assessmentLabel(hit) === 'Подходит' ? 'ok' : 'warn'
+  return hit.verdict === 'pass' ? 'ok' : 'info'
 }
 export const significantReasons = (hit: MatchHit) => (hit.significant_reasons ?? hit.reasons ?? [])
   .filter(r => r.severity === 'fail' || r.severity === 'unknown')

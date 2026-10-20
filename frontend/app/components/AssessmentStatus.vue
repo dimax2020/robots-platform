@@ -1,28 +1,28 @@
 <script setup lang="ts">
 import type { MatchHit } from '~/composables/usePlatformCompare'
-import { significantReasons, countExplanation, clarificationMessages } from '~/utils/assessmentPresentation'
-import { eligibleForEconomy } from '~/utils/fleetSelection'
-defineProps<{ hit: MatchHit }>()
+import { significantReasons, clarificationMessages } from '~/utils/assessmentPresentation'
+
+/** Почему робот не подошёл или что уточнить — одной строкой, остальное по клику. У подходящего робота пусто: статус говорит сам. */
+const props = defineProps<{ hit: MatchHit }>()
+const reasons = computed(() => props.hit.verdict === 'pass' ? [] : significantReasons(props.hit).map((item) => item.message))
+const more = computed(() => props.hit.verdict === 'pass' ? [] : clarificationMessages(props.hit).filter((message) => !reasons.value.slice(0, 1).includes(message)))
 </script>
 
 <template>
-  <div class="assessment-status">
-    <p v-for="item in significantReasons(hit).slice(0, 2)" :key="item.code + item.message" class="caption">{{ item.message }}</p>
-    <p class="caption">Количество: {{ countExplanation(hit) }}</p>
-    <p class="caption">Экономика: {{ eligibleForEconomy(hit) ? (hit.demo_economic_ready ? 'доступен демонстрационный расчёт' : 'доступна к расчёту') : hit.verdict === 'fail' ? 'робот несовместим с требованиями' : 'требуется уточнить исходные данные' }}</p>
-    <details v-if="clarificationMessages(hit).length || hit.assumptions?.length" class="clarifications">
-      <summary>Что необходимо уточнить</summary>
-      <AssumptionList v-if="hit.assumptions?.length" :values="hit.assumptions" />
-      <ul v-if="clarificationMessages(hit).length" class="caption">
-        <li v-for="message in clarificationMessages(hit)" :key="message">{{ message }}</li>
+  <div v-if="reasons.length || more.length" class="assessment-status">
+    <p v-if="reasons[0]" class="caption">{{ reasons[0] }}</p>
+    <details v-if="more.length" class="clarifications">
+      <summary>{{ hit.verdict === 'fail' ? 'Почему не подходит' : 'Каких данных не хватает' }} · {{ more.length }}</summary>
+      <ul class="caption">
+        <li v-for="message in more" :key="message">{{ message }}</li>
       </ul>
     </details>
   </div>
 </template>
 
 <style scoped>
-.assessment-status { display: grid; gap: 6px; text-align: left; }
-.assessment-status p { margin: 0; }
-summary { cursor: pointer; font-size: 13px; font-weight: 600; }
-ul { padding-left: 18px; }
+.assessment-status { display: grid; gap: 4px; text-align: left; }
+.assessment-status p { margin: 0; color: var(--ink-body); }
+summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--link); }
+ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 2px; }
 </style>

@@ -56,6 +56,7 @@ export interface EconFleet {
   cost_rub: number | null
   raas_available: boolean
   fig: EconFig | null
+  price_used?: number | null
 }
 
 export interface EconScenario {
@@ -74,6 +75,10 @@ export interface EconScenario {
   effect_lines: EconFig[]
   payback: EconFig
   roi: EconFig
+  /** Чистая прибыль за горизонт после налога и возврата всех вложений. */
+  net_profit?: EconFig
+  /** ROE в год: прибыль после амортизации и налога на капитал, равный CAPEX. */
+  roe?: EconFig
   npv?: EconFig
   irr?: EconFig
   dpp?: EconFig
@@ -488,6 +493,40 @@ export const yearsText = (value: number | null | undefined) => {
 
 export const millions = (value: number | null | undefined) =>
   value == null ? '—' : `${(value / 1_000_000).toLocaleString('ru-RU', { maximumFractionDigits: 1 })} млн ₽`
+
+/* Почему робот выбран, откуда его количество и как он попадает в деньги — тремя короткими фразами для человека. */
+const RANK_LABEL: Record<string, string> = { payload_kg: 'грузоподъёмность', proizvoditelnost: 'производительность', speed_loaded_ms: 'скорость с грузом', throughput: 'пропускная способность' }
+const robotsWord = (n: number) => n % 10 === 1 && n % 100 !== 11 ? 'робот' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'робота' : 'роботов'
+export interface RobotChoice { why: string; count: string; money: string; rent: string }
+export function robotChoice(group: (MatchGroup & { rank_key?: string; rank_order?: string }) | undefined, fleet: EconFleet | undefined, processCapex?: number | null, autoFrom?: number | null, off = false): RobotChoice | null {
+  if (!fleet) return null
+  const hits = group?.hits ?? []
+  const fits = hits.filter((hit) => hit.verdict === 'pass')
+  const ready = fits.filter((hit) => hit.economic_ready || hit.demo_economic_ready)
+  const best = group?.demo_best_product_id ?? group?.best_product_id
+  const label = group?.rank_key ? RANK_LABEL[group.rank_key] ?? 'ключевая характеристика процесса' : ''
+  const ruleText = label ? `${group?.rank_order === 'asc' ? 'наименьшая' : 'наибольшая'} ${label}` : 'самая низкая цена'
+  let why: string
+  if (best && fleet.product_id !== best) why = `Выбран вручную в сравнении. Платформа по умолчанию предложила бы другого робота — с лучшим показателем «${label || 'цена'}».`
+  else if (!hits.length) why = 'Выбран на шаге подбора.'
+  else if (ready.length <= 1) why = `Из ${hits.length} ${robotsWord(hits.length)} каталога для этого процесса под условия площадки подходят ${fits.length}, и только у этого известны цена и производительность — его и считаем.`
+  else why = `Из ${hits.length} ${robotsWord(hits.length)} каталога под условия площадки подходят ${fits.length}, у ${ready.length} известны цена и производительность. Среди них у этого ${ruleText} — поэтому он.`
+  const n = fleet.count_used ?? fleet.count ?? 1
+  const sizing = fleet.sizing
+  const working = typeof sizing?.working_count === 'number' ? sizing.working_count : null
+  const reserve = typeof sizing?.reserve_count === 'number' ? sizing.reserve_count : 0
+  const count = autoFrom != null ? `${n} шт. — платформа уменьшила с ${autoFrom}: людей на процессе меньше, лишние роботы никого не заменят.`
+    : fleet.count_source === 'project' ? `${n} шт. — задано вручную.`
+    : fleet.count_source === 'default' ? 'Формуле не хватило данных площадки — в расчёте 1 робот. Уточните число на процессе.'
+    : working != null && n === working + reserve ? `${n} шт.: ${working} в работе${reserve ? ` + ${reserve} в резерве` : ''} — по суточному потоку и выработке одного робота с учётом зарядки и простоев.`
+    : `${n} шт. — по формуле процесса из потока и параметров площадки.`
+  const unit = fleet.price_rub
+  const money = !fleet.included || fleet.off || off ? 'Процесс не входит в итог, поэтому в CAPEX робот не заложен.'
+    : unit == null ? 'Цены нет в карточке робота, поэтому в CAPEX он не заложен.'
+    : `Покупается сразу, до запуска: ${n} × ${rubles(unit)} с НДС = ${millions(fleet.cost_rub)} без НДС — строка «Оборудование» в CAPEX.${processCapex ? ` Вместе с инфраструктурой, интеграцией и запуском процесс стоит ${millions(processCapex)}.` : ''}`
+  const rent = fleet.raas_available ? 'При аренде робот не покупается: он в ежемесячном платеже, а в CAPEX остаётся только подготовка площадки.' : ''
+  return { why, count, money, rent }
+}
 
 export const figValue = (value: number | null | undefined, unit: string) => {
   if (value == null) return '—'

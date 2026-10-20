@@ -8,7 +8,6 @@ const props = defineProps<{
 }>()
 const incomplete = computed(() => props.report?.status === 'incomplete')
 const labels = computed(() => [
-  ...(props.report?.uses_demo_synthetic || props.report?.status === 'demo_estimate' ? ['Синтетические допущения'] : []),
   ...(props.report?.scope === 'automation_program' ? ['Охват: программа роботизации'] : []),
 ])
 const fullText = computed(() => props.text || props.report?.disclaimer || PRELIMINARY)

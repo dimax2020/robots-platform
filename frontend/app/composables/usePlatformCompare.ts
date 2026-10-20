@@ -24,6 +24,7 @@ export interface MatchHit {
   verdict: string
   notes: string[]
   image_url?: string | null
+  manufacturer?: string | null
   trl?: number | null
   stage?: string | null
   count?: number | null

@@ -383,6 +383,19 @@ def test_discount_with_support_is_offered_when_nothing_alone_helps():
         assert process["status"] == "conditional"
 
 
+def test_net_profit_and_roe_after_capex():
+    result = calculate([_row("pallet_transport", 1_000_000, 2)], _SITE, standard=_QUIET)
+    buy, asis = _buy(result), result["scenarios"][0]
+    capex, horizon = buy["capex"]["value"], result["horizon_years"]
+    flow = buy["cashflow"]
+    # Чистая прибыль — итог денег после возврата вложений: последняя точка накопленного потока.
+    assert buy["net_profit"]["value"] == pytest.approx(flow[-1]["cumulative"])
+    # ROE в год — средняя прибыль после амортизации и налога на капитал, равный CAPEX.
+    average = sum(row["net_income_rub"] for row in flow) / horizon
+    assert buy["roe"]["value"] == pytest.approx(average / capex * 100)
+    assert asis["net_profit"]["value"] == 0 and asis["roe"]["value"] is None
+
+
 def test_profitability_index_and_equivalent_annual_cost():
     result = calculate([_row("pallet_transport", 1_000_000, 2)], _SITE, standard=_QUIET)
     buy, asis = _buy(result), result["scenarios"][0]

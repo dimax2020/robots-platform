@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   PhArrowCounterClockwise, PhArrowRight, PhArrowsDownUp, PhArrowUUpLeft, PhArrowUUpRight, PhCaretDown, PhCheckCircle, PhCursor, PhDownloadSimple, PhElevator, PhEye, PhEyeClosed, PhEyeSlash,
-  PhHand, PhImage, PhLineSegments, PhLockSimple, PhLockSimpleOpen, PhMagicWand, PhMagnet, PhMapPin, PhPause, PhPencilSimple, PhPlay, PhPlus, PhPolygon, PhRuler, PhSquare, PhStairs, PhTrash, PhUploadSimple, PhWarning, PhCheck, PhCursorClick, PhDotsSixVertical, PhX,
+  PhHand, PhImage, PhLineSegments, PhLockSimple, PhLockSimpleOpen, PhMagicWand, PhMagnet, PhMapPin, PhPause, PhPencilSimple, PhPlay, PhPlus, PhPolygon, PhRuler, PhSquare, PhStairs, PhTrash, PhUploadSimple, PhWarning, PhCheck, PhCursorClick, PhDotsSixVertical, PhX, PhFileArrowUp,
 } from '@phosphor-icons/vue'
 import type PlanEditor from '~/components/PlanEditor.vue'
 import type { EditorMode, EditorTool, PlanSelection } from '~/components/PlanEditor.vue'
@@ -10,6 +10,7 @@ import { platformGet, platformSend, usePlatformBase } from '~/composables/usePla
 import { skippedAlerts, usePlatformCompare, type MatchGroup } from '~/composables/usePlatformCompare'
 import { usePlatformEconomy } from '~/composables/usePlatformEconomy'
 import { Simulation } from '~/sim/engine'
+import { dxfObstacles, parseDxf, renderDxf } from '~/sim/dxf'
 import { floorBounds } from '~/sim/grid'
 import { autoCount, buildProcess, clearProcess, emptyLayout, fitFloorToOutline, newFloor, normalizeLayout, placedCount, placeProcess, placeShell, processReady, rectOutline, ROLE_KIND, uid } from '~/sim/templates'
 import type { ItemRole, Layout, LayoutGuide, LayoutItem, LinkKind, LoadMode, ProcessSettings, RobotView, SimConfig, SimProcess, SimStats, StationKind, Visibility } from '~/sim/types'
@@ -23,6 +24,7 @@ useHead({ title: () => `Визуализация · ${project.value?.name ?? 'п
 
 const PALETTE = ['#1f7a5a', '#175fb0', '#b2582b', '#6b5bd6', '#c0417a', '#2f8f9d', '#8a6d1d', '#4f6b2a']
 const SAMPLE_PLAN = '/plans/floor-sample.svg'
+const SAMPLE_DXF = '/plans/sklad-plan.dxf'
 type GroupWithItems = MatchGroup & { layout_items?: LayoutItem[] }
 
 const editor = ref<InstanceType<typeof PlanEditor> | null>(null)
@@ -45,8 +47,7 @@ const snapOn = ref(true)
 const hint = ref('')
 const zoomPct = ref(100)
 const saveState = ref<'idle' | 'pending' | 'saving' | 'saved' | 'error'>('idle')
-/* Монитор свёрнут по умолчанию: сначала видна схема целиком, графики — по клику. */
-const panels = reactive({ nav: true, monitor: false, props: true })
+const panels = reactive({ nav: true, props: true })
 /* Просмотр: схема спит, пока по ней не кликнут, чтобы колесо прокручивало страницу, а не карту. */
 const awake = ref(false)
 /* Меню «Добавить объект» в режиме роботов. */
@@ -73,7 +74,6 @@ const closeEditor = () => {
   pendingLink.value = ''
   tool.value = 'select'
   setGuide({ phase: 'ready', process: '' })
-  panels.monitor = true
   nextTick(() => { editor.value?.fitContent(); resetSim(); scheduleCheck(50) })
 }
 const propsTitle = computed(() => {
@@ -148,7 +148,7 @@ const buildingTasks = computed(() => {
   const complete = links.every((link) => link.stops.length >= 2)
   return [
     { id: 'floor', done: floorReady.value, title: 'Пол', text: 'Растяните прямоугольник или обведите углы. Несколько участков с наложением дают проход между ними. Стены — по границе, сами.', tool: 'floor' as EditorTool },
-    { id: 'plan', done: Boolean(bg.value), title: 'Чертёж под сетку', text: 'Необязательно. Пожарная схема или план БТИ с прозрачностью и масштабом.', tool: 'select' as EditorTool, optional: true },
+    { id: 'plan', done: Boolean(bg.value), title: 'Чертёж под сетку', text: 'Необязательно. Пожарная схема, план БТИ или DXF из AutoCAD — он сразу в масштабе.', tool: 'select' as EditorTool, optional: true },
     { id: 'blocks', done: floors.some((f) => f.blocks.length > 0), title: 'Препятствия', text: 'Стеллажи, колонны, оборудование. Робот их объезжает.', tool: 'block' as EditorTool },
     { id: 'links', done: !several || (links.length > 0 && complete), title: several ? 'Лифт или лестница' : 'Переходы', text: several ? (complete ? 'Поставьте на одном этаже, затем укажите выход на другом.' : 'У перехода не указан второй конец: переключите этаж и кликните, где он выходит.') : 'Этаж один, переход не нужен. Появится, когда добавите этаж.', tool: 'link' as EditorTool },
   ]
@@ -426,7 +426,7 @@ const liveQueue = ref(0)
 const liveLoad = ref(100)
 const liveOffline = ref(0)
 const SAMPLE_S = 20
-interface Sample { t: number; rate: number; backlog: number; util: number; active: number; queued: number; rates: Record<string, number> }
+interface Sample { t: number; rate: number; share: number; backlog: number; util: number; active: number; queued: number; rates: Record<string, number> }
 const samples = ref<Sample[]>([])
 let lastSample: { t: number; done: Record<string, number> } | null = null
 const resetMonitor = () => {
@@ -449,9 +449,13 @@ const sampleStats = (stats: SimStats) => {
     if (row.unit !== 'м²') rate += value
   }
   const activeRobots = stats.processes.reduce((acc, row) => acc + row.active, 0)
+  /* Общий темп — средний % от нужного по процессам: паллеты, обходы и штуки в одну сумму не складываются. */
+  const measured = stats.processes.filter((row) => row.requiredPerHour > 0 && !(row.done === 0 && row.notes.length))
+  const share = measured.length ? measured.reduce((acc, row) => acc + Math.min(1.5, (rates[row.code] ?? 0) / row.requiredPerHour), 0) / measured.length * 100 : 0
   const sample: Sample = {
     t: stats.timeS,
     rate,
+    share,
     backlog: stats.processes.reduce((acc, row) => acc + row.backlog, 0),
     util: activeRobots ? stats.processes.reduce((acc, row) => acc + row.utilization * row.active, 0) / activeRobots * 100 : 0,
     active: activeRobots,
@@ -480,8 +484,18 @@ const breakRandom = () => {
   live.value = sim.stats()
 }
 const repairAll = () => setLiveOffline(0)
-const requiredNow = computed(() => (live.value?.processes ?? []).filter((row) => row.unit !== 'м²').reduce((acc, row) => acc + row.requiredPerHour, 0))
 const series = (key: keyof Omit<Sample, 't' | 'rates'>) => samples.value.map((sample) => sample[key])
+/* Скользящее среднее за 5 минут смены: точки по 20 с скачут от каждого рейса. */
+const smooth = (points: number[], size = 15) => points.map((_, index) => {
+  const part = points.slice(Math.max(0, index - size + 1), index + 1)
+  return part.reduce((acc, value) => acc + value, 0) / part.length
+})
+/* Темп процесса за последние полчаса смены: среднее с начала смены занижено, пока роботы разъезжаются. */
+const recentRate = (code: string) => {
+  const now = live.value?.timeS ?? 0
+  const window = samples.value.filter((sample) => sample.t >= now - 1800)
+  return window.length ? window.reduce((acc, sample) => acc + (sample.rates[code] ?? 0), 0) / window.length : 0
+}
 const processSeries = computed(() => active.value.filter((proc) => proc.kind === 'transport' || proc.kind === 'patrol').map((proc) => ({ points: samples.value.map((sample) => sample.rates[proc.code] ?? 0), color: colors.value[proc.code], label: proc.name })))
 const resetSim = () => {
   pause()
@@ -525,7 +539,6 @@ const play = () => {
   if (!sim) return
   playing.value = true
   last = 0
-  panels.monitor = true
   timer = setTimeout(frame, 0)
 }
 function pause() {
@@ -630,6 +643,67 @@ const uploadBackground = async (event: Event) => {
     hint.value = fetchErrorMessage(err, 'Не удалось загрузить чертёж')
   } finally {
     if (fileInput.value) fileInput.value.value = ''
+  }
+}
+/* Импорт из AutoCAD: DXF становится подложкой в точном масштабе (единицы — из чертежа), пол — по габаритам,
+   стены и стеллажи по именам слоёв — препятствиями, которые роботы объезжают. Уже расставленное не трогаем. */
+const dxfInput = ref<HTMLInputElement | null>(null)
+const importing = ref(false)
+const importNote = ref<{ tone: 'ok' | 'bad'; text: string } | null>(null)
+let noteTimer: ReturnType<typeof setTimeout> | undefined
+const pickDxf = () => dxfInput.value?.click()
+const onDxfFile = async (event: Event) => {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (dxfInput.value) dxfInput.value.value = ''
+  if (!file) return
+  if (/\.dwg$/i.test(file.name)) {
+    importNote.value = { tone: 'bad', text: 'DWG — закрытый формат AutoCAD. Откройте чертёж в AutoCAD и сохраните как DXF: «Сохранить как» → тип файла «DXF».' }
+    return
+  }
+  await importDxf(await file.text())
+}
+const importSampleDxf = async () => importDxf(await (await fetch(SAMPLE_DXF)).text())
+const importDxf = async (text: string) => {
+  const f = floor.value
+  if (!f || !platformId.value) return
+  importing.value = true
+  importNote.value = null
+  try {
+    const plan = parseDxf(text)
+    if (plan.width > 1000 || plan.height > 1000) throw new Error(`Чертёж ${fmt(plan.width)} × ${fmt(plan.height)} м — слишком большой. Проверьте единицы чертежа или оставьте в файле один этаж.`)
+    const image = await renderDxf(plan)
+    const body = new FormData()
+    body.append('file', image.blob, 'autocad.png')
+    const result = await $fetch<{ name: string }>(`${usePlatformBase()}/projects/${platformId.value}/layout/background`, { method: 'POST', body, credentials: 'include' })
+    const empty = !f.blocks.length && !f.stations.length && !f.zones.length
+    const found = dxfObstacles(plan)
+    if (empty) {
+      const r2 = (value: number) => Math.round(value * 100) / 100
+      const box = plan.building ?? { x: 0, y: 0, w: plan.width, h: plan.height }
+      f.areas = [{ id: uid('ar'), points: [r2(box.x), r2(box.y), r2(box.x + box.w), r2(box.y), r2(box.x + box.w), r2(box.y + box.h), r2(box.x), r2(box.y + box.h)] }]
+      f.walls = found.walls.map((points) => ({ id: uid('w'), points }))
+      f.blocks = found.blocks.map((box) => ({ id: uid('b'), ...box, label: 'Стеллаж' }))
+    }
+    f.background = { url: `${usePlatformBase()}/layout-files/${result.name}`, x: 0, y: 0, mpp: image.mpp, opacity: 0.7, width: image.width, height: image.height, locked: true }
+    fitFloorToOutline(f)
+    commit('Импорт из AutoCAD')
+    const size = `${fmt(plan.width, 1)} × ${fmt(plan.height, 1)} м`
+    importNote.value = {
+      tone: 'ok',
+      text: empty
+        ? `Чертёж ${size}, единицы: ${plan.units}. Стены: ${found.walls.length}, стеллажи и оборудование: ${found.blocks.length} — роботы их объезжают. Слои: ${plan.layers.join(', ')}.`
+        : `Чертёж ${size}, единицы: ${plan.units}, лёг подложкой. Расставленные объекты не тронуты — стены и стеллажи из чертежа добавляются только на пустой этаж.`,
+    }
+    /* С вводного экрана — сразу в редактор здания: там видно, что пришло из чертежа. */
+    if (guide.value.phase === 'intro') openEditor('building')
+    /* Холст редактора монтируется не сразу: показываем этаж целиком, когда он готов. */
+    setTimeout(() => editor.value?.fit(), 350)
+    if (noteTimer) clearTimeout(noteTimer)
+    noteTimer = setTimeout(() => { if (importNote.value?.tone === 'ok') importNote.value = null }, 15000)
+  } catch (err: unknown) {
+    importNote.value = { tone: 'bad', text: err instanceof Error && !('data' in err) ? err.message : fetchErrorMessage(err, 'Не удалось загрузить чертёж') }
+  } finally {
+    importing.value = false
   }
 }
 const bg = computed(() => floor.value?.background ?? null)
@@ -768,15 +842,50 @@ const verdictOf = (proc: SimProcess): Verdict => {
   return { code: proc.code, name: proc.name, tone: 'bad', badge: 'Не успевает', text: amount, share }
 }
 const verdicts = computed(() => active.value.map(verdictOf))
-const verdictHead = computed(() => {
-  const rows = verdicts.value
+const focusProc = ref('')
+
+/* Монитор. Первые полчаса живой смены цифры в час ещё не устоялись (роботы разъезжаются), поэтому до этого
+   показываем итог прогона всей смены, а потом — живые цифры с учётом потока и поломок. */
+const started = computed(() => (live.value?.timeS ?? 0) > 0)
+const liveReady = computed(() => (live.value?.timeS ?? 0) >= 2700 && samples.value.length >= 20)
+const monitorRows = computed<Verdict[]>(() => {
+  if (!liveReady.value) return verdicts.value
+  return active.value.map((proc) => {
+    const base = verdictOf(proc)
+    const st = live.value?.processes.find((row) => row.code === proc.code)
+    if (!st || base.badge === 'Проверить нельзя') return base
+    const rate = recentRate(proc.code)
+    const ok = rate >= st.requiredPerHour * 0.95
+    return { ...base, tone: ok ? 'ok' as const : 'bad' as const, badge: ok ? 'Справляется' : 'Не успевает', text: `${perHour(rate)} из ${perHour(st.requiredPerHour)} ${proc.unit} в час за последние 30 минут`, share: st.requiredPerHour > 0 ? Math.min(1, rate / st.requiredPerHour) : 1 }
+  })
+})
+const headOf = (rows: Verdict[]) => {
   if (!rows.length) return ''
   const ok = rows.filter((row) => row.tone === 'ok').length
-  const unknown = rows.filter((row) => row.tone === 'todo' && row.badge === 'Проверить нельзя').length
+  const unknown = rows.filter((row) => row.badge === 'Проверить нельзя').length
   const word = (n: number) => n % 10 === 1 && n % 100 !== 11 ? 'процесс' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'процесса' : 'процессов'
-  return `Со сменой справляются ${ok} из ${rows.length} ${word(rows.length)}${unknown ? `, ${unknown} проверить нельзя` : ''}`
+  if (ok === rows.length) return `Роботы справляются со всеми ${rows.length > 1 ? `${rows.length} ` : ''}${rows.length === 1 ? 'процессом' : 'процессами'}`
+  return `Справляются ${ok} из ${rows.length} ${word(rows.length)}${unknown ? `, ${unknown} проверить нельзя` : ''}`
+}
+const monitorHead = computed(() => headOf(monitorRows.value))
+/* Четыре числа, по которым видно, хватает ли парка: загрузка, исправные роботы, ожидание у станций, хвост заданий. */
+const kpis = computed(() => {
+  const shift = check.value?.stats.processes ?? []
+  const rows = started.value ? live.value?.processes ?? [] : shift
+  const robots = rows.reduce((acc, row) => acc + row.active, 0)
+  const util = started.value ? liveUtil.value : robots ? Math.round(rows.reduce((acc, row) => acc + row.utilization * row.active, 0) / robots * 100) : 0
+  const backlog = rows.reduce((acc, row) => acc + row.backlog, 0)
+  const longest = Math.max(0, ...shift.map((row) => row.maxQueue))
+  const when = started.value ? 'сейчас' : 'за смену'
+  return [
+    { label: 'Загрузка роботов', value: `${util}%`, note: util > 90 ? 'запаса почти нет' : util < 35 ? 'роботов с запасом' : `${when}, в норме`, tone: util > 90 ? 'warn' : '' },
+    { label: 'В строю', value: `${liveRobots.value - liveOffline.value} из ${liveRobots.value}`, note: liveOffline.value ? `сломано ${liveOffline.value}` : 'все исправны', tone: liveOffline.value ? 'warn' : '' },
+    started.value
+      ? { label: 'Ждут у станций', value: `${liveQueue.value}`, note: !liveQueue.value ? 'очереди нет' : liveQueue.value <= 2 ? 'небольшая очередь' : 'станций или зарядок не хватает', tone: liveQueue.value > 2 ? 'warn' : '' }
+      : { label: 'Самая длинная очередь', value: `${longest} ${longest === 1 ? 'робот' : longest > 1 && longest < 5 ? 'робота' : 'роботов'}`, note: longest > 2 ? 'у станции или зарядки за смену' : 'за смену, станций хватает', tone: longest > 2 ? 'warn' : '' },
+    { label: 'Не взято заданий', value: fmt(backlog), note: started.value ? 'в очереди сейчас' : 'к концу смены', tone: backlog > 0 ? 'warn' : '' },
+  ]
 })
-const focusProc = ref('')
 const fmt = (value: number, digits = 0) => value.toLocaleString('ru-RU', { maximumFractionDigits: digits, minimumFractionDigits: digits })
 const meters = (value: number) => value.toLocaleString('ru-RU', { maximumFractionDigits: value >= 100 ? 0 : 1 })
 const perHour = (value: number) => (value >= 100 ? fmt(value) : fmt(value, value >= 10 ? 1 : 2))
@@ -804,6 +913,14 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
       <p>Модель движения упрощена: роботы не объезжают друг друга, станция обслуживает одного робота за раз, лифт — фиксированное время.</p>
     </AssessmentNotice>
 
+    <input v-if="!readonly" ref="dxfInput" type="file" accept=".dxf,.dwg" hidden @change="onDxfFile">
+    <Teleport to="body">
+      <div v-if="importNote" class="import-note glass glass-strong" :class="importNote.tone" role="status">
+        <PhFileArrowUp :size="18" weight="bold" class="in-icon" />
+        <span class="in-copy"><span class="body-sm strong">{{ importNote.tone === 'ok' ? 'Чертёж AutoCAD загружен' : 'Чертёж не загрузился' }}</span><span class="caption">{{ importNote.text }}</span></span>
+        <button type="button" class="tb small" aria-label="Закрыть" @click="importNote = null"><PhX :size="14" weight="bold" /></button>
+      </div>
+    </Teleport>
     <StepLoading
       v-if="(pending || loading) && !layout"
       label="Визуализация"
@@ -837,31 +954,16 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
         <div class="intro-act">
           <UiButton size="lg" @click="openEditor('building')">Начать со здания<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
           <UiButton size="lg" variant="secondary" @click="autoAll(); setGuide({ phase: 'ready', process: '' }); nextTick(() => { editor?.fitContent(); resetSim(); scheduleCheck(50) })"><template #icon><PhMagicWand :size="16" weight="bold" /></template>Собрать всё автоматически</UiButton>
+          <UiButton size="lg" variant="secondary" :disabled="importing" @click="pickDxf"><template #icon><PhFileArrowUp :size="16" weight="bold" /></template>{{ importing ? 'Читаем чертёж…' : 'Импорт из AutoCAD' }}</UiButton>
         </div>
+        <p class="caption">Импорт принимает DXF: стены и стеллажи со слоёв чертежа станут препятствиями, масштаб — из единиц чертежа. Нет файла под рукой — <button type="button" class="link" :disabled="importing" @click="importSampleDxf">возьмите пример склада</button>.</p>
       </div>
     </section>
 
     <div v-else-if="layout" class="studio">
-      <!-- Вывод по смене: главное — до схемы. Клик по процессу подсвечивает его на плане. -->
-      <section v-if="!editing && verdicts.length" class="verdict glass">
-        <div class="v-in">
-          <div class="v-head">
-            <span class="label">Справятся ли роботы со сменой {{ shiftHours }} ч</span>
-            <span class="h3">{{ verdictHead }}</span>
-          </div>
-          <div class="v-list">
-            <button v-for="row in verdicts" :key="row.code" type="button" class="v-chip" :class="[row.tone, { on: focusProc === row.code }]" :aria-pressed="focusProc === row.code" @click="focusProc = focusProc === row.code ? '' : row.code">
-              <i class="dot" :style="{ background: colors[row.code] }" />
-              <span class="v-copy"><span class="body-sm strong">{{ row.name }}</span><span class="caption">{{ row.badge }} · {{ row.text }}</span></span>
-              <span v-if="row.tone !== 'todo'" class="v-bar"><i :style="{ width: `${row.share * 100}%` }" /></span>
-            </button>
-          </div>
-          <span v-if="focusProc" class="caption">Остальные процессы на схеме приглушены. <button type="button" class="link" @click="focusProc = ''">Показать все</button></span>
-        </div>
-      </section>
-
       <!-- Страница: просмотр схемы, монитор и запуск смены. Редактирование — в полноэкранном редакторе. -->
-      <div v-if="!editing" class="canvas-in viewer" :class="{ asleep: !awake }" @mouseleave="awake = false">
+      <div v-if="!editing" class="viewer-row">
+      <div class="canvas-in viewer" :class="{ asleep: !awake }" @mouseleave="awake = false">
         <ClientOnly>
           <PlanEditor
             ref="editor" :layout="layout" :floor-id="floorId" mode="view" tool="hand" :process="toolProcess" :station-kind="stationKind" :station-item="stationItem" :link-kind="linkKind"
@@ -882,51 +984,11 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
           <span class="caption ready" :title="`Объекты расставлены у ${readyCount} из ${stageProcesses.length} процессов, в смене участвуют ${active.length}`">На схеме {{ active.length }} из {{ stageProcesses.length }} процессов</span>
           <span class="sep" />
           <UiBadge v-if="readonly" tone="info" size="sm">Демо · только просмотр</UiBadge>
-          <UiButton v-else size="sm" @click="openEditor()"><template #icon><PhPencilSimple :size="14" weight="bold" /></template>Редактировать</UiButton>
+          <template v-else>
+            <UiButton size="sm" variant="secondary" :disabled="importing" title="Чертёж DXF из AutoCAD: подложка в масштабе, стены и стеллажи" @click="pickDxf"><template #icon><PhFileArrowUp :size="14" weight="bold" /></template>{{ importing ? 'Читаем…' : 'Из AutoCAD' }}</UiButton>
+            <UiButton size="sm" @click="openEditor()"><template #icon><PhPencilSimple :size="14" weight="bold" /></template>Редактировать</UiButton>
+          </template>
         </div>
-
-        <!-- Монитор: слева сверху. -->
-        <aside class="panel monitor glass glass-strong" :class="{ folded: !panels.monitor }">
-          <button type="button" class="p-head" @click="panels.monitor = !panels.monitor">
-            <span class="label">Монитор</span><span class="h4">{{ clock }} · {{ modeLabel }}</span>
-            <PhCaretDown :size="14" weight="bold" class="caret" />
-          </button>
-          <div v-if="panels.monitor" class="p-body">
-            <div class="m-top">
-              <div class="ring">
-                <svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="track" /><circle cx="60" cy="60" r="52" class="fill" :style="{ strokeDasharray: `${(liveUtil / 100) * 326.7} 326.7` }" /></svg>
-                <div class="ring-num"><span class="display-4">{{ liveUtil }}%</span><span class="caption">загрузка</span></div>
-              </div>
-              <div class="m-rows">
-                <div><span class="caption">В строю / сломано</span><span class="mono-md">{{ liveRobots - liveOffline }} / {{ liveOffline }}</span></div>
-                <div><span class="caption">В очереди сейчас</span><span class="mono-md">{{ liveQueue }}</span></div>
-                <div v-for="row in (live?.processes ?? []).slice(0, 3)" :key="row.code"><span class="caption"><i class="dot" :style="{ background: colors[row.code] }" /> {{ row.name }}</span><span class="mono-md">{{ fmt(row.done) }} {{ row.unit }}</span></div>
-              </div>
-            </div>
-            <p v-if="active.length && !playing && series('rate').length < 2" class="caption m-empty">Нажмите ▶ внизу схемы — смена пойдёт, и здесь появятся графики: сколько выполнено, очередь, загрузка роботов.</p>
-            <p v-if="!active.length" class="caption">{{ readonly ? 'Ни один процесс не готов к смене: администратор ещё не расставил объекты на этом демо.' : 'Ни один процесс не готов к смене. Откройте редактор и расставьте объекты процессов или нажмите «Дособрать».' }}</p>
-            <template v-else>
-              <div class="live-ctl">
-                <label class="field">
-                  <span class="caption">Поток заданий · {{ liveLoad }} % от базового</span>
-                  <input class="range" type="range" min="30" max="250" step="10" :value="liveLoad" :disabled="!hasSimulation" @input="setLiveLoad(num($event))">
-                </label>
-                <div class="pair">
-                  <button type="button" class="tb wide" :disabled="!hasSimulation" title="Случайный робот выходит из строя, груз возвращается в очередь" @click="breakRandom"><PhWarning :size="14" weight="bold" /><span>Сломать</span></button>
-                  <button type="button" class="tb wide" :disabled="!liveOffline" @click="setLiveOffline(liveOffline - 1)">Починить</button>
-                  <button type="button" class="tb wide" :disabled="!liveOffline" @click="repairAll">Все в строй</button>
-                </div>
-              </div>
-              <div class="charts">
-                <div class="chart wide"><div class="between"><span class="caption strong">Выполнено в час</span><span class="caption">точка / {{ SAMPLE_S }} с</span></div><UiSpark :series="[{ points: series('rate'), color: '#0d8455' }]" :target="requiredNow || null" unit="в час" :height="48" /></div>
-                <div v-if="processSeries.length > 1" class="chart wide"><span class="caption strong">По процессам</span><UiSpark :series="processSeries" unit="в час" :height="48" /></div>
-                <div class="chart"><span class="caption strong">Не взятых заданий</span><UiSpark :series="[{ points: series('backlog'), color: '#b2582b' }]" unit="шт." :height="40" /></div>
-                <div class="chart"><span class="caption strong">Загрузка роботов</span><UiSpark :series="[{ points: series('util'), color: '#175fb0' }]" :max="100" unit="%" :height="40" /></div>
-                <div class="chart"><span class="caption strong">В строю и в очереди</span><UiSpark :series="[{ points: series('active'), color: '#0f1413', label: 'в строю' }, { points: series('queued'), color: '#e6a23c', label: 'в очереди' }]" unit="шт." :height="40" /></div>
-              </div>
-            </template>
-          </div>
-        </aside>
 
         <aside v-if="trips.length" class="routes glass glass-strong">
           <div class="i-in">
@@ -954,6 +1016,65 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
           <span class="clock"><span class="caption">смена {{ shiftHours }} ч</span><span class="mono-md">{{ clock }}</span></span>
         </div>
         <div class="statusline caption"><span>{{ hint }}</span></div>
+      </div>
+
+      <!-- Монитор смены: всегда открыт справа от схемы. До пуска — итог прогона всей смены, в живой смене — текущие цифры. -->
+      <aside class="monitor-side glass">
+        <div class="ms-in">
+          <header class="ms-head">
+            <div class="ms-title"><span class="label">Монитор смены</span><span class="h4">{{ monitorHead || 'Нет процессов на схеме' }}</span></div>
+            <div class="ms-clock"><span class="mono-md">{{ clock }}</span><span class="caption">{{ modeLabel }}</span></div>
+          </header>
+
+          <p v-if="!active.length" class="body-sm muted">{{ readonly ? 'Ни один процесс не готов к смене: администратор ещё не расставил объекты на этом демо.' : 'Ни один процесс не готов к смене. Откройте редактор и расставьте объекты процессов или нажмите «Дособрать».' }}</p>
+          <template v-else>
+            <button v-if="!started" type="button" class="ms-start" @click="play">
+              <span class="ms-play"><PhPlay :size="18" weight="fill" /></span>
+              <span class="ms-start-copy"><span class="body-sm strong">Запустить смену вживую</span><span class="caption">Роботы поедут по схеме, цифры и графики ниже начнут меняться</span></span>
+            </button>
+
+            <div v-if="series('rate').length >= 2" class="ms-sec">
+              <div class="chart"><div class="between"><span class="caption strong">Темп, % от нужного</span><span class="caption">пунктир — 100 %</span></div><UiSpark :series="[{ points: smooth(series('share')), color: '#0d8455' }]" :target="100" unit="%" :height="56" /></div>
+              <div class="chart"><div class="between"><span class="caption strong">Не взятых заданий</span><span class="caption">растёт — роботы не успевают</span></div><UiSpark :series="[{ points: series('backlog'), color: '#b2582b' }]" unit="шт." :height="44" /></div>
+            </div>
+
+            <div class="ms-kpis">
+              <div v-for="tile in kpis" :key="tile.label" class="kpi" :class="tile.tone">
+                <span class="caption">{{ tile.label }}</span>
+                <span class="kpi-v">{{ tile.value }}</span>
+                <span class="caption">{{ tile.note }}</span>
+              </div>
+            </div>
+
+            <div class="ms-sec">
+              <span class="caption ms-sub">{{ liveReady ? 'Процессы сейчас' : `Процессы за смену ${shiftHours} ч` }} · % от нужного потока, нажмите — выделится на схеме</span>
+              <div class="ms-list">
+                <button v-for="row in monitorRows" :key="row.code" type="button" class="ms-row" :class="[row.tone, { on: focusProc === row.code }]" :aria-pressed="focusProc === row.code" :title="`${row.badge}: ${row.text}`" @click="focusProc = focusProc === row.code ? '' : row.code">
+                  <i class="dot" :style="{ background: colors[row.code] }" />
+                  <span class="ms-name body-sm">{{ row.name }}</span>
+                  <span class="ms-val mono-sm">{{ row.tone === 'todo' ? 'нет данных' : `${Math.round(row.share * 100)}%` }}</span>
+                  <span v-if="row.tone !== 'todo'" class="v-bar"><i :style="{ width: `${row.share * 100}%` }" /></span>
+                  <span v-if="focusProc === row.code" class="ms-more caption">{{ row.badge }} · {{ row.text }}</span>
+                </button>
+              </div>
+              <span v-if="focusProc" class="caption">Остальные процессы приглушены. <button type="button" class="link" @click="focusProc = ''">Показать все</button></span>
+            </div>
+
+            <div class="ms-sec live-ctl">
+              <span class="caption strong">Проверить вживую</span>
+              <label class="field">
+                <span class="caption">Поток заданий · {{ liveLoad }} % от обычного</span>
+                <input class="range" type="range" min="30" max="250" step="10" :value="liveLoad" :disabled="!hasSimulation" @input="setLiveLoad(num($event))">
+              </label>
+              <div class="pair">
+                <button type="button" class="tb wide" :disabled="!hasSimulation" title="Случайный робот выходит из строя, груз возвращается в очередь" @click="breakRandom"><PhWarning :size="14" weight="bold" /><span>Сломать робота</span></button>
+                <button type="button" class="tb wide" :disabled="!liveOffline" @click="setLiveOffline(liveOffline - 1)">Починить</button>
+                <button type="button" class="tb wide" :disabled="!liveOffline" @click="repairAll">Все в строй</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </aside>
       </div>
       <div v-if="!editing" class="legend-under">
         <div class="legend">
@@ -1096,6 +1217,7 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
                   </ul>
                   <div class="stage-act">
                     <UiButton size="sm" variant="secondary" @click="fileInput?.click()"><template #icon><PhUploadSimple :size="14" weight="bold" /></template>Чертёж</UiButton>
+                    <UiButton size="sm" variant="secondary" :disabled="importing" @click="pickDxf"><template #icon><PhFileArrowUp :size="14" weight="bold" /></template>AutoCAD</UiButton>
                     <UiButton size="sm" variant="secondary" @click="useSamplePlan"><template #icon><PhImage :size="14" weight="bold" /></template>Тестовый</UiButton>
                     <UiButton size="sm" variant="secondary" @click="autoShell"><template #icon><PhMagicWand :size="14" weight="bold" /></template>Авто</UiButton>
                     <input ref="fileInput" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="uploadBackground">
@@ -1275,6 +1397,39 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 .intro-act, .stage-act { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 
 .studio { display: grid; gap: var(--space-3); }
+.viewer-row { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: var(--space-3); align-items: stretch; }
+.monitor-side { border-radius: 18px; height: calc(100dvh - 210px); min-height: 620px; overflow: auto; }
+.ms-in { position: relative; z-index: 1; display: grid; gap: 14px; align-content: start; padding: 16px; }
+.ms-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.ms-title { display: grid; gap: 4px; min-width: 0; }
+.ms-title .h4 { margin: 0; line-height: 1.3; }
+.ms-clock { display: grid; justify-items: end; gap: 2px; text-align: right; flex: none; }
+.ms-clock .mono-md { font-size: 18px; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
+.ms-start { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; align-items: center; padding: 12px 14px; border-radius: 14px; text-align: left; background: var(--surface-graphite); color: #fff; transition: transform var(--dur-fast) var(--ease); }
+.ms-start:hover { transform: translateY(-1px); }
+.ms-start .caption { color: var(--ink-muted-graphite); }
+.ms-start .strong { color: #fff; }
+.ms-start-copy { display: grid; gap: 2px; }
+.ms-play { width: 40px; height: 40px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: var(--brand-500); color: #fff; }
+.ms-sec { display: grid; gap: 8px; }
+.ms-sub { color: var(--ink-muted); }
+.ms-list { display: grid; gap: 2px; }
+.ms-row { display: grid; grid-template-columns: 9px minmax(0, 1fr) auto; gap: 3px 10px; align-items: center; padding: 7px 10px; border-radius: 10px; text-align: left; }
+.ms-row:hover { background: rgba(255, 255, 255, 0.7); }
+.ms-row.on { background: #fff; box-shadow: inset 0 0 0 1.5px var(--brand-400); }
+.ms-row.ok { --tone: var(--brand-500); }
+.ms-row.bad { --tone: #e0a43a; }
+.ms-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-strong); }
+.ms-val { color: var(--ink-muted); }
+.ms-row.ok .ms-val { color: var(--brand-700); }
+.ms-row.bad .ms-val { color: #8a5200; font-weight: 700; }
+.ms-row .v-bar { grid-column: 2 / -1; height: 4px; }
+.ms-more { grid-column: 2 / -1; color: var(--ink-body); }
+.ms-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.kpi { display: grid; gap: 2px; padding: 10px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--border-hairline); }
+.kpi-v { font-family: var(--font-mono); font-size: 20px; font-weight: 700; color: var(--ink-strong); font-variant-numeric: tabular-nums; }
+.kpi.warn { box-shadow: inset 3px 0 0 #e0a43a, inset 0 0 0 1px var(--border-hairline); }
+.kpi.warn .caption:last-child { color: #8a5200; }
 .canvas-in { position: relative; height: calc(100dvh - 210px); min-height: 620px; border-radius: 18px; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.08); }
 .topbar { position: absolute; z-index: 7; top: 12px; right: 12px; display: inline-flex; align-items: center; gap: 8px; padding: 6px 6px 6px 8px; border-radius: 14px; }
 .topbar > * { position: relative; z-index: 1; }
@@ -1292,7 +1447,6 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 .panel { position: absolute; z-index: 6; width: 320px; max-height: calc(100% - 24px); display: flex; flex-direction: column; border-radius: 14px; }
 .panel > * { position: relative; z-index: 1; }
 .panel.nav { top: 12px; left: 12px; }
-.panel.monitor { top: 12px; left: 12px; width: 420px; }
 .panel.props { bottom: 68px; right: 12px; width: 300px; max-height: 46%; }
 .panel.folded { width: auto; }
 .p-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 12px; text-align: left; width: 100%; }
@@ -1340,21 +1494,8 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 .block { display: block; }
 .check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
 
-.m-top { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: center; }
-.ring { position: relative; width: 96px; height: 96px; }
-.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.track { fill: none; stroke: rgba(15, 20, 19, 0.08); stroke-width: 10; }
-.fill { fill: none; stroke: var(--brand-500); stroke-width: 10; stroke-linecap: round; transition: stroke-dasharray var(--dur-slow) var(--ease); }
-.ring-num { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 0; }
-.ring-num .display-4 { font-size: 22px; }
-.m-rows { display: grid; gap: 4px; }
-.m-rows > div { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-.m-rows .caption { display: inline-flex; align-items: center; gap: 5px; min-width: 0; line-height: 1.35; }
-.m-rows .mono-md { color: var(--ink-strong); white-space: nowrap; font-size: 13px; }
 .live-ctl { display: grid; gap: 6px; padding: 8px; border-radius: 10px; background: rgba(15, 20, 19, 0.04); }
-.charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; }
 .chart { display: grid; gap: 3px; min-width: 0; }
-.chart.wide { grid-column: 1 / -1; }
 
 .toolbar, .subbar, .zoombar, .controls { position: absolute; z-index: 7; display: inline-flex; align-items: center; gap: 4px; padding: 6px; border-radius: 14px; }
 .toolbar > *, .subbar > *, .zoombar > *, .controls > * { position: relative; z-index: 1; }
@@ -1458,9 +1599,9 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 @media (max-width: 1100px) {
   .panel.props { width: 260px; }
   .panel.nav { width: 280px; }
-  .panel.monitor { width: 340px; }
-  .charts { grid-template-columns: minmax(0, 1fr); }
   .topbar .ready { display: none; }
+  .viewer-row { grid-template-columns: minmax(0, 1fr); }
+  .monitor-side { height: auto; min-height: 0; }
 }
 @media (max-width: 800px) {
   .canvas-in { height: 80dvh; }
@@ -1469,12 +1610,6 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 }
 .opening { padding-top: var(--space-8); padding-bottom: var(--space-8); }
 .shift-check { border-radius: var(--radius-xl); }
-.verdict { border-radius: var(--radius-xl); margin-bottom: var(--space-4); }
-.v-in { position: relative; z-index: 1; padding: var(--space-5); display: grid; gap: var(--space-4); }
-.v-head { display: grid; gap: 4px; }
-.v-head .label { color: var(--ink-muted); }
-.v-head .h3 { margin: 0; }
-.v-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
 .v-chip { display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 4px 10px; align-items: center; padding: 10px 14px; border-radius: 14px; text-align: left; background: #fff; box-shadow: inset 3px 0 0 var(--tone, rgba(15, 20, 19, 0.15)), inset 0 0 0 1px rgba(15, 20, 19, 0.07); transition: box-shadow var(--dur-fast) var(--ease); }
 .v-chip.ok { --tone: var(--brand-500); }
 .v-chip.bad { --tone: #e0a43a; }
@@ -1487,5 +1622,9 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
 .link { color: var(--link); font-weight: 700; }
 .legend-under { padding: 10px 4px 0; }
 .legend-under .legend { border-top: 0; padding-top: 0; }
-.m-empty { margin: 0; padding: 10px 12px; border-radius: 10px; background: rgba(15, 20, 19, 0.04); }
+.import-note { position: fixed; z-index: 1100; right: 20px; bottom: 20px; width: min(460px, calc(100vw - 32px)); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: start; padding: 14px 12px 14px 16px; border-radius: 16px; box-shadow: 0 12px 32px rgba(15, 20, 19, 0.18); }
+.import-note > * { position: relative; z-index: 1; }
+.import-note .in-icon { margin-top: 2px; color: var(--brand-700); }
+.import-note.bad .in-icon { color: #b2582b; }
+.in-copy { display: grid; gap: 4px; }
 </style>

@@ -7,7 +7,7 @@ import { platformSend } from '~/composables/usePlatform'
 import { useLiveProject } from '~/composables/useLiveProject'
 import { photoFor } from '~/data/placeholders'
 import { usePlatformCompare, type MatchGroup, type MatchHit } from '~/composables/usePlatformCompare'
-import { STEP_SUMMARY, useStepPass, type SummaryRow } from '~/composables/useStepPass'
+import { STEP_SUMMARY, useProcessFocus, useStepPass, type SummaryRow } from '~/composables/useStepPass'
 
 const route = useRoute()
 const router = useRouter()
@@ -25,31 +25,23 @@ const { inCompare, toggleCompare } = usePlatformCompare(id)
 const loadingMatch = ref(true)
 const matchError = ref('')
 const clarificationDialog = ref<HTMLDialogElement | null>(null)
-const clarificationStorageKey = 'platform-vendor-clarifications'
-const requestedClarifications = ref<string[]>([])
-onMounted(() => {
-  try {
-    const saved: unknown = JSON.parse(localStorage.getItem(clarificationStorageKey) || '[]')
-    if (Array.isArray(saved)) requestedClarifications.value = saved.filter((id): id is string => typeof id === 'string')
-  } catch { /* При недоступном хранилище работает состояние текущей страницы. */ }
-})
+const vendorNotify = useVendorNotify()
 const requestClarification = (productId: string) => {
+  vendorNotify.request(productId)
   clarificationDialog.value?.showModal()
-  requestedClarifications.value = [...new Set([...requestedClarifications.value, productId])]
-  try {
-    localStorage.setItem(clarificationStorageKey, JSON.stringify(requestedClarifications.value))
-  } catch { /* Запрос остаётся отмеченным в текущей странице. */ }
 }
 const ranFor = ref('')
 
 const canRun = computed(() => Boolean(project.value))
 /* Первый проход — по процессам, в конце итог. Пройденный шаг открывается сразу с итога. */
 const pass = useStepPass(id, 'match')
+const focus = useProcessFocus(id)
 const activeCode = computed(() => {
   const query = typeof route.query.process === 'string' ? route.query.process : ''
   if (query === STEP_SUMMARY || groups.value.some((group) => group.process_code === query)) return query
-  return pass.done.value ? STEP_SUMMARY : groups.value[0]?.process_code ?? ''
+  return groups.value.length ? focus.pick(groups.value.map((group) => group.process_code), pass.done.value, STEP_SUMMARY) : ''
 })
+watch(activeCode, (code) => { if (code) focus.set(code) })
 watch([activeCode, () => groups.value.length], ([code, count]) => { if (code === STEP_SUMMARY && count) pass.markDone() }, { immediate: true })
 const activeGroup = computed(() => groups.value.find((group) => group.process_code === activeCode.value) ?? null)
 const nextGroup = computed(() => {
@@ -57,22 +49,25 @@ const nextGroup = computed(() => {
   return index >= 0 ? groups.value[index + 1] : undefined
 })
 const onSummary = computed(() => activeCode.value === STEP_SUMMARY)
-const substages = computed(() => [
-  ...groups.value.map((group) => ({
+/* Процессы слева: у каждого — сколько роботов подошло. */
+const rail = computed(() => groups.value.length ? {
+  summary: { id: STEP_SUMMARY, label: 'Итог подбора', to: `/projects/${id.value}/match?process=${STEP_SUMMARY}`, meta: `подобрано ${groups.value.filter((group) => passOf(group) > 0).length} из ${groups.value.length}` },
+  items: groups.value.map((group) => ({
     id: group.process_code,
     label: group.process_name,
     to: `/projects/${id.value}/match?process=${group.process_code}`,
-    tone: group.hits.some((hit) => hit.verdict === 'pass') ? 'ok' : group.hits.length ? 'warn' : 'off',
+    tone: passOf(group) ? 'ok' : group.hits.length ? 'warn' : 'off',
+    meta: passOf(group) ? `подходят ${passOf(group)} из ${group.hits.length}` : group.hits.length ? 'нет подходящих' : 'нет роботов в каталоге',
   })),
-  ...(groups.value.length ? [{ id: STEP_SUMMARY, label: 'Итог подбора', to: `/projects/${id.value}/match?process=${STEP_SUMMARY}` }] : []),
-])
-
+} : null)
 /* Итог подбора: все процессы разом — сколько роботов подошло, лучший и сколько в сравнении. */
 /* Подписи итога — те же слова, что у оценки робота на подборе. */
-const SUMMARY_LABEL: Record<string, string> = { pass: 'подходят', conditional: 'с допущениями', unknown: 'требуют уточнения', fail: 'несовместимы' }
+const SUMMARY_LABEL: Record<string, string> = { pass: 'подходят', check: 'уточнить', fail: 'не подходят' }
+/* «С условием» и «нужны данные» для человека — одно: «уточнить». */
+const verdictGroup = (verdict: string) => verdict === 'pass' || verdict === 'fail' ? verdict : 'check'
 const passOf = (group: MatchGroup) => group.hits.filter((hit) => hit.verdict === 'pass').length
 const summaryRows = computed<SummaryRow[]>(() => groups.value.map((group) => {
-  const counts = statusOrder.map((verdict) => [verdict, group.hits.filter((hit) => hit.verdict === verdict).length] as const).filter(([, n]) => n > 0)
+  const counts = (['pass', 'check', 'fail'] as const).map((key) => [key, group.hits.filter((hit) => verdictGroup(hit.verdict) === key).length] as const).filter(([, n]) => n > 0)
   const best = group.hits.find((hit) => hit.product_id === group.best_product_id) ?? group.hits.find((hit) => hit.verdict === 'pass') ?? null
   const inside = group.hits.filter((hit) => inCompare(group.process_code, hit, group)).length
   return {
@@ -81,7 +76,7 @@ const summaryRows = computed<SummaryRow[]>(() => groups.value.map((group) => {
     to: `/projects/${id.value}/match?process=${group.process_code}`,
     tone: passOf(group) ? 'ok' : group.hits.length ? 'warn' : 'todo',
     image: best ? photoFor(best.image_url, best.name, group.process_code) : null,
-    robot: best ? best.name : group.hits.length ? 'ни один робот не подошёл полностью' : 'в каталоге нет роботов',
+    robot: best ? best.name : group.hits.length ? 'подходящего робота нет' : 'в каталоге нет роботов',
     detail: counts.map(([verdict, n]) => `${SUMMARY_LABEL[verdict]} ${n}`).join(' · '),
     aside: group.hits.length ? `в сравнении ${inside}` : '',
   }
@@ -99,7 +94,9 @@ const summaryStats = computed(() => {
 })
 const summaryHint = computed(() => {
   const empty = groups.value.filter((group) => group.hits.length && !group.hits.some((hit) => inCompare(group.process_code, hit, group)))
-  return empty.length ? `У ${empty.length} ${pluralRu(empty.length, 'процесса', 'процессов', 'процессов')} в сравнении никого — в экономику они не попадут. Откройте процесс и добавьте робота «с условием», если он вам подходит.` : ''
+  if (!empty.length) return ''
+  if (empty.length === 1) return `У процесса «${empty[0]!.process_name}» нет робота в сравнении — в экономику он не попадёт. Откройте его и добавьте робота.`
+  return `У ${empty.length} ${pluralRu(empty.length, 'процесса', 'процессов', 'процессов')} нет робота в сравнении — в экономику они не попадут. Откройте процесс и добавьте робота.`
 })
 const robots = (n: number) => `${n.toLocaleString('ru-RU')} ${pluralRu(n, 'робот', 'робота', 'роботов')}`
 const compared = computed(() => {
@@ -120,7 +117,7 @@ const buttonLabel = computed(() => {
 
 const isImmature = (hit: MatchHit) => hit.notes.some((note) => note.startsWith('Готовность:'))
 const countText = (hit: MatchHit | null) => {
-  if (!hit || hit.count == null) return 'Количество требует уточнения'
+  if (!hit || hit.count == null) return 'количество уточняется'
   const value = Number(hit.count)
   const text = Number.isInteger(value) ? value.toLocaleString('ru-RU') : value.toLocaleString('ru-RU', { maximumFractionDigits: 1 })
   return `${text} шт.`
@@ -137,7 +134,7 @@ const runMatch = async () => {
     const result = await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site, tasks: live.tasks.value })
     groups.value = result.groups
     const requested = typeof route.query.process === 'string' ? route.query.process : ''
-    const first = pass.done.value ? STEP_SUMMARY : result.groups[0]?.process_code
+    const first = focus.pick(result.groups.map((group) => group.process_code), pass.done.value, STEP_SUMMARY)
     if (first && requested !== STEP_SUMMARY && !result.groups.some((group) => group.process_code === requested)) {
       await router.replace({ query: { process: first } })
     }
@@ -165,11 +162,11 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void runMatch()
     v-if="shell"
     :project="shell"
     current="match"
-    :substages="substages"
+    :rail="rail"
     :current-sub="activeCode"
     title="Подобранные решения"
     :subtitle="onSummary ? 'итог по всем процессам' : activeGroup ? `по процессу «${activeGroup.process_name}»` : undefined"
-    :lead="loadingMatch ? 'Считаем решения по выбранным процессам. Время на экране — сколько уже идёт расчёт.' : onSummary ? 'Все процессы разом: сколько роботов подошло, лучший и сколько в сравнении. Нажмите на процесс, чтобы открыть его.' : 'Система сама распределила роботов по группам. В сравнении доступны подходящие решения, решения с допущениями и роботы, требующие уточнения. Допущения и вопросы поставщику указаны в подробностях.'"
+    :lead="loadingMatch ? 'Проверяем роботов каталога по требованиям процессов.' : onSummary ? 'Сколько роботов подошло по каждому процессу. Нажмите на процесс, чтобы открыть его.' : 'Сверху — подходящие роботы. Отметьте, кого сравнить на следующем шаге.'"
   >
     <template #actions>
       <UiButton v-if="shell" size="lg" :disabled="loadingMatch" @click="goNext">
@@ -192,7 +189,7 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void runMatch()
       v-else-if="loadingMatch || pending"
       label="Подбор"
       title="Подбираем роботов"
-      :stages="['Загружаем параметры объекта', 'Проверяем роботов каталога по требованиям процессов', 'Считаем, сколько роботов нужно', 'Сортируем: подходит, с допущениями, уточнить']"
+      :stages="['Загружаем параметры объекта', 'Проверяем роботов каталога по требованиям процессов', 'Считаем, сколько роботов нужно', 'Сортируем: подходит, уточнить, не подходит']"
       hint="Когда расчёт закончится, откроются роботы первого процесса."
     />
 
@@ -210,11 +207,11 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void runMatch()
       <div class="tally glass" :class="{ empty: !compared }">
         <span class="tally-ico"><PhRobot :size="22" weight="duotone" /></span>
         <span class="tally-text">
-          <template v-if="compared">В сравнении по процессу «{{ activeGroup.process_name }}» участвуют <b>{{ robots(compared) }}</b>. Добавить или убрать робота можно кнопкой в его строке.</template>
-          <template v-else>По процессу «{{ activeGroup.process_name }}» в сравнение пока не добавлен ни один робот. Нажмите «Добавить в сравнение» в строке робота.</template>
+          <template v-if="compared">В сравнении <b>{{ robots(compared) }}</b> · подходят {{ activeGroup.hits.filter((hit) => hit.verdict === 'pass').length }} из {{ activeGroup.hits.length }}</template>
+          <template v-else>Пока никого в сравнении — нажмите «Добавить в сравнение» у робота</template>
         </span>
       </div>
-      <p v-if="visibleHits.some(isImmature)" class="caption tab-note">Роботы с низким УГТ или на стадии разработки помечены «Уточнить»: так работает общий фильтр готовности. Их можно добавить в сравнение вручную.</p>
+      <p v-if="visibleHits.some(isImmature)" class="caption tab-note">Роботы в разработке или с низким УГТ — в «Уточнить», но их можно добавить в сравнение.</p>
       <section v-if="visibleHits.length" class="glass sheet">
         <article v-for="hit in visibleHits" :key="hit.product_id" class="hit" :class="{ picked: inCompare(activeGroup.process_code, hit, activeGroup) }">
           <NuxtLink :to="`/catalog/card/${hit.slug}`" target="_blank" rel="noopener" class="thumb" :aria-label="`${hit.name}: карточка в новой вкладке`">
@@ -225,16 +222,17 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void runMatch()
             <span class="mono-sm">{{ countText(hit) }}</span>
             <RobotReadiness :trl="hit.trl" :stage="hit.stage" :flagged="isImmature(hit)" />
           </div>
+          <!-- Статус, одна причина и запрос вендору — одной колонкой. -->
           <div class="hit-status">
-            <UiBadge :tone="assessmentTone(hit)" size="sm">{{ assessmentLabel(hit) }}</UiBadge>
-            <template v-if="assessmentLabel(hit) === 'Требуется уточнение'">
-              <UiBadge v-if="requestedClarifications.includes(hit.product_id)" tone="neutral" size="sm">На уточнении</UiBadge>
-              <UiButton v-else variant="secondary" size="sm" @click="requestClarification(hit.product_id)">
-                Запросить уточнение у вендора
-              </UiButton>
-            </template>
+            <div class="status-row">
+              <UiBadge :tone="assessmentTone(hit)" size="sm">{{ assessmentLabel(hit) }}</UiBadge>
+              <template v-if="hit.verdict !== 'pass' && hit.verdict !== 'fail'">
+                <UiBadge v-if="vendorNotify.isRequested(hit.product_id)" tone="neutral" size="sm">Уведомим о данных</UiBadge>
+                <button v-else type="button" class="ask" @click="requestClarification(hit.product_id)">Уведомить, когда появятся данные</button>
+              </template>
+            </div>
+            <AssessmentStatus :hit="hit" />
           </div>
-          <AssessmentStatus :hit="hit" />
           <button
             type="button"
             class="pick"
@@ -256,13 +254,13 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void runMatch()
         </article>
       </section>
       <section v-else-if="!activeGroup.hits.length" class="empty glass">
-        <div class="h3">На этот процесс роботов не назначено</div>
-        <p class="body muted">Этот процесс не попадёт в сравнение, экономику и схему. Следующий процесс открывается той же кнопкой справа.</p>
+        <div class="h3">Для этого процесса роботов в каталоге нет</div>
+        <p class="body muted">Он не попадёт в экономику. Переходите к следующему процессу.</p>
       </section>
     </template>
 
     <dialog ref="clarificationDialog" class="clarification-dialog" aria-labelledby="clarification-message">
-      <p id="clarification-message" class="body">Мы уведомим вас, когда информация о роботе будет актуализирована</p>
+      <p id="clarification-message" class="body">Ждём пополнения данных от вендора. Сообщим, когда робота можно будет взять в расчёт.</p>
       <form method="dialog">
         <UiButton type="submit" autofocus>Понятно</UiButton>
       </form>
@@ -290,9 +288,12 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void runMatch()
 .tally.empty .tally-text { color: var(--state-warn); font-weight: 600; }
 .sheet { padding: 8px; display: grid; gap: 8px; }
 .sheet > * { position: relative; z-index: 1; }
-.hit { display: grid; grid-template-columns: 132px minmax(180px, 1.4fr) auto minmax(140px, 1fr) auto; gap: 16px; align-items: center; min-height: 120px; padding: 14px 16px; border-radius: 14px; background: rgba(255, 255, 255, 0.65); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); }
+.hit { display: grid; grid-template-columns: 132px minmax(180px, 1fr) minmax(220px, 1.2fr) 210px; gap: 20px; align-items: center; min-height: 120px; padding: 14px 16px; border-radius: 14px; background: rgba(255, 255, 255, 0.65); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); }
 .who { display: grid; gap: 4px; min-width: 0; }
-.hit-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; max-width: 420px; }
+.hit-status { display: grid; gap: 6px; align-content: center; min-width: 0; }
+.status-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.ask { font-size: 13px; font-weight: 700; color: var(--link); }
+.ask:hover { text-decoration: underline; }
 .clarification-dialog { margin: auto; width: 440px; max-width: calc(100vw - 32px); padding: 24px; border: 0; border-radius: 20px; background: #fff; color: var(--ink-strong); box-shadow: var(--shadow-lg); }
 .clarification-dialog::backdrop { background: rgba(15, 20, 19, 0.45); }
 .clarification-dialog form { margin-top: 20px; display: flex; justify-content: flex-end; }
@@ -328,6 +329,7 @@ watch([() => shell.value?.id, () => live.pending.value], () => { void runMatch()
 .gone { padding-top: var(--space-12); display: grid; gap: var(--space-4); justify-items: start; }
 @media (max-width: 1100px) {
   .hit { grid-template-columns: 96px minmax(0, 1fr); min-height: 108px; }
+  .hit-status, .pick { grid-column: 2; }
   .thumb { width: 96px; height: 72px; }
 }
 .opening { padding-top: var(--space-8); padding-bottom: var(--space-8); }

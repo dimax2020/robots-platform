@@ -42,7 +42,7 @@ for (const count of [null, 0, -1, 1.5, Infinity]) {
 }
 
 const assumed = { ...preliminary, applicability: 'conditional', economic_ready: true, count: 10, name: 'Тест', slug: 'test', notes: [] }
-assert.equal(assessmentLabel(assumed), 'Подходит при допущениях')
+assert.equal(assessmentLabel(assumed), 'Подходит')
 assert.equal(eligibleForEconomy(assumed), true)
 assert.equal(countExplanation(assumed), '10 шт.')
 assert.equal(significantReasons({ ...assumed, reasons: [{ code: 'optional', severity: 'info', message: 'Некритичное уточнение' }] }).length, 0)

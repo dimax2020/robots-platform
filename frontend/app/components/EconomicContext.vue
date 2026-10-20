@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { EconReport, EconFleet } from '~/composables/usePlatformEconomy'
 import { siteFieldMeta } from '~/data/siteFields'
-import { formatOrigin } from '~/utils/demoSynthetic'
 const props = defineProps<{ report: EconReport }>()
 const processName = (code?: string) => props.report.fleet.find(p => p.process_code === code)?.process_name
   || props.report.manual_processes?.find(p => p.process_code === code)?.process_name || 'Объект'
@@ -22,12 +21,6 @@ const capacity = (sizing: EconFleet['sizing']) => {
 <template>
   <AssessmentNotice :report="report">
     <slot />
-    <details v-if="report.assumptions?.length"><summary>Допущения расчёта — что необходимо уточнить</summary>
-      <div v-for="group in report.assumptions" :key="group.process_code + group.product_id">
-        <strong>{{ processName(group.process_code) }} · {{ group.name }}</strong>
-        <AssumptionList :values="group.fields" />
-      </div>
-    </details>
     <details v-if="report.blockers?.length"><summary>Ограничения расчёта · {{ report.blockers.length }}</summary>
       <ul><li v-for="(item, index) in report.blockers" :key="index">{{ processName(item.process_code) }}: {{ item.message }}</li></ul>
     </details>
@@ -37,18 +30,14 @@ const capacity = (sizing: EconFleet['sizing']) => {
     <details v-if="report.fleet.length"><summary>Расчётный парк · {{ report.robots }} машин</summary>
       <ul><li v-for="item in report.fleet" :key="item.process_code">{{ item.process_name }}: {{ item.name }} — {{ item.count_used }} шт.
         <span v-if="item.sizing?.model"> · {{ item.sizing.model }}<template v-if="item.sizing.working_count != null"> · рабочие {{ item.sizing.working_count }}, резерв {{ item.sizing.reserve_count }}</template></span>
-        <span v-if="item.uses_demo_synthetic"> · расчёт на синтетических входах</span>
         <details v-if="item.sizing?.inputs"><summary>Входы и производительность модели</summary>
           <p>{{ capacity(item.sizing) }}</p>
-          <table class="table"><thead><tr><th>Параметр</th><th>Значение</th><th>Происхождение</th></tr></thead>
+          <table class="table"><thead><tr><th>Параметр</th><th>Значение</th></tr></thead>
             <tbody><tr v-for="(value, key) in item.sizing.inputs" :key="key"><td>{{ inputMeta(item.sizing, key).label }}</td>
-              <td>{{ value.toLocaleString('ru-RU') }} {{ inputMeta(item.sizing, key).unit }}</td><td>{{ formatOrigin(inputMeta(item.sizing, key).origin) }}</td></tr></tbody>
+              <td>{{ value.toLocaleString('ru-RU') }} {{ inputMeta(item.sizing, key).unit }}</td></tr></tbody>
           </table>
         </details>
       </li></ul>
-    </details>
-    <details v-if="report.demo_synthetic?.length"><summary>Источники и синтетические входы</summary>
-      <div v-for="(group, i) in report.demo_synthetic" :key="i"><strong>{{ group.process_name }} · {{ group.name }}</strong><DemoSyntheticNotice :values="group.fields" /></div>
     </details>
   </AssessmentNotice>
 </template>
