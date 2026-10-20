@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { PhFilePdf, PhFileXls } from '@phosphor-icons/vue'
+import { PhFilePdf, PhFileXls, PhHandshake } from '@phosphor-icons/vue'
 import { objectTypeImage } from '~/data/projects'
 import { photoFor } from '~/data/placeholders'
 import { downloadText, toExcelXml } from '~/utils/exportTables'
 import { fetchErrorMessage } from '~/utils/errors'
 import { REPORT_NOTE, useReportData } from '~/composables/useReportData'
+import { platformGet, platformSend } from '~/composables/usePlatform'
 
 /**
  * Итоговый отчёт (ТЗ 3.7). Обложка с фото, краткая часть для руководителя и приложения для экономиста.
@@ -42,6 +43,45 @@ const print = async (kind: 'brief' | 'full') => {
 const exportExcel = () => {
   if (!doc.ready.value || !doc.sheets.value.length) return
   downloadText(`${doc.stem.value}_расчёт.xls`, 'application/vnd.ms-excel', toExcelXml(doc.sheets.value, REPORT_NOTE))
+}
+
+const { role } = useRole()
+interface IntegratorCard { id: string; company_name: string; city: string }
+const sendOpen = ref(false)
+const integrators = ref<IntegratorCard[]>([])
+const integratorId = ref('')
+const sendText = ref('')
+const sendBusy = ref(false)
+const sendError = ref('')
+const sentId = ref('')
+
+const openSend = async () => {
+  sendOpen.value = true
+  sendError.value = ''
+  if (integrators.value.length) return
+  try {
+    integrators.value = await platformGet<IntegratorCard[]>('/integrators')
+    integratorId.value = integrators.value[0]?.id ?? ''
+  } catch (err) {
+    sendError.value = fetchErrorMessage(err, 'Список интеграторов не открылся')
+  }
+}
+
+const sendToIntegrator = async () => {
+  if (!integratorId.value) return
+  sendBusy.value = true
+  sendError.value = ''
+  try {
+    const saved = await platformSend<{ id: string }>(`/projects/${id.value}/integrate`, 'POST', {
+      integrator_id: integratorId.value,
+      note: sendText.value,
+    })
+    sentId.value = saved.id
+  } catch (err) {
+    sendError.value = fetchErrorMessage(err, 'Проект не отправился')
+  } finally {
+    sendBusy.value = false
+  }
 }
 const capexRows = computed(() => {
   const labels = [...new Set([...doc.statement.value.buyCapex, ...doc.statement.value.rentCapex].map((line) => line.label))]
@@ -87,6 +127,9 @@ const SCEN_ROWS = [
       <UiButton variant="secondary" class="no-print" :disabled="!doc.ready.value" @click="print('brief')"><template #icon><PhFilePdf :size="16" weight="duotone" /></template>PDF кратко</UiButton>
       <UiButton variant="secondary" class="no-print" :disabled="!doc.ready.value" @click="print('full')"><template #icon><PhFilePdf :size="16" weight="duotone" /></template>PDF полный</UiButton>
       <UiButton class="no-print" :disabled="!doc.ready.value" @click="exportExcel"><template #icon><PhFileXls :size="16" weight="duotone" /></template>Excel</UiButton>
+      <UiButton v-if="role === 'user'" variant="secondary" class="no-print" :disabled="!doc.ready.value" title="Передать проект интегратору" @click="openSend">
+        <template #icon><PhHandshake :size="16" weight="duotone" /></template>Отправить интегратору
+      </UiButton>
     </template>
 
     <UiCallout v-if="doc.closed.value" tone="info" title="Отчёт для этого объекта не собирается">Полный путь с экономикой доступен для склада, аэропорта и больницы.</UiCallout>
@@ -98,7 +141,30 @@ const SCEN_ROWS = [
     />
     <UiCallout v-else-if="doc.failure.value" tone="danger" title="Отчёт не собрался">{{ fetchErrorMessage(doc.failure.value, 'Сервер не ответил.') }}</UiCallout>
 
-    <article v-else class="doc">
+    <aside v-if="sendOpen" class="send-box no-print">
+      <div class="h3">Кому отправить проект</div>
+      <p class="body-sm muted">Интегратор увидит площадку, подбор и отчёт. Напишите коротко, что нужно внедрить.</p>
+      <UiCallout v-if="sendError" tone="danger">{{ sendError }}</UiCallout>
+      <UiCallout v-else-if="sentId" tone="ok">
+        Проект отправлен. Переписка в разделе «Интеграторы».
+        <NuxtLink :to="`/integrators/chat?request=${sentId}`">Открыть чат</NuxtLink>
+      </UiCallout>
+      <template v-else>
+        <label class="send-field">
+          <span class="caption">Интегратор</span>
+          <select v-model="integratorId" class="select">
+            <option v-for="item in integrators" :key="item.id" :value="item.id">{{ item.city ? `${item.company_name}, ${item.city}` : item.company_name }}</option>
+          </select>
+        </label>
+        <label class="send-field">
+          <span class="caption">Комментарий</span>
+          <textarea v-model="sendText" class="textarea" rows="3" placeholder="Например, хотим запустить склад в этом квартале" />
+        </label>
+        <UiButton :disabled="sendBusy || !integratorId" @click="sendToIntegrator">Отправить</UiButton>
+      </template>
+    </aside>
+
+    <article v-if="doc.report.value && !doc.closed.value && !doc.failure.value" class="doc">
       <!-- ОБЛОЖКА: фото объекта на весь верх листа, название, параметры, итог одной строкой. -->
       <section class="sheet cover">
         <figure class="c-hero"><img :src="cover" :alt="doc.objectLine.value"></figure>
@@ -382,6 +448,9 @@ const SCEN_ROWS = [
 .modes { display: inline-flex; padding: 3px; border-radius: 999px; background: rgba(15, 20, 19, 0.06); }
 .modes button { height: 36px; padding: 0 16px; border-radius: 999px; font-size: 14px; font-weight: 700; color: var(--ink-muted); }
 .modes button.on { background: #fff; color: var(--brand-700); box-shadow: 0 1px 3px rgba(15, 20, 19, 0.15); }
+.send-box { display: grid; gap: 12px; margin: 0 auto 16px; width: 210mm; max-width: 100%; padding: 18px 20px; background: #fff; border-radius: 6px; box-shadow: 0 4px 24px rgba(15, 20, 19, 0.08); }
+.send-field { display: grid; gap: 6px; }
+.send-box > * { position: relative; z-index: 1; }
 
 /* Документ — ширина A4 и типографика в пунктах: на экране как на бумаге. */
 .doc { width: 210mm; max-width: 100%; margin: 0 auto; display: grid; gap: 16px; font-size: 10pt; line-height: 1.42; color: #17201d; }

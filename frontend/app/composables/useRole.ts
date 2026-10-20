@@ -1,12 +1,13 @@
 import { useAuth } from '~/composables/useAuth'
 
-export type Role = 'guest' | 'user' | 'admin' | 'vendor'
+export type Role = 'guest' | 'user' | 'admin' | 'vendor' | 'integrator'
 
 export const roleLabel: Record<Role, string> = {
   guest: 'Гость',
   user: 'Пользователь',
   admin: 'Администратор',
   vendor: 'Вендор',
+  integrator: 'Интегратор',
 }
 
 export const useRole = () => {

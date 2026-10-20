@@ -33,6 +33,7 @@ from app.infrastructure.db.models import (
     ProductRow,
     ProjectProcessRow,
     ProjectRow,
+    IntegrationRequestRow,
     SolutionTypeRow,
     SourceRow,
 )
@@ -543,6 +544,7 @@ def project_access(db: Session, key: str, *, user_id: UUID | None, role: str | N
 
     Опубликованный демо-объект читают все, включая гостей; правит только администратор.
     Обычный проект видит владелец и администратор.
+    Интегратор читает проект, который ему отправили, и не может его менять.
     """
     project = resolve_project(db, key)
     if role == "admin":
@@ -553,9 +555,21 @@ def project_access(db: Session, key: str, *, user_id: UUID | None, role: str | N
         raise KeyError(str(key))
     if user_id is None or role in (None, "guest"):
         raise KeyError(str(key))
-    if project.owner_id is None or project.owner_id != user_id:
-        raise KeyError(str(key))
-    return project, True
+    if project.owner_id is not None and project.owner_id == user_id:
+        return project, True
+    if role == "integrator" and _integrator_linked(db, project.id, user_id):
+        return project, False
+    raise KeyError(str(key))
+
+
+def _integrator_linked(db: Session, project_id: UUID, user_id: UUID) -> bool:
+    found = db.scalar(
+        select(IntegrationRequestRow.id).where(
+            IntegrationRequestRow.project_id == project_id,
+            IntegrationRequestRow.integrator_user_id == user_id,
+        )
+    )
+    return found is not None
 
 
 def _demo_item(db: Session, project: ProjectRow, obj: ObjectTypeRow) -> dict:

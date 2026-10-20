@@ -239,14 +239,15 @@ const togglePublish = async () => {
         <h1 class="hero-2">{{ project.name }}</h1>
         <div v-if="project.readonly" class="versions">
           <PhClockCounterClockwise :size="16" />
-          <span class="body-sm">Демо только для просмотра. Чтобы менять — скопируйте к себе.</span>
+          <span v-if="role === 'integrator'" class="body-sm">Проект заказчика только для просмотра.</span>
+          <span v-else class="body-sm">Демо только для просмотра. Чтобы менять, скопируйте к себе.</span>
         </div>
         <UiCallout v-if="note" tone="danger">{{ note }}</UiCallout>
       </div>
       <div class="hero-cta">
         <UiButton :to="`/projects/${project.id}/${nextCard.path}`" size="lg">{{ nextCard.code === 'params' ? (project.readonly ? 'Смотреть параметры' : 'К параметрам') : `Дальше: ${nextCard.label}` }}<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
-        <UiButton v-if="role !== 'guest'" variant="secondary" :disabled="busy === 'copy'" @click="copyProject"><template #icon><PhCopy :size="16" /></template>{{ project.readonly ? 'Скопировать в мои проекты' : 'Копировать проект' }}</UiButton>
-        <UiButton v-else to="/login" variant="secondary"><template #icon><PhCopy :size="16" /></template>Войти, чтобы скопировать</UiButton>
+        <UiButton v-if="role === 'guest'" to="/login" variant="secondary"><template #icon><PhCopy :size="16" /></template>Войти, чтобы скопировать</UiButton>
+        <UiButton v-else-if="role !== 'integrator'" variant="secondary" :disabled="busy === 'copy'" @click="copyProject"><template #icon><PhCopy :size="16" /></template>{{ project.readonly ? 'Скопировать в мои проекты' : 'Копировать проект' }}</UiButton>
         <template v-if="project.isDemo && role === 'admin'">
           <UiButton :variant="project.published ? 'ghost' : 'secondary'" :disabled="busy === 'publish'" @click="togglePublish">
             <template #icon><component :is="project.published ? PhEyeSlash : PhEye" :size="16" weight="bold" /></template>{{ project.published ? 'Снять с публикации' : 'Опубликовать демо' }}

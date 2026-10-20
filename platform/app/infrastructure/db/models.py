@@ -282,6 +282,59 @@ class VendorProfileRow(Base):
     documents: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
 
 
+class IntegratorProfileRow(Base):
+    """Карточка интегратора. Пишется сразу в кабинет, в каталог роботов не попадает."""
+
+    __tablename__ = "integrator_profile"
+    user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("app_user.id", ondelete="CASCADE"), primary_key=True)
+    company_name: Mapped[str] = mapped_column(Text, nullable=False)
+    brand: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    about: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    website: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    email: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    phone: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    city: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    address: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    inn: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    ogrn: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    regions: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    contact_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    experience_years: Mapped[int | None] = mapped_column(Integer)
+    specializations: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    logo_url: Mapped[str | None] = mapped_column(Text)
+    documents: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # Время, когда интегратор принял уведомление о неразглашении. Пусто, пока не нажал.
+    nda_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class IntegrationRequestRow(Base):
+    """Проект, который заказчик отправил интегратору. Одна пара проект и интегратор."""
+
+    __tablename__ = "integration_request"
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    project_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("project.id", ondelete="CASCADE"), nullable=False)
+    owner_user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False)
+    integrator_user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="sent")
+    user_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    feedback: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    decline_comment: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class IntegrationMessageRow(Base):
+    """Сообщение в переписке по запросу. Файл лежит рядом, в строке только имя."""
+
+    __tablename__ = "integration_message"
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    request_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("integration_request.id", ondelete="CASCADE"), nullable=False)
+    author_user_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("app_user.id", ondelete="CASCADE"), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    files: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class VendorRequestRow(Base):
     """Любое изменение вендора. В каталог попадает только статус approved."""
 

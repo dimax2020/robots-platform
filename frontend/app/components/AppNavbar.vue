@@ -24,8 +24,12 @@ const items = computed(() => {
     /* Обычная страница, без выпадающего списка. */
     { id: 'coop', to: '/cooperation', label: 'Сотрудничество', active: isActive('/cooperation'), plain: true },
   ]
+  if (role.value === 'user' || role.value === 'admin') {
+    list.push({ id: 'integrators', to: '/integrators', label: 'Интеграторы', active: isActive('/integrators'), plain: true })
+  }
   if (role.value === 'admin') list.push({ id: 'admin', to: '/admin', label: 'Админка', active: isActive('/admin') })
   if (role.value === 'vendor') list.push({ id: 'vendor', to: '/vendor', label: 'Вендор', active: isActive('/vendor') })
+  if (role.value === 'integrator') list.push({ id: 'integrator', to: '/integrator', label: 'Интегратор', active: isActive('/integrator') })
   return list
 })
 
