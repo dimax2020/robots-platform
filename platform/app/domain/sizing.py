@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from math import ceil, isfinite
+from math import ceil, floor, isfinite
 import re
 
 from app.domain.assessment import Reason, reason, valid_count
@@ -18,6 +18,11 @@ SIZING_LABELS = {
     'cleaning_window_h': 'Рабочее окно уборки', 'effective_cleaning_rate_m2_h': 'Рабочая производительность уборки',
     'cart_tare_kg': 'Масса тары тележки', 'pallet_mass_kg': 'Масса груза',
     'working_speed_loaded_ms': 'Рабочая скорость с грузом', 'working_speed_empty_ms': 'Рабочая скорость возврата',
+    'sizing_window_h': 'Рабочее окно операции', 'handling_cycle_s': 'Такт обработки',
+    'work_units_per_cycle': 'Единиц работы за цикл', 'module_storage_places': 'Мест в модуле AS/RS',
+    'surface_area_m2': 'Площадь одного обследования', 'surface_rate_m2_h': 'Производительность обработки поверхности',
+    'turnaround_h': 'Обслуживание между вылетами',
+    'lines_per_presentation': 'Строк заказа за выдачу тары',
 }
 
 
@@ -51,6 +56,8 @@ def size_equipment(profile: dict, facts: dict, site: dict, robot: dict, task: di
         return SizingResult(None, (reason('sizing_model_missing', 'Для оценки количества уточните у поставщика производительность решения для выбранной операции и рабочий режим на объекте', stage='sizing'),))
     if not isinstance(model, str):
         return SizingResult(None, (reason('sizing_configuration_error', 'Некорректный идентификатор модели количества', stage='sizing'),))
+    if model in {'asrs_capacity_v1', 'stationary_cycle_v1', 'aerial_surface_v1'}:
+        return _engineering_model(model, policy, facts, {**site, **(task or {})}, robot)
     if model in {'towing_cycle_v1', 'cleaning_area_v1'}:
         return _operational_model(model, policy, facts, {**site, **(task or {})}, robot)
     if model != 'mobile_cycle_v1':
@@ -173,3 +180,97 @@ def _operational_model(model, policy, facts, inputs, robot):
     return SizingResult(float(count), (), model, {'inputs': v, 'battery_availability': battery,
         'effective_availability': availability, 'working_count': active, 'reserve_count': v['reserve_count'],
         'operating_hours_per_day': window, **details})
+
+
+def _engineering_model(model, policy, facts, inputs, robot):
+    """Ёмкость AS/RS, такт ячейки и площадь вылетов; прежние модели не меняются."""
+    asrs = model == 'asrs_capacity_v1'
+    aerial = model == 'aerial_surface_v1'
+    storage = asrs and policy.get('flow_unit') == 'pallets/day'
+    survey = aerial and policy.get('flow_unit') == 'surveys/day'
+    classes = ({'automated_storage'} if asrs else
+               {'aerial_inspection'} if survey else {'aerial_facade_cleaning'} if aerial else {'stationary_manipulation'})
+    units = {'pallets/day', 'lines/day'} if asrs else {'m2/day', 'surveys/day'} if aerial else {'items/day'}
+    def error(code, message, field=None):
+        return SizingResult(None, (reason(code, message, field=field, stage='sizing'),), model)
+    if facts.get('execution_class') not in classes:
+        return error('sizing_incompatible', 'Модель несовместима с классом исполнения')
+    if policy.get('quantity_unit') != 'machines' or policy.get('flow_unit') not in units:
+        return error('sizing_unit_incompatible', 'Не подтверждены единицы потока и количества')
+    required = {k: inputs.get(k) for k in ('flow_per_day', 'sizing_window_h', 'availability', 'reserve_count')}
+    units_key = 'lines_per_presentation' if asrs and not storage else 'work_units_per_cycle'
+    robot_keys = ('surface_rate_m2_h', 'work_time_h', 'turnaround_h') if aerial else (units_key,)
+    # Существующая однозначная пропускная способность сильнее оценки такта.
+    published_rate = asrs and robot.get('throughput') is not None
+    if published_rate:
+        robot_keys += ('throughput',)
+        if str(robot.get('throughput_unit', '')).casefold() not in {'паллет/ч на кран', 'паллет/ч', 'циклов/ч'}:
+            return error('sizing_unit_incompatible', 'Производительность AS/RS требуется в циклах выдачи за час')
+    elif not aerial:
+        robot_keys += ('handling_cycle_s',)
+    if storage:
+        required['pallet_places'] = inputs.get('pallet_places')
+        robot_keys += ('module_storage_places',)
+    if survey:
+        required['surface_area_m2'] = inputs.get('surface_area_m2')
+    required.update({k: robot.get(k) for k in robot_keys})
+    v = {k: _quantity(raw) for k, raw in required.items()}
+    problems = tuple(reason('sizing_attribute_missing' if k in robot_keys else 'sizing_input_missing',
+                            f'Для расчёта количества требуется «{input_label(k)}»', field=k, stage='sizing')
+                     for k, n in v.items() if n is None)
+    if problems:
+        return SizingResult(None, problems, model)
+    if (any(n < 0 for n in v.values()) or not 0 < v['availability'] <= 1
+            or not 0 < v['sizing_window_h'] <= 24 or not valid_count(v['reserve_count'])):
+        return error('sizing_input_invalid', 'Некорректные нагрузка, рабочее окно, доступность или резерв')
+    if storage and (not valid_count(v['pallet_places']) or not valid_count(v['module_storage_places']) or v['module_storage_places'] == 0):
+        return error('sizing_input_invalid', 'Число мест должно быть целым, ёмкость модуля положительна')
+    details = {}
+    window = v['sizing_window_h']
+    if aerial:
+        if min(v['surface_rate_m2_h'], v['work_time_h']) <= 0 or v['work_time_h'] > 24:
+            return error('sizing_input_invalid', 'Производительность и время рабочего вылета должны быть положительными')
+        work = v['flow_per_day'] * (v['surface_area_m2'] if survey else 1)
+        if survey and v['surface_area_m2'] <= 0:
+            return error('sizing_input_invalid', 'Площадь одного обследования должна быть положительной')
+        # Только целые вылеты, включая полное обслуживание/зарядку между ними.
+        cycle = v['work_time_h'] + v['turnaround_h']
+        mission_capacity = window * v['availability'] / cycle
+        if not isfinite(mission_capacity):
+            return error('sizing_input_invalid', 'Расчёт вылетов выходит за числовой диапазон')
+        missions = floor(mission_capacity)
+        coverage = v['surface_rate_m2_h'] * v['work_time_h']
+        capacity = missions * coverage
+        if not isfinite(work) or not isfinite(coverage) or not isfinite(capacity) or coverage <= 0 or capacity <= 0 or not isfinite(work / coverage):
+            return error('sizing_input_invalid', 'Рабочее окно не вмещает вылет с обслуживанием или площадь выходит за диапазон')
+        sorties = ceil(work / coverage)
+        demand = sorties / missions
+        details = {'daily_work_m2': work, 'coverage_per_sortie_m2': coverage,
+                   'sorties_per_machine_day': missions, 'required_sorties': sorties,
+                   'daily_capacity_per_machine_m2': capacity}
+        formula = 'ceil(ceil(work_m2 / (surface_rate_m2_h * work_time_h)) / floor(window_h * availability / (work_time_h + turnaround_h))) + reserve'
+    else:
+        if v[units_key] <= 0 or (published_rate and v['throughput'] <= 0) or (not published_rate and v['handling_cycle_s'] <= 0):
+            return error('sizing_input_invalid', 'Такт и единиц работы за цикл должны быть положительными')
+        rate = v['throughput'] if published_rate else 3600 / v['handling_cycle_s']
+        capacity = rate * v[units_key] * window * v['availability']
+        if not isfinite(capacity) or capacity <= 0 or not isfinite(v['flow_per_day'] / capacity):
+            return error('sizing_input_invalid', 'Производительность выходит за числовой диапазон')
+        demand = v['flow_per_day'] / capacity
+        details = {'daily_capacity_per_machine_items': capacity, 'cycles_per_hour': rate,
+                   'rate_parameter': 'throughput' if published_rate else 'handling_cycle_s'}
+        formula = f'ceil(flow_per_day / (cycles_per_hour * {units_key} * window_h * availability)) + reserve'
+        if storage:
+            demand = max(demand, v['pallet_places'] / v['module_storage_places'])
+            details['capacity_required_modules'] = ceil(v['pallet_places'] / v['module_storage_places'])
+            formula = 'ceil(max(flow_per_day / daily_capacity, pallet_places / module_storage_places)) + reserve'
+    if not isfinite(demand):
+        return error('sizing_result_invalid', 'Расчёт количества выходит за числовой диапазон')
+    active = ceil(demand)
+    count = active + v['reserve_count'] if active else 0
+    if not valid_count(count):
+        return error('sizing_result_invalid', 'Некорректное количество оборудования')
+    audit_inputs = {**v, **({'throughput_unit': robot['throughput_unit']} if published_rate else {})}
+    return SizingResult(float(count), (), model, {'inputs': audit_inputs, **details, 'formula': formula,
+        'formula_source': 'engineering_registry', 'flow_unit': policy['flow_unit'], 'quantity_unit': 'machines',
+        'working_count': active, 'reserve_count': v['reserve_count'], 'operating_hours_per_day': window})

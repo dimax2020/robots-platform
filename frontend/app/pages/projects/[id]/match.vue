@@ -24,6 +24,22 @@ const statusOrder = ['pass', 'conditional', 'unknown', 'fail'] as const
 const { inCompare, toggleCompare } = usePlatformCompare(id)
 const loadingMatch = ref(true)
 const matchError = ref('')
+const clarificationDialog = ref<HTMLDialogElement | null>(null)
+const clarificationStorageKey = 'platform-vendor-clarifications'
+const requestedClarifications = ref<string[]>([])
+onMounted(() => {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(clarificationStorageKey) || '[]')
+    if (Array.isArray(saved)) requestedClarifications.value = saved.filter((id): id is string => typeof id === 'string')
+  } catch { /* При недоступном хранилище работает состояние текущей страницы. */ }
+})
+const requestClarification = (productId: string) => {
+  clarificationDialog.value?.showModal()
+  requestedClarifications.value = [...new Set([...requestedClarifications.value, productId])]
+  try {
+    localStorage.setItem(clarificationStorageKey, JSON.stringify(requestedClarifications.value))
+  } catch { /* Запрос остаётся отмеченным в текущей странице. */ }
+}
 const startedAt = ref(0)
 const now = ref(0)
 let clock: ReturnType<typeof setInterval> | undefined
@@ -234,7 +250,15 @@ onBeforeUnmount(stopClock)
             <span class="mono-sm">{{ countText(hit) }}</span>
             <RobotReadiness :trl="hit.trl" :stage="hit.stage" :flagged="isImmature(hit)" />
           </div>
-          <UiBadge :tone="assessmentTone(hit)" size="sm">{{ assessmentLabel(hit) }}</UiBadge>
+          <div class="hit-status">
+            <UiBadge :tone="assessmentTone(hit)" size="sm">{{ assessmentLabel(hit) }}</UiBadge>
+            <template v-if="assessmentLabel(hit) === 'Требуется уточнение'">
+              <UiBadge v-if="requestedClarifications.includes(hit.product_id)" tone="neutral" size="sm">На уточнении</UiBadge>
+              <UiButton v-else variant="secondary" size="sm" @click="requestClarification(hit.product_id)">
+                Запросить уточнение у вендора
+              </UiButton>
+            </template>
+          </div>
           <AssessmentStatus :hit="hit" />
           <button
             type="button"
@@ -261,12 +285,20 @@ onBeforeUnmount(stopClock)
         <p class="body muted">Этот процесс не попадёт в сравнение, экономику и схему. Следующий процесс открывается той же кнопкой справа.</p>
       </section>
     </template>
+
+    <dialog ref="clarificationDialog" class="clarification-dialog" aria-labelledby="clarification-message">
+      <p id="clarification-message" class="body">Мы уведомим вас, когда информация о роботе будет актуализирована</p>
+      <form method="dialog">
+        <UiButton type="submit" autofocus>Понятно</UiButton>
+      </form>
+    </dialog>
   </ProjectShell>
 
   <section v-else class="container gone">
     <UiCallout tone="danger" title="Проект не найден">Нет ни сохранённого расчёта, ни демо-макета с таким адресом.</UiCallout>
     <UiButton to="/projects">К списку проектов</UiButton>
   </section>
+
 </template>
 
 <style scoped>
@@ -288,6 +320,10 @@ onBeforeUnmount(stopClock)
 .sheet > * { position: relative; z-index: 1; }
 .hit { display: grid; grid-template-columns: 132px minmax(180px, 1.4fr) auto minmax(140px, 1fr) auto; gap: 16px; align-items: center; min-height: 120px; padding: 14px 16px; border-radius: 14px; background: rgba(255, 255, 255, 0.65); box-shadow: inset 0 0 0 1px rgba(15, 20, 19, 0.06); }
 .who { display: grid; gap: 4px; min-width: 0; }
+.hit-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; max-width: 420px; }
+.clarification-dialog { margin: auto; width: 440px; max-width: calc(100vw - 32px); padding: 24px; border: 0; border-radius: 20px; background: #fff; color: var(--ink-strong); box-shadow: var(--shadow-lg); }
+.clarification-dialog::backdrop { background: rgba(15, 20, 19, 0.45); }
+.clarification-dialog form { margin-top: 20px; display: flex; justify-content: flex-end; }
 .thumb { display: block; width: 132px; height: 96px; border-radius: 14px; overflow: hidden; background: #e9eeec; }
 .thumb img { width: 100%; height: 100%; object-fit: contain; }
 .hit .h4 { color: var(--ink-strong); }

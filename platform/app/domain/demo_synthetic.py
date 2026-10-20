@@ -11,6 +11,7 @@ from pathlib import Path
 
 from app.domain.assessment import validate_metadata
 from app.domain.specs import NUMERIC_UNITS, display_label, normalize_value
+from app.domain.sizing import SIZING_LABELS
 from app.config import get_settings
 
 ORIGIN = 'demo_synthetic'
@@ -22,7 +23,10 @@ MODE_UNITS = {'uroven_shuma': 'дБА', 'temp_min_c': '°C', 'temp_max_c': '°C'
               'inspection_height_m': 'м', 'facade_reach_m': 'м', 'wind_max_ms': 'м/с',
               'working_time_h': 'ч', 'working_inventory_rate_h': 'мест/ч',
               'working_speed_loaded_ms': 'м/с', 'working_speed_empty_ms': 'м/с',
-              'effective_cleaning_rate_m2_h': 'м²/ч'}
+              'effective_cleaning_rate_m2_h': 'м²/ч',
+              'handling_cycle_s': 'с', 'work_units_per_cycle': 'ед./цикл',
+              'module_storage_places': 'мест', 'surface_rate_m2_h': 'м²/ч', 'turnaround_h': 'ч',
+              'lines_per_presentation': 'строк/выдачу'}
 TASK_LABELS = dict(flow_per_day='Суточный поток', route_len_m='Маршрут в одну сторону', t_load_s='Сцепка и загрузка',
     t_unload_s='Расцепка и выгрузка', batch_size='Единиц в партии или составе', cart_tare_kg='Масса тары тележки',
     working_speed_loaded_ms='Рабочая скорость с грузом', working_speed_empty_ms='Рабочая скорость возврата',
@@ -33,6 +37,26 @@ TASK_LABELS['working_time_h'] = 'Оценочное время работы вы
 TASK_LABELS['working_inventory_rate_h'] = 'Оценочная производительность инвентаризации'
 TASK_LABELS.update(inspection_height_m='Высота фотоосмотра', facade_reach_m='Досягаемость фасадной мойки',
                    wind_max_ms='Допустимый рабочий ветер')
+TASK_LABELS.update({key: SIZING_LABELS[key] for key in (*MODE_UNITS.keys(), 'sizing_window_h', 'surface_area_m2')
+                   if key in SIZING_LABELS and key not in TASK_LABELS})
+
+
+def configuration_assumptions(configuration, price):
+    """Отдельная DEV-поставка с оснасткой, не изменение фактов базовой карточки."""
+    if not enabled() or not configuration:
+        return []
+    if (configuration.get('origin') != ORIGIN or not configuration.get('components')
+            or not configuration.get('explanation') or not configuration.get('references')
+            or configuration.get('finance_key') != 'infra_pct' or not price or price <= 0):
+        raise ValueError('DEV-комплект требует состава, обоснования и статьи покрытия стоимости')
+    common = {**deepcopy(configuration), 'category': 'configuration', 'vendor_confirmed': False,
+              'requires_vendor_confirmation': True, 'unit': ''}
+    return [
+        {**common, 'key': 'configuration_complete', 'label': 'Расчётная DEV-комплектация',
+         'value': 'DEV: ' + ', '.join(configuration['components'])},
+        {**common, 'key': 'price_complete', 'label': 'Расчётный состав стоимости DEV',
+         'value': f"Исходная цена + {configuration['infrastructure_pct']}% инфраструктуры на оснастку; требуется смета вендора"},
+    ]
 
 
 @lru_cache(maxsize=1)
