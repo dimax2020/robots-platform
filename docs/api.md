@@ -67,11 +67,11 @@ curl -s -X POST http://localhost/platform/api/v1/projects/demo-warehouse/match \
 
 ```json
 {"project_id": "888e9c05-…", "groups": [{
-  "process_code": "pallet_storage", "process_name": "Автоматизированное хранение и выдача грузов",
-  "best_product_id": "cebbdfa8-…",
-  "hits": [{"name": "AS-RS P", "slug": "as-rs-p", "verdict": "pass", "notes": [],
-            "trl": 9, "stage": "operation", "count": 4.0, "count_note": "",
-            "specs": [{"key": "price_rub", "label": "Цена", "unit": "₽", "direction": "low", "value": 10000000.0}]}]
+  "process_code": "warehouse_inventory", "process_name": "Инвентаризация товаров",
+  "best_product_id": null, "technical_best_product_id": null,
+  "hits": [{"name": "Инвентаризатор AI Stock Counter 12M", "slug": "inventarizator-ai-stock-counter-12m", "verdict": "unknown",
+            "technical_ready": false, "sizing_ready": false, "economic_ready": false,
+            "count": null, "data_basis": "published_catalog_v1"}]
 }]}
 ```
 
@@ -87,3 +87,24 @@ curl -b cookie.txt -X POST http://localhost/platform/api/v1/admin/imports \
 ```
 
 Поле `kind`: `import_catalog` или `import_manual`. В ответе идентификатор задания; статус: `GET /admin/jobs/{id}`. Форматы файлов: раздел 7.2.
+
+
+## Допуск и неполная экономика (0024)
+
+Актуальный расширенный контракт: [14-catalog-assessment.md](14-catalog-assessment.md). Опубликованные характеристики используются без reviewed=true и обязательных assessment-документов. Прежние verdict/notes/count/best_product_id сохранены; добавлены reasons, независимые technical_ready/sizing_ready/economic_ready, data_basis, resolved_facts, provenance и technical_best_product_id. Отсутствие цены/комплектации/модели количества не блокирует технический pass. Экономика проверяет выбор на сервере, различает picks отсутствует и picks={}, не принимает fail/unknown/conditional и не подставляет count=1. При неизвестных критичных данных возвращает HTTP 200, status=incomplete, blockers и nullable финансовые totals (в том числе annual_cost). Старые сохранённые ID диагностируются, не заменяются молча.
+
+Необязательные дополнения/исправления и настройки модели количества администратор читает/заменяет через GET/PUT `/api/v1/admin/products/{slug}/assessment` и `/api/v1/admin/processes/{code}/assessment`. Эти документы не являются обязательным разрешением на использование каталога.
+
+## Выборочные DEV-допущения
+
+Для трёх карточек подключён отдельный файл дополнений; исходные attrs и источники не переписываются. Подбор и карточка возвращают `uses_demo_synthetic`, `demo_synthetic` (key/label/value/unit/origin/explanation/vendor_confirmed/requires_vendor_confirmation), `vendor_confirmation_fields`. В подборе `data_basis=catalog_with_demo_synthetic_v1`, если дополнения применены; происхождение каждого значения также есть в provenance. Структурированные причины `unknown` сохраняются, синтетические поля не считаются подтверждёнными вендором.
+
+В экономике `demo_synthetic` сгруппирован по изделию/процессу, поле `included_in_economy` отличает техническое допущение от включения в финансовый парк. Дисклеймер сохраняет происхождение при любом состоянии полноты. Сведения и ограничения: [15-demo-synthetic.md](15-demo-synthetic.md).
+
+### Сквозной DEV-расчёт
+
+При `DEMO_SYNTHETIC_ENABLED=true` только зарегистрированные `is_demo`-проекты получают отдельные входы задач и финансовые допущения. В обычном окружении флаг false; опубликованный каталог и обычный preview используют исходные сведения.
+
+Подбор дополнительно возвращает `calculation_mode`, `demo_economic_ready`, `demo_best_product_id`. Они не подменяют `economic_ready`/`best_product_id` подтверждённого контура. В `sizing` доступны model, inputs, input_provenance, рабочие машины, резерв, доступность, цикл/производительность; origin=calculated и зависимость от синтетики сохраняются. Для масштабированных What-if входов provenance содержит актуальное value и исходное base_value.
+
+Экономика может иметь `status=demo_estimate`, `scope=automation_program`; complete относится к достаточности расчёта в этом охвате. `manual_processes` перечисляет процессы вне программы, их неизвестная стоимость не считается нулевой. `active_overrides` — пользовательские параметры текущего расчёта, `effective_overrides` включает DEV-основания. `demo_synthetic` содержит также группы входов задач и финансовых параметров; category отличает site/finance, а requires_vendor_confirmation относится к характеристикам изделия, не к обследованию предприятия. Неполный аэропорт остаётся incomplete с блокерами. Подробнее: [16-demo-calculation.md](16-demo-calculation.md).

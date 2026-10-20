@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.api import admin_catalog, admin_objects, admin_products, vendor
+from app.api.assessment import router as assessment_router
 from app.infrastructure.db.vendor_repo import remember_offers
 from app.api.auth import SessionUser, load_user, optional_user, require_admin, require_user
 from app.config import get_settings
@@ -89,6 +90,7 @@ app = FastAPI(
         {"name": "Админка · вендоры", "description": "Подтверждение, отклонение и возврат заявок вендора."},
     ],
 )
+app.include_router(assessment_router)
 app.include_router(admin_catalog.router)
 app.include_router(admin_objects.router)
 app.include_router(admin_products.router)
@@ -221,7 +223,7 @@ class PreviewIn(BaseModel):
 
 
 class MatchIn(BaseModel):
-    site: dict = Field(default_factory=dict)
+    site: dict | None = None
     tasks: list[dict] | None = None
 
 
@@ -229,7 +231,7 @@ class EconomyIn(BaseModel):
     site: dict | None = None
     choices: dict[str, str] = Field(default_factory=dict)
     picks: dict[str, str] | None = None
-    tasks: list[dict] = Field(default_factory=list)
+    tasks: list[dict] | None = None
     preview: dict[str, float] | None = None
 
 

@@ -5,7 +5,6 @@ import {
   figValue,
   millions,
   PARAM_GROUPS,
-  PRELIMINARY,
   PROCESS_PARAM_KEYS,
   subsidyKey,
   usePlatformEconomy,
@@ -32,6 +31,8 @@ const savedNote = ref('')
 const processCode = ref(typeof route.query.process === 'string' ? route.query.process : '')
 const opened = ref<string[]>(['site:whatif', 'site:staff', 'process:whatif', 'process:capex', 'process:opex'])
 let started = false
+const initializing = ref(true)
+let bootToken = 0
 let timer: ReturnType<typeof setTimeout> | undefined
 
 const splitOverrides = (raw: Record<string, number>) => {
@@ -54,14 +55,17 @@ const flatten = (global: Record<string, number>, by: Record<string, Record<strin
 
 const boot = async () => {
   if (!source.value) return
+  const mine = ++bootToken
+  initializing.value = true
   await load()
-  if (!report.value) return
-  const split = splitOverrides(report.value.saved_overrides)
-  saved.value = flatten(split.global, split.by)
+  if (mine !== bootToken || !report.value) return
+  saved.value = { ...report.value.saved_overrides }
+  const split = splitOverrides(report.value.active_overrides ?? report.value.saved_overrides)
   draft.value = { ...split.global }
   processDraft.value = split.by
   params.value = report.value.params
   started = true
+  initializing.value = false
   applyTune()
   try {
     standard.value = await request({})
@@ -89,6 +93,8 @@ const valueOf = (item: EconParam, scope: 'process' | 'site') => {
   if (scope === 'process' && processCode.value) {
     const own = processDraft.value[processCode.value]?.[item.key]
     if (own !== undefined) return own
+    const effective = report.value?.effective_overrides?.[`process:${processCode.value}:${item.key}`]
+    if (effective !== undefined) return effective
   }
   return draft.value[item.key] ?? item.value
 }
@@ -229,7 +235,7 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
       <UiButton :to="`/projects/${project.id}/plan`" size="lg">К визуализации<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
     </template>
 
-    <UiCallout tone="warn" title="Предварительная оценка">{{ report?.disclaimer ?? PRELIMINARY }}</UiCallout>
+    <EconomicContext v-if="report" :report="report" />
 
     <UiCallout v-if="isDemo && !readonly" tone="info" title="Демо-объект">Вы правите демо как администратор: сохранённые коэффициенты увидят все после публикации.</UiCallout>
 
@@ -276,7 +282,7 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
                   <div class="knob-head">
                     <span class="knob-name"><UiTex :tex="item.symbol" class="sym" /><span class="body-sm strong" :class="{ 'cost-accent': isAccent(item.key, item.label) }">{{ item.label }}</span></span>
                     <span class="knob-val">
-                      <input class="input input-mono num" type="number" :min="item.min" :max="item.max" :step="item.step" :value="valueOf(item, group.scope)" :aria-label="item.label" @change="setValue(item, Number(($event.target as HTMLInputElement).value), group.scope)">
+                      <input class="input input-mono num" type="number" :disabled="initializing" :min="item.min" :max="item.max" :step="item.step" :value="valueOf(item, group.scope)" :aria-label="item.label" @change="setValue(item, Number(($event.target as HTMLInputElement).value), group.scope)">
                       <span class="muted unit">{{ item.unit }}</span>
                     </span>
                   </div>
@@ -310,7 +316,7 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
               <div class="s-name"><span class="h4">{{ item.title }}</span><span class="caption">{{ item.subtitle }}</span></div>
               <div class="s-cell">
                 <span class="caption">Окупаемость</span>
-                <span class="mono-lg">{{ item.key === 'asis' ? '—' : item.payback.value != null ? figValue(item.payback.value, 'лет') : 'нет' }}</span>
+                <span class="mono-lg">{{ item.key === 'asis' ? '—' : item.payback.value != null ? figValue(item.payback.value, 'лет') : report?.status === 'incomplete' ? 'не определена' : 'нет' }}</span>
                 <span v-if="paybackDelta(item.key)" class="caption delta">{{ paybackDelta(item.key) }}</span>
               </div>
               <div class="s-cell">
@@ -331,7 +337,6 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
           <div v-if="purchase" class="interp">
             <div class="h4">{{ purchase.verdict }}</div>
             <p class="body-sm">Пороги из ТЗ: до 3 лет — целесообразно, 3–5 лет — анализ рисков, больше 5 лет — отдельное обоснование.</p>
-            <p class="caption prelim">{{ report.disclaimer }}</p>
           </div>
         </section>
 
@@ -409,7 +414,6 @@ const purchase = computed(() => robotScenarios.value.find((item) => item.key ===
 .interp { display: grid; gap: 6px; padding-top: var(--space-4); border-top: 1px solid rgba(255, 255, 255, 0.1); }
 .interp .h4 { color: var(--brand-300); }
 .interp p { margin: 0; }
-.interp .prelim { color: #f0ad45; }
 .sens-list { display: grid; gap: 12px; }
 .sens-row { display: grid; grid-template-columns: 190px 1fr 220px; gap: 14px; align-items: center; }
 .sens-bar { height: 8px; border-radius: 4px; background: rgba(15, 20, 19, 0.06); overflow: hidden; }

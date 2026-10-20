@@ -1,5 +1,6 @@
 import json
 import re
+from copy import deepcopy
 from uuid import UUID, uuid4
 
 from sqlalchemy import delete, func, select, text
@@ -8,8 +9,12 @@ from sqlalchemy.orm import Session
 from app.domain.economy import NORM_BY_KEY, NORMS, TYPE_NORMS, blend_by_type, calculate, clamp_overrides, scale_load, scale_task_flows
 from app.domain.layout_items import clean_items, default_items
 from app.domain.formula import _number, identifiers
-from app.domain.specs import CANON_LABELS
-from app.domain.match import STAGES, FilterRule, Readiness, RobotView, count_site, formula_with_task, match_robots, robot_count, usage_for
+from app.domain.specs import CANON_LABELS, display_label
+from app.domain.assessment import economy_eligible, select_hit, reason, valid_count, checked
+from app.domain.sizing import size_equipment
+from app.domain.catalog_assessment import resolve_catalog
+from app.infrastructure.db.assessment_repo import metadata_maps
+from app.domain.match import STAGES, FilterRule, Readiness, RobotView, match_robots, usage_for
 from app.infrastructure.db.models import (
     AttributeDefRow,
     EconomyNormLogRow,
@@ -29,6 +34,7 @@ from app.infrastructure.db.models import (
     ProjectProcessRow,
     ProjectRow,
     SolutionTypeRow,
+    SourceRow,
 )
 from app.infrastructure.db.catalog_repo import make_code
 from app.infrastructure.db.object_repo import (
@@ -319,15 +325,18 @@ def preview_process(db: Session, process_code: str, payload: dict) -> dict:
         if (item.get("formula") or "").strip()
     )
     rows = products_for_process(db, process.id)
-    robots = tuple(_robot_view(row) for row in rows)
-    hits = match_robots(process_code=process.code, process_name=process.name, site=site, rules=rules, robots=robots, bindings=bindings, readiness=readiness_filter(db))
-    by_id = {str(row.id): _values(row) for row in rows}
-    count_inputs = tuple((row.get("key", ""), row.get("label", "")) for row in (payload.get("count_inputs") or []) if isinstance(row, dict))
-    counted = []
-    for hit in hits:
-        amount, note = robot_count(payload.get("count_formula") or "", count_inputs, bindings, site, by_id.get(hit.product_id, {}))
-        counted.append((hit, amount, note))
-    best = _best(counted, by_id, payload.get("rank_key") or "", payload.get("rank_order") or "asc")
+    facts_map, profiles = metadata_maps(db)
+    profile = profiles.get(process.id, {})
+    sources = _assessment_sources(db)
+    catalogs = {str(row.id): resolve_catalog(row, facts_map.get(str(row.id)), process_code=process.code, process_name=process.name, sources=sources, site=site) for row in rows}
+    robots = tuple(_robot_view(row, catalog=catalogs[str(row.id)]) for row in rows)
+    hits = match_robots(process_code=process.code, process_name=process.name, site=site, rules=rules, robots=robots, bindings=bindings, readiness=readiness_filter(db), profile=profile)
+    by_id = {key: catalog.values for key, catalog in catalogs.items()}
+    rows_by_id = {str(row.id): row for row in rows}
+    assessed = {hit.product_id: _candidate_payload(hit, rows_by_id[hit.product_id], facts_map.get(hit.product_id, {}), profile, site, None, catalogs[hit.product_id]) for hit in hits}
+    counted = [(hit, assessed[hit.product_id]['count'], assessed[hit.product_id]['count_note']) for hit in hits]
+    ready = [item for item in counted if economy_eligible(assessed[item[0].product_id])]
+    best = _best(ready, by_id, payload.get("rank_key") or "", payload.get("rank_order") or "asc")
     tally = {"pass": 0, "conditional": 0, "unknown": 0, "fail": 0}
     reasons: dict[str, int] = {}
     for hit, _amount, _note in counted:
@@ -347,20 +356,7 @@ def preview_process(db: Session, process_code: str, payload: dict) -> dict:
             for key, count in sorted(reasons.items(), key=lambda pair: -pair[1])
         ],
         "best_product_id": best,
-        "robots": [
-            {
-                "product_id": hit.product_id,
-                "name": hit.name,
-                "slug": hit.slug,
-                "verdict": hit.verdict,
-                "notes": list(hit.notes),
-                "trl": hit.trl,
-                "stage": hit.stage,
-                "count": amount,
-                "count_note": note,
-            }
-            for hit, amount, note in counted[:40]
-        ],
+        "robots": [assessed[hit.product_id] for hit, _amount, _note in counted],
     }
 
 
@@ -832,7 +828,7 @@ def layout_files_in_use(db: Session) -> set[str]:
     return used
 
 
-def run_match(db: Session, project_id: UUID, site: dict | None = None, tasks: list | None = None) -> dict:
+def run_match(db: Session, project_id: UUID, site: dict | None = None, tasks: list | None = None, *, _prepared=False, _input_groups=None) -> dict:
     project = db.get(ProjectRow, project_id)
     if project is None:
         raise KeyError(str(project_id))
@@ -846,7 +842,13 @@ def run_match(db: Session, project_id: UUID, site: dict | None = None, tasks: li
         .where(ProjectProcessRow.project_id == project.id, ProjectProcessRow.enabled.is_(True))
         .order_by(ProcessRow.name)
     ))
-    return {"project_id": str(project.id), "groups": _match_groups(db, project.object_type_id, processes, values, tasks)}
+    from app.domain.demo_synthetic import project_plan, project_inputs
+    plan = project_plan(project)
+    inputs = _input_groups or []
+    if plan and not _prepared:
+        values, tasks, inputs = project_inputs(plan, values, tasks)
+    return {"project_id": str(project.id), "groups": _match_groups(db, project.object_type_id, processes, values, tasks, plan=plan, input_groups=inputs),
+            'demo_plan': plan, 'demo_input_groups': inputs}
 
 
 def match_object(db: Session, object_code: str, site: dict | None, tasks: list | None = None) -> dict:
@@ -870,80 +872,182 @@ def _tasks_by_code(tasks: list | None) -> dict[str, dict]:
     return found
 
 
-def _match_groups(db: Session, object_type_id: int, processes: list, values: dict, tasks: list | None = None) -> list:
+def _candidate_payload(hit, row, facts, profile, values, task, catalog=None, *, demo=False, input_fields=(), quantity_context=None):
+    from app.domain.selection_assumptions import catalog_assumptions, commercial_assumptions, sizing_profile
+    catalog = catalog or resolve_catalog(row, facts, process_code=hit.process_code, process_name=hit.process_name, site=values)
+    facts = catalog.facts
+    profile, _ = checked(profile, product=False)
+    profile = sizing_profile(profile, hit.process_code, facts)
+    assumptions = [*catalog_assumptions(catalog), *catalog.demo_synthetic]
+    assumptions.extend(deepcopy(entry) for entry in input_fields if entry.get('category') == 'operation')
+    commercial = [a for a in commercial_assumptions(facts, _number(row.price_rub))
+                  if not any(r.field == a['key'] for r in catalog.reasons)]
+    assumptions.extend(commercial)
+    assumed_commercial = {a['key'] for a in commercial}
+    from app.domain.demo_synthetic import technical_mode_values
+    sizing_values = technical_mode_values(catalog) if demo else dict(catalog.values)
+    for kind in ('loaded', 'empty'):
+        raw = (row.attrs or {}).get(f'speed_{kind}_ms') or {}
+        if raw.get('status') == 'known' and not raw.get('conflict') and raw.get('unit') == 'м/с':
+            sizing_values[f'speed_{kind}_limit_ms'] = raw.get('value')
+    sizing_task = dict(task or {})
+    mode_sources = {}
+    if 'work_time_h' not in catalog.values and 'work_time_h' in sizing_values:
+        mode_sources['work_time_h'] = {**catalog.provenance.get('working_time_h', {}), 'parameter': 'working_time_h'}
+    mode_errors = []
+    policy = profile.get('sizing') or {}
+    if policy.get('speed_basis') == 'working_mode':
+        for kind in ('loaded', 'empty'):
+            key, mode_key = f'speed_{kind}_ms', f'working_speed_{kind}_ms'
+            working = _number(catalog.values.get(mode_key))
+            if working is not None:
+                limits = [_number(sizing_values.get(f'speed_{kind}_limit_ms')), _number(catalog.values.get('max_speed_ms'))]
+                if any(limit is not None and working > limit for limit in limits):
+                    mode_errors.append(reason('working_speed_exceeds_limit', 'Рабочая скорость превышает опубликованный предел', field=mode_key, stage='sizing'))
+                sizing_values[key] = working
+                mode_sources[key] = {**catalog.provenance.get(mode_key, {}), 'parameter': mode_key}
+    if policy.get('rate_basis') == 'robot_mode' and catalog.values.get('effective_cleaning_rate_m2_h') is not None:
+        sizing_task['effective_cleaning_rate_m2_h'] = catalog.values['effective_cleaning_rate_m2_h']
+    sizing = size_equipment(profile, facts, values, sizing_values, sizing_task)
+    if demo and policy.get('reuse_catalog_formula') is True:
+        from app.domain.demo_synthetic import catalog_process_quantity
+        sizing = catalog_process_quantity(catalog, values, quantity_context, sizing_values, sizing_task)
+        if sizing.details.get('throughput_parameter') == 'working_inventory_rate_h':
+            mode_sources['throughput'] = {**catalog.provenance['working_inventory_rate_h'], 'parameter': 'working_inventory_rate_h'}
+    if mode_errors:
+        from app.domain.sizing import SizingResult
+        sizing = SizingResult(None, tuple(mode_errors), sizing.model)
+    if demo and (task or {}).get('__demo_input_conflict'):
+        from app.domain.sizing import SizingResult
+        sizing = SizingResult(None, (reason('task_allocation_conflict', 'Для нескольких задач одного процесса необходимо распределить нагрузку и исходный штат', stage='sizing'),), sizing.model)
+    input_provenance = {}
+    synthetic_inputs = {entry['key']: entry for entry in input_fields}
+    for key, value in sizing.details.get('inputs', {}).items():
+        source = mode_sources.get(key) or catalog.provenance.get(key) or synthetic_inputs.get(key) or {'origin': 'project_input', 'scope': hit.process_code}
+        input_provenance[key] = {**source, 'value': value}
+        if source.get('value') is not None and source['value'] != value:
+            input_provenance[key]['base_value'] = source['value']
+            input_provenance[key]['transformation'] = 'load_factor'
+
+    count = sizing.count
+    sizing_reasons = [*sizing.reasons, *(r for r in catalog.reasons if r.stage == 'sizing')]
+    economic_reasons = [r.as_dict() for r in sizing_reasons]
+    economic_reasons.extend(r.as_dict() for r in catalog.reasons if r.stage == 'economy')
+    if count == 0:
+        economic_reasons.append(reason('no_equipment_required', 'При нулевой потребности парк роботизации не формируется', stage='economy').as_dict())
+    if hit.verdict != 'pass':
+        economic_reasons.append(reason('technical_not_confirmed', 'Перед расчётом экономики уточните обязательные условия технической применимости', stage='economy').as_dict())
+    if _number(row.price_rub) is None or _number(row.price_rub) <= 0:
+        economic_reasons.append(reason('price_missing', 'Отсутствует необходимая положительная цена решения', stage='economy').as_dict())
+    if facts.get('price_complete') is not True and 'price_complete' not in assumed_commercial:
+        economic_reasons.append(reason('price_scope_unconfirmed', 'Не подтверждено, что цена покрывает необходимую комплектацию решения', stage='economy').as_dict())
+    if facts.get('configuration_complete') is not True and 'configuration_complete' not in assumed_commercial:
+        economic_reasons.append(reason('configuration_missing', 'Не определена комплектность решения для экономического расчёта', stage='economy').as_dict())
+    clarifications = [r.as_dict() for r in hit.reasons if r.severity != 'fail']
+    clarifications.extend(economic_reasons)
+    clarifications.extend({'code': 'optional_attribute_missing', 'field': key, 'severity': 'info',
+                           'message': 'Уточнить у вендора: ' + str(raw.get('label') or display_label(key))}
+                          for key, raw in (row.attrs or {}).items()
+                          if isinstance(raw, dict) and raw.get('status') == 'unknown'
+                          and not any(r.get('field') == key for r in clarifications))
+    clarifications = list({(r.get('code'), r.get('field'), r['message']): r for r in clarifications}.values())
+    return {
+        'product_id': hit.product_id, 'name': hit.name, 'slug': hit.slug,
+        'verdict': hit.verdict, 'notes': list(hit.notes),
+        'reasons': [r.as_dict() for r in hit.reasons],
+        'applicability': 'conditional' if hit.verdict == 'pass' and assumptions else hit.verdict,
+        'assumptions': assumptions,
+        'significant_reasons': [r.as_dict() for r in hit.reasons if r.severity in {'fail', 'unknown'}],
+        'clarifications': clarifications,
+        'technical_ready': hit.verdict == 'pass',
+        'sizing_ready': count is not None,
+        'economic_ready': not demo and not catalog.demo_synthetic and hit.verdict == 'pass' and count is not None and not economic_reasons,
+        'demo_economic_ready': demo and hit.verdict == 'pass' and count is not None and not economic_reasons,
+        'calculation_mode': 'demo' if demo else 'ordinary',
+        'economic_reasons': economic_reasons,
+        'image_url': hit.image_url, 'trl': hit.trl, 'stage': hit.stage,
+        'count': count, 'count_note': '; '.join(r.message for r in sizing_reasons),
+        'sizing': {'model': sizing.model, 'reasons': [r.as_dict() for r in sizing_reasons], **sizing.details, 'origin': 'calculated', 'uses_demo_synthetic': demo, 'input_provenance': input_provenance},
+        'specs': _compare_specs(catalog.values),
+        'data_basis': 'catalog_with_demo_synthetic_v1' if demo else 'catalog_with_assumptions_v1' if assumptions else 'published_catalog_v1', 'provenance': catalog.provenance,
+        'resolved_facts': facts,
+        'uses_demo_synthetic': bool(catalog.demo_synthetic) or any(a.get('category') == 'operation' for a in assumptions),
+        'demo_synthetic': catalog.demo_synthetic,
+        'vendor_confirmation_fields': list(dict.fromkeys(item['key'] for item in assumptions if item.get('requires_vendor_confirmation'))),
+    }
+
+
+def _match_groups(db: Session, object_type_id: int, processes: list, values: dict, tasks: list | None = None, *, plan=None, input_groups=()) -> list:
     readiness = readiness_filter(db)
-    # У склада «уточнить» не становится лучшим: иначе в экономику демо-склада попадут процессы без прошедших фильтр.
-    obj = db.get(ObjectTypeRow, object_type_id)
-    fallback_unknown = bool(obj and obj.code in {"airport", "hospital"})
+    facts_map, profiles = metadata_maps(db)
+    sources = _assessment_sources(db)
     by_task = _tasks_by_code(tasks)
-    sized = count_site(values)
     groups = []
     for process in processes:
-        bindings = {
-            row.input_key: row.site_key
-            for row in db.scalars(select(ObjectInputBindingRow).where(
-                ObjectInputBindingRow.object_type_id == object_type_id,
-                ObjectInputBindingRow.process_id == process.id,
-            ))
-        }
-        rules = tuple(
-            FilterRule(
-                item.name,
-                tuple(item.object_keys or []),
-                tuple(item.robot_keys or []),
-                item.op,
-                item.mode,
-                tuple((row.get("key", ""), row.get("label", "")) for row in (item.inputs or []) if isinstance(row, dict)),
-                item.formula or "",
-            )
-            for item in db.scalars(select(ProcessFilterRow).where(ProcessFilterRow.process_id == process.id).order_by(ProcessFilterRow.id))
-        )
+        profile = profiles.get(process.id, {})
+        demo_process = ((plan or {}).get('processes', {}).get(process.code)
+                        or (plan or {}).get('technical_processes', {}).get(process.code))
+        if demo_process and not profile.get('sizing'):
+            profile = {**profile, 'sizing': demo_process['sizing']}
+        bindings = {row.input_key: row.site_key for row in db.scalars(select(ObjectInputBindingRow).where(
+            ObjectInputBindingRow.object_type_id == object_type_id, ObjectInputBindingRow.process_id == process.id))}
+        rules = tuple(FilterRule(item.name, tuple(item.object_keys or []), tuple(item.robot_keys or []), item.op, item.mode,
+                                 tuple((r.get('key', ''), r.get('label', '')) for r in (item.inputs or []) if isinstance(r, dict)), item.formula or '')
+                      for item in db.scalars(select(ProcessFilterRow).where(ProcessFilterRow.process_id == process.id).order_by(ProcessFilterRow.id)))
+        from app.domain.demo_synthetic import operation_context, operation_links
+        task = by_task.get(process.code)
+        process_values, profile, rules, bindings = operation_context(demo_process, values, task, profile, rules, bindings)
         rows = products_for_process(db, process.id)
-        robots = tuple(_robot_view(row) for row in rows)
-        hits = match_robots(
-            process_code=process.code,
-            process_name=process.name,
-            site=values,
-            rules=rules,
-            robots=robots,
-            bindings=bindings,
-            readiness=readiness,
-        )
-        by_id = {str(row.id): _values(row) for row in rows}
-        formula = formula_with_task(process.count_formula or "", by_task.get(process.code))
-        counted = []
+        links = operation_links(demo_process)
+        existing = {str(row.id) for row in rows}
+        for link in links:
+            if link['product_id'] not in existing:
+                row = db.get(ProductRow, UUID(link['product_id']))
+                if row is None:
+                    raise ValueError('DEV-связь с отсутствующей карточкой: ' + link['product_id'])
+                rows.append(row)
+                existing.add(str(row.id))
+        catalogs = {str(row.id): resolve_catalog(row, facts_map.get(str(row.id)), process_code=process.code, process_name=process.name, sources=sources, site=process_values, allow_demo=bool(plan)) for row in rows}
+        robots = tuple(_robot_view(row, catalog=catalogs[str(row.id)]) for row in rows)
+        hits = match_robots(process_code=process.code, process_name=process.name, site=process_values, rules=rules,
+                            robots=robots, bindings=bindings, readiness=readiness, profile=profile)
+        by_id = {str(row.id): row for row in rows}
+        quantity_context = {'process_code': process.code, 'formula': process.count_formula,
+                            'inputs': tuple((r['key'], r['label']) for r in (process.count_inputs or [])),
+                            'bindings': bindings, 'flow_unit': (profile.get('sizing') or {}).get('flow_unit')}
+        input_fields = [entry for group in input_groups if group['process_code'] in ('', process.code) for entry in group['fields']]
+        if demo_process and demo_process.get('operation'):
+            operation = demo_process['operation']
+            input_fields.append({'key': 'operation_scope', 'label': 'Рабочая зона и режим',
+                                 'value': operation['zone'], 'unit': '', 'origin': 'demo_synthetic',
+                                 'explanation': operation['explanation'], 'category': 'operation',
+                                 'scope': process.code, 'requires_vendor_confirmation': False})
+        payloads = []
         for hit in hits:
-            amount, note = robot_count(
-                formula,
-                tuple((row.get("key", ""), row.get("label", "")) for row in (process.count_inputs or []) if isinstance(row, dict)),
-                bindings,
-                sized,
-                by_id.get(hit.product_id, {}),
-            )
-            counted.append((hit, amount, note))
-        best = _best(counted, by_id, process.rank_key or "", process.rank_order or "asc", fallback_unknown=fallback_unknown)
-        groups.append({
-            "process_code": process.code,
-            "process_name": process.name,
-            "best_product_id": best,
-            "layout_items": process.layout_items or default_items(process.code),
-            "hits": [
-                {
-                    "product_id": hit.product_id,
-                    "name": hit.name,
-                    "slug": hit.slug,
-                    "verdict": hit.verdict,
-                    "notes": list(hit.notes),
-                    "image_url": hit.image_url,
-                    "trl": hit.trl,
-                    "stage": hit.stage,
-                    "count": amount,
-                    "count_note": note,
-                    "specs": _compare_specs(by_id.get(hit.product_id, {})),
-                }
-                for hit, amount, note in counted
-            ],
-        })
+            linked_fields = [
+                {'key': 'process_link', 'label': 'Назначение решения', 'unit': '', 'value': process.name,
+                 'category': 'operation', 'requires_vendor_confirmation': True, **link}
+                for link in links if link['product_id'] == hit.product_id]
+            payloads.append(_candidate_payload(
+                hit, by_id[hit.product_id], facts_map.get(hit.product_id, {}), profile,
+                process_values, task, catalogs[hit.product_id], demo=bool(demo_process),
+                input_fields=[*input_fields, *linked_fields], quantity_context=quantity_context))
+        eligible = {h['product_id'] for h in payloads if economy_eligible(h)}
+        counted = [(hit, next(h['count'] for h in payloads if h['product_id'] == hit.product_id), '') for hit in hits if hit.product_id in eligible]
+        attributes = {key: catalog.values for key, catalog in catalogs.items()}
+        best = _best(counted, attributes, process.rank_key or '', process.rank_order or 'asc')
+        technical_best = _best([(h, None, '') for h in hits], attributes, process.rank_key or '', process.rank_order or 'asc', technical=True)
+        demo_counted = [(hit, next(h['count'] for h in payloads if h['product_id'] == hit.product_id), '') for hit in hits
+                        if next(h['demo_economic_ready'] for h in payloads if h['product_id'] == hit.product_id)]
+        demo_best = _best(demo_counted, attributes, process.rank_key or '', process.rank_order or 'asc')
+        groups.append({'process_code': process.code, 'process_name': process.name, 'best_product_id': best,
+                       'demo_best_product_id': demo_best, 'calculation_mode': 'demo' if demo_process else 'ordinary',
+                       'technical_best_product_id': technical_best,
+                       'selection_policy': 'confirmed_economic_ready_v1',
+                       'operation': ({**deepcopy(demo_process['operation']),
+                                      'effective_fields': {key: process_values.get(key) for key in demo_process['operation'].get('fields', {})}}
+                                     if demo_process and demo_process.get('operation') else None),
+                       'layout_items': process.layout_items or default_items(process.code), 'hits': payloads})
     return groups
 
 
@@ -1153,12 +1257,31 @@ def project_economy(
         raise KeyError(str(project_id))
     stored_site, stored_tasks = _split_site(project.site or {})
     site = _public_site(site if site is not None else stored_site)
-    use_tasks = tasks if tasks else stored_tasks
+    use_tasks = tasks if tasks is not None else stored_tasks
     overrides = dict(preview) if preview is not None else dict(project.economy_overrides or {})
+    active_overrides = dict(overrides)
     standard = economy_standards(db)
     load = overrides.get("load_factor", standard.get("load_factor", NORM_BY_KEY["load_factor"].value))
-    matched = run_match(db, project_id, scale_load(site, float(load)), scale_task_flows(use_tasks, float(load)))
-    return _economy_report(db, matched, site, choices, use_tasks, overrides, dict(project.economy_overrides or {}), picks)
+    from app.domain.demo_synthetic import project_plan, project_inputs
+    plan = project_plan(project)
+    input_groups = []
+    if plan:
+        site, use_tasks, input_groups = project_inputs(plan, site, use_tasks)
+        defaults = {k: v['value'] for k, v in plan['finance'].items()}
+        if site.get('energy_tariff_rub_kwh') is not None:
+            defaults.pop('energy_tariff', None)
+        defaults.update({f'process:{code}:{k}': v['value'] for code, process in plan['processes'].items() for k, v in process['finance'].items()})
+        # Явный глобальный What-if должен менять и процесс, если нет его явного override.
+        for code, process in plan['processes'].items():
+            for key in process['finance']:
+                if key in overrides:
+                    defaults[f'process:{code}:{key}'] = overrides[key]
+        overrides = {**defaults, **overrides}
+    matched = run_match(db, project_id, scale_load(site, float(load)), scale_task_flows(use_tasks, float(load)), _prepared=True, _input_groups=input_groups)
+    matched['demo_input_groups'] = input_groups
+    report = _economy_report(db, matched, site, choices, use_tasks, overrides, dict(project.economy_overrides or {}), picks)
+    report['active_overrides'] = active_overrides
+    return report
 
 
 def preview_economy(
@@ -1190,11 +1313,35 @@ def _economy_report(
     picks: dict[str, str] | None = None,
 ) -> dict:
     picked = []
-    for group in matched["groups"]:
-        if picks is not None and group["process_code"] not in picks:
+    blockers = []
+    plan = matched.get('demo_plan')
+    automated = set(plan['processes']) if plan else None
+    manual = []
+    if plan and not automated:
+        blockers.append({'code': 'demo_scope_undefined', 'message': 'Нет процесса с достаточными техническими данными и моделью количества. Требуются обследование рабочих зон и эксплуатационное исполнение.'})
+        for group in matched['groups']:
+            relevant = [h for h in group['hits'] if h.get('uses_demo_synthetic')]
+            for hit in relevant:
+                blockers.extend({'process_code': group['process_code'], 'code': r['code'], 'message': hit['name'] + ': ' + r['message']} for r in hit['reasons'])
+    known_codes = {g['process_code'] for g in matched['groups']}
+    for code in set(picks if picks is not None else (choices or {})) - known_codes:
+        blockers.append({'process_code': code, 'code': 'selection_invalid', 'message': 'Выбранный процесс отсутствует в текущем подборе'})
+    for group in matched['groups']:
+        code = group['process_code']
+        if automated is not None and code not in automated:
+            manual.append({'process_code': code, 'process_name': group['process_name'], 'mode': 'manual', 'cost_rub': None})
+            if code in (picks or {}) or code in (choices or {}):
+                blockers.append({'process_code': code, 'code': 'selection_invalid', 'message': 'Процесс находится вне области демонстрационной программы'})
             continue
-        chosen = picks.get(group["process_code"]) if picks is not None else (choices or {}).get(group["process_code"])
-        hit = _economy_hit(group, chosen, strict=picks is not None)
+        if plan:
+            group = {**group, 'best_product_id': group.get('demo_best_product_id'),
+                     'hits': [{**h, 'economic_ready': h.get('demo_economic_ready', False)} for h in group['hits']]}
+        if picks is not None and code not in picks:
+            blockers.append({'process_code': code, 'code': 'process_not_selected', 'message': 'Процесс не включён в расчёт проекта'})
+            continue
+        chosen = picks.get(code) if picks is not None else (choices or {}).get(code)
+        hit, problems = select_hit(group, chosen, explicit=picks is not None)
+        blockers.extend({'process_code': code, **p} for p in problems)
         if hit is not None:
             picked.append((group, hit))
     ids = [UUID(hit["product_id"]) for _group, hit in picked]
@@ -1218,32 +1365,72 @@ def _economy_report(
             "power_w": _number(values.get("power_watt")) if values.get("power_watt") is not None else None,
             "raas_available": raas,
             "solution_type": product_types.get(hit["product_id"], ""),
+            "sizing": hit.get('sizing'),
+            "assumptions": hit.get('assumptions', []),
+            "applicability": hit.get('applicability', hit['verdict']),
+            "uses_demo_synthetic": bool(plan),
+            "operating_hours_per_day": (hit.get('sizing') or {}).get('operating_hours_per_day'),
         })
+    blockers = list({(b.get('process_code'), b['code'], b['message']): b for b in blockers}.values())
     meta = economy_meta(db)
     by_type, type_names = economy_type_norms(db)
     standard = economy_standards(db)
     standard, type_meta = blend_by_type(standard, rows, by_type, type_names, meta)
     meta.update(type_meta)
-    report = calculate(rows, site, standard=standard, overrides=overrides, tasks=tasks, meta=meta)
+    if plan:
+        for key, entry in plan['finance'].items():
+            if key in overrides:
+                meta[key] = {**meta.get(key, {}), 'origin': 'demo_synthetic', 'rationale': entry['explanation']}
+    report = calculate(rows, site, standard=standard, overrides=overrides, tasks=tasks, meta=meta, blockers=blockers)
+    report['manual_processes'] = manual
+    if plan and report['complete']:
+        report['status'] = 'demo_estimate'
+    if plan:
+        report['disclaimer'] += ' Демонстрационная программа роботизации внутри объекта. Полные затраты предприятия неизвестны: ручные процессы вне программы сохраняются и не включаются в её экономию.'
+        for figure in _financial_figures(report):
+            figure['origin'] = 'calculated'
+            figure['uses_demo_synthetic'] = True
+    for item, row in zip(report['fleet'], rows):
+        item['sizing'] = row.get('sizing')
+        item['uses_demo_synthetic'] = bool(plan)
+        item['assumptions'] = row.get('assumptions', [])
+        item['applicability'] = row.get('applicability')
+    report['assumptions'] = [
+        {'process_code': group['process_code'], 'product_id': hit['product_id'], 'name': hit['name'],
+         'fields': hit.get('assumptions', [])} for group, hit in picked if hit.get('assumptions')]
+    if report['assumptions']:
+        report['disclaimer'] += ' Расчёт предварительный: используются явно указанные допущения. Уточните характеристики и состав поставки у вендора.'
+    report["coverage"] = {"requested_processes": len(matched["groups"]), "included_processes": len(picked)}
+    report["selection_policy"] = "demo_economic_ready_v1" if plan else "confirmed_economic_ready_v1"
+    report["selection_mode"] = "automatic" if picks is None else "explicit"
+    report["scope"] = "automation_program" if plan else "project"
     report["project_id"] = matched["project_id"]
     report["saved_overrides"] = saved
+    report['effective_overrides'] = overrides
+    selected = {(group['process_code'], hit['product_id']) for group, hit in picked}
+    synthetic = [
+        {'process_code': group['process_code'], 'process_name': group['process_name'],
+         'product_id': hit['product_id'], 'name': hit['name'], 'fields': hit['demo_synthetic'],
+         'included_in_economy': (group['process_code'], hit['product_id']) in selected}
+        for group in matched['groups'] for hit in group['hits'] if hit.get('demo_synthetic')
+    ]
+    if plan:
+        synthetic.extend({**group, 'included_in_economy': bool(picked) if not group['process_code'] else group['process_code'] in {g['process_code'] for g, h in picked}} for group in matched.get('demo_input_groups', []))
+        for code, process in {'': {'name': 'Финансовые допущения программы', 'finance': plan['finance']}, **plan['processes']}.items():
+            synthetic.append({'process_code': code, 'process_name': process['name'], 'product_id': '', 'name': 'Финансовые коэффициенты',
+                              'included_in_economy': bool(picked), 'fields': [{'key': k, 'label': NORM_BY_KEY[k].label, **v,
+                              'value': overrides.get(f'process:{code}:{k}' if code else k, v['value']),
+                              'category': 'finance', 'vendor_confirmed': False, 'requires_vendor_confirmation': False} for k, v in process['finance'].items() if code or k in overrides]})
+    report['demo_synthetic'] = synthetic
+    report['uses_demo_synthetic'] = bool(synthetic)
+    if synthetic:
+        from app.domain.demo_synthetic import NOTICE
+        report['disclaimer'] += ' ' + NOTICE
     return report
 
 
 def _economy_hit(group: dict, chosen_id: str | None, *, strict: bool = False) -> dict | None:
-    hits = group.get("hits") or []
-    if chosen_id:
-        found = next((hit for hit in hits if hit["product_id"] == chosen_id), None)
-        if found is not None:
-            return found
-        if strict:
-            return None
-    if strict:
-        return None
-    best = group.get("best_product_id")
-    if best:
-        return next((hit for hit in hits if hit["product_id"] == best), None)
-    return None
+    return select_hit(group, chosen_id, explicit=strict)[0]
 
 
 _COMPARE_SPECS = (
@@ -1269,27 +1456,14 @@ def _compare_specs(attrs: dict) -> list[dict]:
     return rows
 
 
-def _site_blocked(note: str) -> bool:
-    text = (note or "").casefold()
-    return "не задан" in text
-
-
 def _priced(attrs: dict[str, dict], product_id: str) -> bool:
-    return _number((attrs.get(product_id) or {}).get("price_rub")) is not None
+    price = _number((attrs.get(product_id) or {}).get("price_rub"))
+    return price is not None and price > 0
 
 
-def _best(counted: list, attrs: dict[str, dict], rank_key: str, rank_order: str, fallback_unknown: bool = False) -> str | None:
-    pool = [item for item in counted if item[0].verdict == "pass"] or [item for item in counted if item[0].verdict == "conditional"]
-    if not pool and fallback_unknown:
-        # Процесс без «подходит» всё равно входит в экономику, если количество считается
-        # или не хватает только характеристики робота, а не параметра площадки.
-        pool = [
-            item for item in counted
-            if item[0].verdict == "unknown" and _priced(attrs, item[0].product_id) and (item[1] is not None or not _site_blocked(item[2]))
-        ]
-        counted_ones = [item for item in pool if item[1] is not None]
-        if counted_ones:
-            pool = counted_ones
+def _best(counted: list, attrs: dict[str, dict], rank_key: str, rank_order: str, fallback_unknown: bool = False, *, technical=False) -> str | None:
+    # Параметр fallback_unknown сохранён для совместимости вызовов, но допуск не меняет.
+    pool = [item for item in counted if item[0].verdict == 'pass' and (technical or (valid_count(item[1]) and _priced(attrs, item[0].product_id)))]
     if not pool:
         return None
 
@@ -1313,8 +1487,16 @@ def _best(counted: list, attrs: dict[str, dict], rank_key: str, rank_order: str,
     return pool[0][0].product_id
 
 
-def _robot_view(row: ProductRow) -> RobotView:
-    return RobotView(str(row.id), row.name, row.slug, _values(row), row.image_url, row.trl, row.availability or None)
+def _robot_view(row: ProductRow, assessment: dict | None = None, *, catalog=None) -> RobotView:
+    catalog = catalog or resolve_catalog(row, assessment)
+    from app.domain.demo_synthetic import technical_mode_values
+    return RobotView(str(row.id), row.name, row.slug, technical_mode_values(catalog), row.image_url, row.trl, row.availability or None,
+                     catalog.facts, catalog.issues, tuple(r for r in catalog.reasons if r.stage in {'functional', 'technical'}), catalog.site_conditions)
+
+
+def _assessment_sources(db):
+    return {row.id: {'id': row.id, 'kind': row.kind, 'publisher': row.publisher, 'url': row.url, 'title': row.title}
+            for row in db.scalars(select(SourceRow))}
 
 
 READINESS = "readiness"
@@ -1361,3 +1543,14 @@ def _values(row: ProductRow) -> dict:
     if row.trl is not None:
         values["trl"] = row.trl
     return values
+
+
+def _financial_figures(value):
+    if isinstance(value, dict):
+        if 'value' in value and 'tex' in value:
+            yield value
+        for item in value.values():
+            yield from _financial_figures(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _financial_figures(item)

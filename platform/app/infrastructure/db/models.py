@@ -308,3 +308,16 @@ class ProductOfferRow(Base):
     __tablename__ = "product_offer"
     product_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), ForeignKey("product.id", ondelete="CASCADE"), primary_key=True)
     offers: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+
+
+class ProductAssessmentRow(Base):
+    """Проверенные служебные факты; импорт ТТХ не перезаписывает эту таблицу."""
+    __tablename__ = 'product_assessment'
+    product_id: Mapped[UUID] = mapped_column(ForeignKey('product.id', ondelete='CASCADE'), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+
+class ProcessAssessmentRow(Base):
+    __tablename__ = 'process_assessment'
+    process_id: Mapped[int] = mapped_column(ForeignKey('process.id', ondelete='CASCADE'), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)

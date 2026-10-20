@@ -1,7 +1,23 @@
 import type { Ref } from 'vue'
+import type { DemoSyntheticValue } from '~/utils/demoSynthetic'
+import { eligibleForEconomy, includedInTechnicalComparison, automaticChoice, selectionIssue, normalizeCompareStore } from '~/utils/fleetSelection'
 
 export interface RobotSpec { key: string; label: string; unit: string; direction: 'high' | 'low'; value: number }
+export interface SelectionAssumption {
+  key: string; label: string; value: string | number | boolean | string[]; unit: string
+  origin: string; explanation: string; requires_vendor_confirmation: boolean
+  source_id?: number | null; source?: { publisher?: string; url?: string | null } | null
+  references?: { url?: string; title: string; basis?: string; source_id?: number }[]
+}
+export interface AssessmentReason { code: string; message: string; severity: string; field?: string | null; stage?: string }
 export interface MatchHit {
+  applicability?: string
+  assumptions?: SelectionAssumption[]
+  clarifications?: AssessmentReason[]
+  significant_reasons?: AssessmentReason[]
+  uses_demo_synthetic?: boolean
+  demo_synthetic?: DemoSyntheticValue[]
+  vendor_confirmation_fields?: string[]
   product_id: string
   name: string
   slug: string
@@ -12,9 +28,22 @@ export interface MatchHit {
   stage?: string | null
   count?: number | null
   count_note?: string
+  reasons?: { code: string; message: string; severity: string; field?: string | null; stage?: string }[]
+  technical_ready?: boolean
+  sizing_ready?: boolean
+  economic_ready?: boolean
+  demo_economic_ready?: boolean
+  calculation_mode?: string
+  economic_reasons?: { code: string; message: string }[]
   specs?: RobotSpec[]
+  sizing?: { model?: string | null; reasons: { code: string; message: string }[] }
 }
-export interface MatchGroup { process_code: string; process_name: string; best_product_id?: string | null; hits: MatchHit[] }
+export interface OperationContext {
+  zone: string; explanation: string
+  fields: Record<string, { label: string; value: string | number | boolean; unit: string; explanation: string }>
+  effective_fields: Record<string, string | number | boolean>
+}
+export interface MatchGroup { process_code: string; process_name: string; best_product_id?: string | null; demo_best_product_id?: string | null; calculation_mode?: string; technical_best_product_id?: string | null; hits: MatchHit[]; operation?: OperationContext | null }
 
 interface CompareStore {
   extra: Record<string, string[]>
@@ -26,49 +55,49 @@ interface CompareStore {
 const emptyStore = (): CompareStore => ({ extra: {}, excluded: {}, chosen: {}, confirmed: {} })
 
 export function usePlatformCompare(projectId: Ref<string>) {
-  const store = ref<CompareStore>(emptyStore())
+  // Сравнение и экономика используют один выбор при переходах внутри приложения.
+  const stores = useState<Record<string, CompareStore>>('platform-compare', () => ({}))
+  const storageError = useState<string>('platform-compare-storage-error', () => '')
+  const store = computed({
+    get: () => stores.value[projectId.value] ?? emptyStore(),
+    set: (value: CompareStore) => { stores.value[projectId.value] = value },
+  })
 
   const read = () => {
     if (!import.meta.client || !projectId.value) return
+    if (stores.value[projectId.value]) return
     try {
-      const raw = JSON.parse(localStorage.getItem(`platform-compare:${projectId.value}`) || '{}') as Partial<CompareStore>
-      store.value = {
-        extra: raw.extra ?? {},
-        excluded: raw.excluded ?? {},
-        chosen: raw.chosen ?? {},
-        confirmed: raw.confirmed ?? {},
-      }
+      store.value = normalizeCompareStore(JSON.parse(localStorage.getItem(`platform-compare:${projectId.value}`) || '{}'))
     } catch {
       store.value = emptyStore()
     }
   }
 
   read()
-  watch(projectId, read)
+  watch(projectId, read, { flush: 'sync' })
   watch(store, (value) => {
     if (!import.meta.client || !projectId.value) return
-    localStorage.setItem(`platform-compare:${projectId.value}`, JSON.stringify(value))
-  }, { deep: true })
+    try {
+      localStorage.setItem(`platform-compare:${projectId.value}`, JSON.stringify(value))
+      storageError.value = ''
+    } catch {
+      storageError.value = 'Браузер не разрешил сохранить выбор. Он действует в этой вкладке до перезагрузки страницы.'
+    }
+  }, { deep: true, flush: 'sync' })
 
   const listed = (bucket: Record<string, string[]>, process: string) => bucket[process] ?? []
 
-  const passesLeft = (group: MatchGroup) => group.hits.some((row) => row.verdict === 'pass' && !listed(store.value.excluded, group.process_code).includes(row.product_id))
-
-  /* Если фильтр никто не прошёл, в сравнение берётся лучший из «уточнить», иначе процесс не попадает в экономику. */
-  const standsIn = (group: MatchGroup | undefined, hit: MatchHit) =>
-    Boolean(group && !passesLeft(group) && hit.verdict === 'unknown' && hit.product_id === group.best_product_id)
-
   const inCompare = (process: string, hit: MatchHit, group?: MatchGroup) => {
     if (listed(store.value.excluded, process).includes(hit.product_id)) return false
-    if (hit.verdict === 'pass') return true
+    if (includedInTechnicalComparison(hit)) return true
     if (listed(store.value.extra, process).includes(hit.product_id)) return true
-    return standsIn(group, hit)
+    return false
   }
 
   const toggleCompare = (process: string, hit: MatchHit, group?: MatchGroup) => {
     const next = { ...store.value, extra: { ...store.value.extra }, excluded: { ...store.value.excluded } }
     const drop = (rows: string[]) => rows.filter((id) => id !== hit.product_id)
-    if (hit.verdict === 'pass' || standsIn(group, hit)) {
+    if (includedInTechnicalComparison(hit)) {
       const excluded = listed(next.excluded, process)
       next.excluded[process] = excluded.includes(hit.product_id) ? drop(excluded) : [...excluded, hit.product_id]
     } else {
@@ -81,31 +110,30 @@ export function usePlatformCompare(projectId: Ref<string>) {
   const includedHits = (group: MatchGroup) => group.hits.filter((hit) => inCompare(group.process_code, hit, group))
 
   const chosenId = (group: MatchGroup) => {
-    const pool = includedHits(group)
     const saved = store.value.chosen[group.process_code]
-    if (saved && pool.some((hit) => hit.product_id === saved)) return saved
-    if (group.best_product_id && pool.some((hit) => hit.product_id === group.best_product_id)) return group.best_product_id
-    return pool.find((hit) => hit.verdict === 'pass')?.product_id ?? pool[0]?.product_id ?? ''
+    // Устаревший выбор не заменяется другой машиной молча.
+    if (saved) return eligibleForEconomy(group.hits.find((h) => h.product_id === saved))
+      && !listed(store.value.excluded, group.process_code).includes(saved) ? saved : ''
+    const id = automaticChoice(group)
+    return listed(store.value.excluded, group.process_code).includes(id) ? '' : id
   }
 
   const skipReason = (group: MatchGroup) => {
-    if (includedHits(group).length) return ''
-    if (!group.hits.length) return 'В каталоге на этот процесс не назначено роботов.'
-    if (!group.hits.some((hit) => hit.verdict === 'pass')) return 'Ни один робот не прошёл фильтры, и в сравнение его не добавили.'
-    return 'Подходящих роботов убрали из сравнения.'
+    const saved = store.value.chosen[group.process_code]
+    if (saved && !eligibleForEconomy(group.hits.find((h) => h.product_id === saved))) return selectionIssue(group, saved)
+    if (chosenId(group)) return ''
+    if (!group.hits.length) return 'На процесс не назначено решений.'
+    return 'Для расчёта уточните применимость, количество или цену решения. Подробности — в сравнении.'
   }
 
-  const remainingHit = (group: MatchGroup) => {
-    const pool = includedHits(group)
-    if (!pool.length) return null
-    return pool.find((hit) => hit.product_id === chosenId(group)) ?? pool[0] ?? null
-  }
+  const remainingHit = (group: MatchGroup) => group.hits.find((hit) => hit.product_id === chosenId(group)) ?? null
 
   const picksFor = (groups: MatchGroup[]) => {
     const picks: Record<string, string> = {}
     for (const group of groups) {
       const hit = remainingHit(group)
       if (hit) picks[group.process_code] = hit.product_id
+      else if (store.value.chosen[group.process_code] && !eligibleForEconomy(group.hits.find((h) => h.product_id === store.value.chosen[group.process_code]))) picks[group.process_code] = store.value.chosen[group.process_code]!
     }
     return picks
   }
@@ -127,7 +155,7 @@ export function usePlatformCompare(projectId: Ref<string>) {
 
   const choices = computed(() => ({ ...store.value.chosen }))
 
-  return { inCompare, toggleCompare, includedHits, chosenId, remainingHit, skipReason, picksFor, skippedOf, choose, isConfirmed, choices }
+  return { inCompare, toggleCompare, includedHits, chosenId, remainingHit, skipReason, picksFor, skippedOf, choose, isConfirmed, choices, storageError }
 }
 
 /** «!» у шага «Подбор» со списком процессов без робота: вместо плашки на странице. */
@@ -136,7 +164,7 @@ export const skippedAlerts = (rows: { name: string }[]) => (rows.length
       match: {
         title: 'Не выбраны роботы для процессов:',
         items: rows.map((row) => row.name),
-        note: 'Платформа не добавила их в подбор автоматически: ни один робот не прошёл по всем параметрам. Можно дождаться, когда в каталоге появятся подходящие роботы, или вернуться к подбору и выбрать другие решения.',
+        note: 'Экономический парк неполный. Технически подходящим решениям могут недоставать количества, комплектации или цены. Причины указаны в подборе.',
       },
     }
   : undefined)

@@ -1,8 +1,9 @@
 import type { Ref } from 'vue'
+import type { DemoSyntheticGroup } from '~/utils/demoSynthetic'
 import { fetchErrorMessage } from '~/utils/errors'
 import { platformSend } from '~/composables/usePlatform'
 import { useLiveProject } from '~/composables/useLiveProject'
-import { usePlatformCompare, type MatchGroup } from '~/composables/usePlatformCompare'
+import { usePlatformCompare, type MatchGroup, type SelectionAssumption } from '~/composables/usePlatformCompare'
 
 export type EconSource = 'card' | 'fleet' | 'site' | 'norm' | 'project' | 'calc'
 
@@ -30,6 +31,11 @@ export interface EconFig {
 }
 
 export interface EconFleet {
+  applicability?: string
+  assumptions?: SelectionAssumption[]
+  uses_demo_synthetic?: boolean
+  sizing?: { model?: string; working_count?: number; reserve_count?: number; inputs?: Record<string, number>;
+    input_provenance?: Record<string, { label?: string; unit?: string; origin?: string; source_id?: number | null }>; [key: string]: unknown }
   process_code: string
   process_name: string
   product_id: string
@@ -57,7 +63,7 @@ export interface EconScenario {
   opex: EconFig
   opex_lines: EconFig[]
   payroll_after: EconFig
-  annual_cost: number
+  annual_cost: number | null
   effect: EconFig
   effect_lines: EconFig[]
   payback: EconFig
@@ -144,8 +150,19 @@ export interface EconProcess {
 }
 
 export interface EconReport {
+  assumptions?: { process_code: string; product_id: string; name: string; fields: SelectionAssumption[] }[]
+  uses_demo_synthetic?: boolean
+  demo_synthetic?: DemoSyntheticGroup[]
   project_id: string
   disclaimer: string
+  status?: 'complete' | 'incomplete' | 'demo_estimate'
+  scope?: 'project' | 'automation_program'
+  effective_overrides?: Record<string, number>
+  active_overrides?: Record<string, number>
+  manual_processes?: { process_code: string; process_name: string; mode: string }[]
+  complete?: boolean
+  blockers?: { code: string; message: string; process_code?: string }[]
+  coverage?: { requested_processes: number; included_processes: number }
   fleet: EconFleet[]
   horizon_years: number
   robots: number
@@ -164,6 +181,7 @@ export const PROCESS_PARAM_KEYS = [
   'infra_pct', 'software_pct', 'integration_pct', 'commissioning_pct', 'training_pct', 'reserve_pct',
   'service_pct', 'license_pct', 'comms_pct', 'consumables_pct', 'repair_pct', 'energy_kwh',
   'raas_rate_pct',
+  'replacement_pct', 'robots_per_operator',
 ] as const
 
 export const PARAM_GROUPS: { id: EconParam['group']; label: string }[] = [
@@ -225,6 +243,8 @@ export function usePlatformEconomy(id: Ref<string>) {
   const failure = ref('')
   let token = 0
   let asked: Record<string, number> | null | undefined
+  // Локальный What-if живёт при переходах по маршруту и не записывается в исходный проект.
+  const previews = useState<Record<string, Record<string, number>>>('economy-previews', () => ({}))
 
   const ensureProject = async () => id.value
 
@@ -240,17 +260,24 @@ export function usePlatformEconomy(id: Ref<string>) {
       picks: picksFor(match.groups),
     }
     if (preview) body.preview = preview
-    return await platformSend<EconReport>(`/projects/${id.value}/economy`, 'POST', body)
+    const result = await platformSend<EconReport>(`/projects/${id.value}/economy`, 'POST', body)
+    if (result.scope === 'automation_program') skipped.value = skipped.value.filter(row => !result.manual_processes?.some(p => p.process_code === row.code))
+    return result
   }
 
-  const load = async (preview: Record<string, number> | null = null) => {
-    asked = preview
+  const load = async (preview: Record<string, number> | null | undefined = undefined) => {
+    const effective = preview === undefined ? previews.value[id.value] ?? null : preview
+    if (preview !== undefined) {
+      if (preview === null) delete previews.value[id.value]
+      else previews.value[id.value] = { ...preview }
+    }
+    asked = effective
     if (import.meta.server || !source.value || !objectCode.value) return
     const mine = ++token
     loading.value = true
     failure.value = ''
     try {
-      const result = await request(preview)
+      const result = await request(effective)
       if (mine === token) report.value = result
     } catch (err: unknown) {
       if (mine === token) failure.value = fetchErrorMessage(err, 'Не удалось посчитать экономику')

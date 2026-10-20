@@ -8,7 +8,7 @@ import type { EditorMode, EditorTool, PlanSelection } from '~/components/PlanEdi
 import { fetchErrorMessage } from '~/utils/errors'
 import { platformGet, platformSend, usePlatformBase } from '~/composables/usePlatform'
 import { skippedAlerts, usePlatformCompare, type MatchGroup } from '~/composables/usePlatformCompare'
-import { PRELIMINARY, usePlatformEconomy } from '~/composables/usePlatformEconomy'
+import { usePlatformEconomy } from '~/composables/usePlatformEconomy'
 import { Simulation } from '~/sim/engine'
 import { floorBounds } from '~/sim/grid'
 import { autoCount, buildProcess, clearProcess, emptyLayout, fitFloorToOutline, newFloor, normalizeLayout, placedCount, placeProcess, placeShell, processReady, rectOutline, ROLE_KIND, uid } from '~/sim/templates'
@@ -17,7 +17,7 @@ import type { WorkerResponse } from '~/sim/worker'
 
 const route = useRoute()
 const id = computed(() => route.params.id as string)
-const { project, isDemo, readonly, source, pending, error } = usePlatformEconomy(id)
+const { project, isDemo, readonly, source, pending, error, report: economicReport, load: loadEconomy } = usePlatformEconomy(id)
 const { remainingHit, skipReason } = usePlatformCompare(id)
 useHead({ title: () => `Визуализация · ${project.value?.name ?? 'проект'}` })
 
@@ -108,7 +108,8 @@ const skipped = computed(() => groups.value.flatMap((group) => {
 }))
 const processes = computed<SimProcess[]>(() => groups.value.filter((group) => !skipReason(group)).map((group) => {
   const hit = remainingHit(group)
-  const robot = hit ? { name: hit.name, count: hit.count ?? null, specs: hit.specs ?? [] } : null
+  const calculated = economicReport.value?.fleet.find(row => row.process_code === group.process_code && row.product_id === hit?.product_id && row.included)
+  const robot = hit ? { name: hit.name, count: economicReport.value ? calculated?.count_used ?? null : hit.count ?? null, specs: hit.specs ?? [] } : null
   return buildProcess(group.process_code, group.process_name, robot, site.value, group.layout_items ?? [])
 }))
 const byCode = computed(() => Object.fromEntries(processes.value.map((proc) => [proc.code, proc])))
@@ -352,12 +353,13 @@ onBeforeUnmount(() => { window.removeEventListener('keydown', onKey); pause(); w
 /* Загрузка и сохранение. */
 const loadAll = async () => {
   if (import.meta.server || !source.value) return
+  void loadEconomy()
   loading.value = true
   loadError.value = ''
   try {
     platformId.value = id.value
     const [match, stored] = await Promise.all([
-      platformSend<{ groups: GroupWithItems[] }>(`/projects/${platformId.value}/match`, 'POST', { site: source.value.site }),
+      platformSend<{ groups: GroupWithItems[] }>(`/projects/${platformId.value}/match`, 'POST', { site: source.value.site, tasks: source.value.tasks }),
       platformGet<{ layout: Partial<Layout> }>(`/projects/${platformId.value}/layout`),
     ])
     groups.value = match.groups
@@ -412,6 +414,7 @@ const config = (): SimConfig | null => {
   return { layout: plain(layout.value), processes: plain(active.value), mode: loadMode.value, peak: peak.value, failureShare: failurePct.value / 100, durationS: shiftHours.value * 3600, seed: 20260926 }
 }
 let sim: Simulation | null = null
+const hasSimulation = ref(false)
 let timer: ReturnType<typeof setTimeout> | undefined
 let last = 0
 let lastStats = 0
@@ -482,6 +485,7 @@ const processSeries = computed(() => active.value.filter((proc) => proc.kind ===
 const resetSim = () => {
   pause()
   sim = null
+  hasSimulation.value = false
   live.value = null
   trips.value = []
   resetMonitor()
@@ -490,10 +494,12 @@ const resetSim = () => {
   if (!cfg) return
   try {
     sim = new Simulation(cfg)
+    hasSimulation.value = true
     if (!editing.value) editor.value?.drawRobots(sim.views(views))
     live.value = sim.stats()
   } catch {
     sim = null
+  hasSimulation.value = false
   }
 }
 const frame = () => {
@@ -767,7 +773,12 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
       <UiButton :to="`/projects/${project.id}/report`" size="lg">К отчёту<template #after><PhArrowRight :size="18" weight="bold" /></template></UiButton>
     </template>
 
-    <UiCallout tone="warn" title="Предварительная оценка">{{ PRELIMINARY }} Модель упрощает движение: роботы не объезжают друг друга, станция обслуживает одного робота за раз, лифт — фиксированное время.</UiCallout>
+    <EconomicContext v-if="economicReport" :report="economicReport">
+      <p>Модель движения упрощена: роботы не объезжают друг друга, станция обслуживает одного робота за раз, лифт — фиксированное время.</p>
+    </EconomicContext>
+    <AssessmentNotice v-else>
+      <p>Модель движения упрощена: роботы не объезжают друг друга, станция обслуживает одного робота за раз, лифт — фиксированное время.</p>
+    </AssessmentNotice>
 
     <section v-if="(pending || loading) && !layout" class="waiting glass"><div class="h3">Собираем схему</div></section>
     <UiCallout v-else-if="loadError || error" tone="danger" title="Схема не открылась">{{ loadError || fetchErrorMessage(error, 'Сервер не ответил.') }}</UiCallout>
@@ -850,10 +861,10 @@ const focusTrip = (row: TripRow) => { focusRobot.value = row.id; floorId.value =
               <div class="live-ctl">
                 <label class="field">
                   <span class="caption">Поток заданий · {{ liveLoad }} % от базового</span>
-                  <input class="range" type="range" min="30" max="250" step="10" :value="liveLoad" :disabled="!sim" @input="setLiveLoad(num($event))">
+                  <input class="range" type="range" min="30" max="250" step="10" :value="liveLoad" :disabled="!hasSimulation" @input="setLiveLoad(num($event))">
                 </label>
                 <div class="pair">
-                  <button type="button" class="tb wide" :disabled="!sim" title="Случайный робот выходит из строя, груз возвращается в очередь" @click="breakRandom"><PhWarning :size="14" weight="bold" /><span>Сломать</span></button>
+                  <button type="button" class="tb wide" :disabled="!hasSimulation" title="Случайный робот выходит из строя, груз возвращается в очередь" @click="breakRandom"><PhWarning :size="14" weight="bold" /><span>Сломать</span></button>
                   <button type="button" class="tb wide" :disabled="!liveOffline" @click="setLiveOffline(liveOffline - 1)">Починить</button>
                   <button type="button" class="tb wide" :disabled="!liveOffline" @click="repairAll">Все в строй</button>
                 </div>

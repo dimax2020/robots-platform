@@ -8,7 +8,7 @@ import math
 import re
 
 _TOKEN = re.compile(
-    r"\s*(?:(\d+(?:[.,]\d+)?)|([A-Za-z_\u0400-\u04FF][\w.\u0400-\u04FF]*)|(<=|>=|==|!=)|(.))"
+    r"\s*(?:(\d+(?:\.\d+)?)|([A-Za-z_\u0400-\u04FF][\w.\u0400-\u04FF]*)|(<=|>=|==|!=)|(.))"
 )
 _FUNCS = {"ceil": math.ceil, "floor": math.floor, "abs": abs, "round": round, "min": min, "max": max, "sqrt": math.sqrt}
 
@@ -54,7 +54,7 @@ def build_env(
         raw = site.get(site_key)
         if raw is None or raw == "":
             return "skip", {}, bare
-        number = _number(raw)
+        number = None if isinstance(raw, bool) else _number(raw)
         if number is None:
             return "bad", {}, bare
         env[name] = number
@@ -82,7 +82,11 @@ def _number(raw: object) -> float | None:
     if isinstance(raw, bool):
         return 1.0 if raw else 0.0
     if isinstance(raw, (int, float)):
-        return float(raw) if math.isfinite(raw) else None
+        try:
+            number = float(raw)
+        except OverflowError:
+            return None
+        return number if math.isfinite(number) else None
     compact = re.sub(r"(?<=\d)\s+(?=\d)", "", upper_bound_text(str(raw))).replace(",", ".")
     if re.fullmatch(r"[+-]?\d+(?:\.\d+)?", compact):
         number = float(compact)
@@ -91,13 +95,21 @@ def _number(raw: object) -> float | None:
     match = re.fullmatch(r"([+-]?\d+(?:\.\d+)?)\s*([а-яa-z²/ .]+?)(?:\s*\(макс\))?", compact, re.IGNORECASE)
     if match is None or _UNIT.search(match[2]) is None:
         return None
-    return float(match[1])
+    number = float(match[1])
+    return number if math.isfinite(number) else None
 
 
 def evaluate(formula: str, env: dict) -> bool | float:
+    if len(formula) > 10000 or any(not isinstance(v, (int, float, bool)) or not math.isfinite(v) for v in env.values()):
+        raise FormulaError("Некорректная формула или числовые входы")
     tokens = _tokens(formula)
     parser = _Parser(tokens, env)
-    value = parser.parse()
+    try:
+        value = parser.parse()
+    except (ArithmeticError, ValueError, TypeError, RecursionError) as exc:
+        raise FormulaError(f"Некорректная арифметика: {exc}") from exc
+    if not isinstance(value, bool) and not math.isfinite(value):
+        raise FormulaError("Результат формулы не является конечным числом")
     if parser.peek() is not None:
         raise FormulaError("в формуле лишний хвост")
     return value
@@ -113,7 +125,10 @@ def _tokens(formula: str) -> list[tuple[str, object]]:
             raise FormulaError(f"не понял «{text[pos:pos + 12]}»")
         pos = match.end()
         if match.group(1) is not None:
-            tokens.append(("num", float(match.group(1).replace(",", "."))))
+            number = float(match.group(1))
+            if not math.isfinite(number):
+                raise FormulaError("Число в формуле не является конечным")
+            tokens.append(("num", number))
         elif match.group(2) is not None:
             word = match.group(2)
             tokens.append(("word", word))
@@ -151,13 +166,15 @@ class _Parser:
     def _or(self) -> bool | float:
         value = self._and()
         while self._word("or"):
-            value = bool(value) or bool(self._and())
+            right = self._and()
+            value = bool(value) or bool(right)
         return value
 
     def _and(self) -> bool | float:
         value = self._cmp()
         while self._word("and"):
-            value = bool(value) and bool(self._cmp())
+            right = self._cmp()
+            value = bool(value) and bool(right)
         return value
 
     def _cmp(self) -> bool | float:
@@ -236,6 +253,10 @@ class _Parser:
             raise FormulaError("не закрыта скобка функции")
         self.take()
         try:
+            if name == "round" and len(args) == 2:
+                if not float(args[1]).is_integer():
+                    raise FormulaError("Точность round должна быть целой")
+                return round(float(args[0]), int(args[1]))
             return _FUNCS[name](*[float(item) for item in args])
         except TypeError as exc:
             raise FormulaError(f"{name} получила не те аргументы") from exc

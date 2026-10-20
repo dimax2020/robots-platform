@@ -93,6 +93,8 @@ def canonical_key(key: str, label: str = '') -> str | None:
 
 
 def display_label(key: str, label: str | None = None) -> str:
+    if key == 'ready_for_automatch':
+        return 'Готовность к подбору — историческая отметка, не результат оценки'
     if label and label != key:
         return label
     canon = canonical_key(key)

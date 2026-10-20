@@ -72,7 +72,7 @@ const activeChips = computed(() => {
     chips.push({ key: 'type', label: name, clear: () => { solutionType.value = '' } })
   }
   avail.value.forEach((a) => chips.push({ key: `a-${a}`, label: availabilityLabel[a], clear: () => toggleAvail(a) }))
-  if (onlyAuto.value) chips.push({ key: 'auto', label: 'Готов к автоподбору', clear: () => { onlyAuto.value = false } })
+  if (onlyAuto.value) chips.push({ key: 'auto', label: 'УГТ ≥ 5, не в разработке', clear: () => { onlyAuto.value = false } })
   if (minTrl.value > 1) chips.push({ key: 'trl', label: `УГТ от ${minTrl.value}`, clear: () => { minTrl.value = 1 } })
   if (q.value.trim()) chips.push({ key: 'q', label: `«${q.value.trim()}»`, clear: () => { q.value = '' } })
   return chips
@@ -150,7 +150,7 @@ const emptyHint = computed(() => {
             <div class="f-group">
               <button type="button" class="check" :class="{ on: onlyAuto }" @click="onlyAuto = !onlyAuto">
                 <PhCheckSquare v-if="onlyAuto" :size="18" weight="fill" /><PhSquare v-else :size="18" />
-                <span>Готов к автоподбору</span>
+                <span>УГТ ≥ 5, не в разработке</span>
               </button>
               <div class="caption">УГТ ≥ 5 и статус не «разработка»</div>
             </div>

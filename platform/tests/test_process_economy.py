@@ -85,25 +85,29 @@ def test_task_payroll_stays_on_its_process():
             {"process_code": "passenger", "name": "Терминал", "staff_fte_now": 180},
         ],
     )
-    # Фасад без численности: 1 робот × 2 920 ч / 1 970 ч на человека. 180 человек терминала в парк не входят.
-    facade_fte = 1 * 8 * 365 / 1970
+    # Нет baseline фасада: его не выводим из числа роботов. Чужой персонал не переносится.
+    facade_fte = 0
     assert result["payroll"]["value"] == pytest.approx((320 + facade_fte) * rate)
     baggage = _process(result, "baggage")
     facade = _process(result, "facade")
     assert baggage["payroll"]["value"] == 320 * rate
     assert facade["payroll"]["value"] == pytest.approx(facade_fte * rate)
-    assert facade["payroll"]["value"] > 0
+    assert facade["payroll"]["value"] == 0
+    assert result["status"] == "incomplete"
+    assert _buy(result)["payback"]["value"] is None
     assert baggage["payroll"]["value"] + facade["payroll"]["value"] == pytest.approx(result["payroll"]["value"])
 
 
-def test_estimated_staff_follows_hours_norm():
+def test_unknown_staff_does_not_follow_robot_hours_norm():
     rows = [{"process_code": "patrol", "process_name": "Охрана", "name": "Патруль", "price_rub": 1_000_000, "count": 2}]
     site = {"staff_salary_year_rub": 1_000_000, "shift_hours": 24, "shifts_per_day": 1, "days_year": 365}
     tasks = [{"process_code": "other", "staff_fte_now": 10}]
     base = calculate(rows, site, standard=_QUIET, tasks=tasks)
     longer = calculate(rows, site, standard=_QUIET, tasks=tasks, overrides={"fte_hours": 2920})
-    assert _process(base, "patrol")["payroll"]["value"] == pytest.approx(2 * 8760 / 1970 * 1_000_000)
-    assert _process(longer, "patrol")["payroll"]["value"] == pytest.approx(2 * 8760 / 2920 * 1_000_000)
+    assert _process(base, "patrol")["payroll"]["value"] == 0
+    assert base["status"] == "incomplete"
+    assert _process(longer, "patrol")["payroll"]["value"] == 0
+    assert longer["status"] == "incomplete"
 
 
 def test_roles_site_keeps_equal_split():
