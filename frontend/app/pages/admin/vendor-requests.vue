@@ -149,7 +149,7 @@ const publish = async (row: RequestRow) => {
       }
   busy.value = row.id
   try {
-    await platformSend(`/admin/vendor-requests/${row.id}/apply`, 'POST', body || {})
+    await platformSend(`/admin/vendor-requests/${row.id}/apply`, 'POST', { ...(body || {}) })
     notice.value = 'Записано в каталог. До этой кнопки карточки не менялись.'
     await load()
   } catch (err) {
@@ -236,13 +236,13 @@ onMounted(async () => {
           <p v-if="row.admin_comment" class="caption">Комментарий производителю: {{ row.admin_comment }}</p>
           <template v-if="row.status === 'approved' && !row.catalog_applied">
             <p class="caption">Каталог ещё прежний. Поправьте то, что попадёт в карточку, и нажмите кнопку.</p>
-            <div v-if="drafts[row.id] && drafts[row.id].profile" class="edit">
-              <label class="field field-line"><span class="field-label">Компания</span><input v-model="drafts[row.id].profile.company_name" class="input"></label>
-              <label class="field field-line"><span class="field-label">Город</span><input v-model="drafts[row.id].profile.city" class="input"></label>
-              <label class="field field-line"><span class="field-label">Сайт</span><input v-model="drafts[row.id].profile.website" class="input"></label>
-              <label class="field field-line"><span class="field-label">Почта</span><input v-model="drafts[row.id].profile.email" class="input"></label>
-              <label class="field field-line"><span class="field-label">Телефон</span><input v-model="drafts[row.id].profile.phone" class="input"></label>
-              <label class="field field-line"><span class="field-label">О компании</span><textarea v-model="drafts[row.id].profile.about" class="textarea" rows="3" /></label>
+            <div v-if="drafts[row.id]?.profile" class="edit">
+              <label class="field field-line"><span class="field-label">Компания</span><input v-model="drafts[row.id]!.profile!.company_name" class="input"></label>
+              <label class="field field-line"><span class="field-label">Город</span><input v-model="drafts[row.id]!.profile!.city" class="input"></label>
+              <label class="field field-line"><span class="field-label">Сайт</span><input v-model="drafts[row.id]!.profile!.website" class="input"></label>
+              <label class="field field-line"><span class="field-label">Почта</span><input v-model="drafts[row.id]!.profile!.email" class="input"></label>
+              <label class="field field-line"><span class="field-label">Телефон</span><input v-model="drafts[row.id]!.profile!.phone" class="input"></label>
+              <label class="field field-line"><span class="field-label">О компании</span><textarea v-model="drafts[row.id]!.profile!.about" class="textarea" rows="3" /></label>
             </div>
             <div v-for="(robot, index) in drafts[row.id]?.robots || []" :key="index" class="edit">
               <label class="field field-line"><span class="field-label">Модель</span><input v-model="robot.name" class="input"></label>

@@ -1,3 +1,4 @@
+from dataclasses import replace
 import pytest
 
 from app.application.assign_processes import classify
@@ -7,9 +8,35 @@ from app.domain.match import FilterRule, Readiness, RobotView, match_robots
 from app.parsers.robot_moscow import records_from_html, specs_from_html
 
 
+
+def _reviewed_match(**kwargs):
+    from app.domain.formula import identifiers
+    code = kwargs['process_code']
+    rules = kwargs['rules']
+    attrs = set()
+    site_keys = set()
+    for rule in rules:
+        attrs.update(rule.robot_keys)
+        site_keys.update(rule.object_keys)
+        inputs = {k for k, _ in rule.inputs}
+        attrs.update(n.removeprefix('robot.') for n in identifiers(rule.formula) if n.removeprefix('robot.') not in inputs)
+        site_keys.update(kwargs.get('bindings', {}).get(k, k) for k in inputs)
+    profile = {'reviewed': True, 'evidence': ['Числовой тест с проверенным профилем'],
+               'allowed_kinds': ['robot'], 'allowed_controls': ['autonomous'], 'environments': ['indoor'],
+               'critical_robot_keys': sorted(attrs), 'critical_site_keys': sorted(site_keys),
+               'required_checks': [r.name for r in rules if r.mode == 'hard']}
+    facts = {'reviewed': True, 'evidence': ['Тестовое изделие'], 'solution_kind': 'robot',
+             'control_mode': 'autonomous', 'execution_class': 'mobile_transport', 'configuration_complete': True,
+             'environments': ['indoor'], 'capabilities': [code]}
+    kwargs['robots'] = tuple(replace(r, assessment=facts) for r in kwargs['robots'])
+    return match_robots(**kwargs, profile=profile)
+
+
 def test_classify_cleaner_and_forklift():
-    assert "floor_cleaning" in classify("Уборочные роботы Cleanbotics поломоечная", None)
-    assert "pallet_transport" in classify("AMR Ronavi H1500 паллет", 1500)
+    assert classify("Уборочные роботы Cleanbotics поломоечная", None) == set()
+    assert "floor_cleaning" in classify("MARK 2 SE", None)
+    assert classify("AMR Ronavi H1500 паллет", 1500) == set()
+    assert "pallet_transport" in classify("Ronavi H1500 (грузоподъемность до 1 500 кг)", 1500)
     assert classify("Беспилотный трактор агро", None) == set()
 
 
@@ -59,7 +86,7 @@ def test_manual_overlay_keeps_source_url():
 
 def test_formula_filter_uses_object_binding():
     rules = (FilterRule("Проезд", (), (), "formula", "hard", (("aisle", "Ширина проезда"),), "min_aisle_width_m <= aisle"),)
-    hits = match_robots(
+    hits = _reviewed_match(
         process_code="pallet_transport",
         process_name="Перевозка паллет",
         site={"aisle_width_m": 2.8},
@@ -77,7 +104,7 @@ def test_formula_filter_uses_object_binding():
 
 def test_readiness_moves_immature_robots_to_review():
     rules = (FilterRule("Проезд", (), (), "formula", "hard", (("aisle", "Ширина проезда"),), "min_aisle_width_m <= aisle"),)
-    hits = match_robots(
+    hits = _reviewed_match(
         process_code="pallet_transport",
         process_name="Перевозка паллет",
         site={"aisle_width_m": 2.8},
@@ -106,7 +133,8 @@ def test_readiness_moves_immature_robots_to_review():
         readiness=Readiness(enabled=False),
         robots=(RobotView("1", "Разработка", "rnd", {}, trl=3, stage="rnd"),),
     )
-    assert off[0].verdict == "pass"
+    assert off[0].verdict == "unknown"
+    assert any(r.code == "process_checks_missing" for r in off[0].reasons)
     strict = Readiness.from_value({"min_trl": 12, "review_stages": ["rnd", "moon"], "review_missing_trl": True})
     assert strict.min_trl == 9 and strict.review_stages == ("rnd",)
     assert strict.notes(None, None) == ["Готовность: УГТ не указан"]
@@ -185,6 +213,9 @@ def test_economy_skips_robots_without_price_and_takes_one_without_count():
     rent = _scenario(result, "raas")
     assert rent["capex"]["value"] == 0
     assert rent["payback"]["value"] is None
+    # Робот без цены вне расчёта: расчёт неполный, но посчитанное не прячется.
+    assert result["status"] == "incomplete"
+    assert any(item["code"] == "equipment_incomplete" for item in result["blockers"])
 
 
 def test_economy_standard_capex_extras_opex_and_rent():
@@ -356,7 +387,7 @@ def test_match_fail_unknown_and_conditional():
         FilterRule("Пол", ("floor_type",), ("floor_type",), "==", "conditional"),
     )
     site = {"pallet_mass_kg": 800, "aisle_width_m": 2.8, "floor_type": "бетон"}
-    hits = match_robots(
+    hits = _reviewed_match(
         process_code="floor_washing",
         process_name="Мойка полов",
         site=site,
@@ -369,11 +400,11 @@ def test_match_fail_unknown_and_conditional():
     )
     by_name = {hit.name: hit.verdict for hit in hits}
     assert by_name["Легкий"] == "fail"
-    assert by_name["Тяжелый"] == "conditional"
+    assert by_name["Тяжелый"] == "fail"  # Известное несовпадение покрытия.
     assert by_name["Без ширины"] == "unknown"
 
 
-def test_missing_site_value_does_not_reject():
+def test_missing_site_value_requires_clarification():
     rules = (FilterRule("Проезд", ("aisle_width_m",), ("min_aisle_width_m",), "<=", "hard"),)
     hits = match_robots(
         process_code="x",
@@ -382,7 +413,8 @@ def test_missing_site_value_does_not_reject():
         rules=rules,
         robots=(RobotView("1", "A", "a", {}),),
     )
-    assert hits[0].verdict == "pass"
+    assert hits[0].verdict == "unknown"
+    assert any(r.code == "site_input_missing" for r in hits[0].reasons)
 
 
 def test_moscow_spec_grid():
@@ -423,7 +455,7 @@ def test_task_volume_replaces_hardcoded_airport_formula_only():
     assert count_site({"area_m2": 85000, "clean_area_m2": 51000})["clean_area_m2"] == 51000
 
 
-def test_unknown_best_is_used_only_as_fallback():
+def test_unknown_best_is_never_automatic_even_with_legacy_flag():
     from app.domain.match import MatchHit
     from app.infrastructure.db.taxonomy_repo import _best
 
@@ -433,7 +465,7 @@ def test_unknown_best_is_used_only_as_fallback():
     attrs = {"priced": {"price_rub": 100}, "other": {"price_rub": 50}}
     counted = [(hit("priced", "unknown"), 3.0, ""), (hit("other", "unknown"), None, "параметр объекта не задан")]
     assert _best(counted, attrs, "payload_kg", "desc") is None
-    assert _best(counted, attrs, "payload_kg", "desc", fallback_unknown=True) == "priced"
+    assert _best(counted, attrs, "payload_kg", "desc", fallback_unknown=True) is None
     passed = [(hit("priced", "pass"), 1.0, ""), (hit("other", "unknown"), 9.0, "")]
     assert _best(passed, attrs, "", "asc", fallback_unknown=True) == "priced"
 

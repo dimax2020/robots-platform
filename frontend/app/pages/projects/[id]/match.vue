@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { PhArrowRight, PhArrowUpRight, PhCheck, PhPlus, PhRobot, PhX } from '@phosphor-icons/vue'
+import { assessmentLabel, assessmentTone } from '~/utils/assessmentPresentation'
 import { pluralRu } from '~/data/adminLabels'
 import { fetchErrorMessage } from '~/utils/errors'
 import { platformSend } from '~/composables/usePlatform'
@@ -29,19 +30,6 @@ let clock: ReturnType<typeof setInterval> | undefined
 const ranFor = ref('')
 
 const canRun = computed(() => Boolean(project.value))
-const verdictLabel: Record<string, string> = {
-  pass: 'Подходит',
-  conditional: 'С условием',
-  unknown: 'Уточнить',
-  fail: 'Не подходит',
-}
-const verdictTone: Record<string, 'ok' | 'warn' | 'info' | 'danger' | 'neutral'> = {
-  pass: 'ok',
-  conditional: 'warn',
-  unknown: 'info',
-  fail: 'danger',
-}
-
 const elapsed = computed(() => {
   if (!startedAt.value) return '0,0 с'
   const sec = Math.max(0, now.value - startedAt.value) / 1000
@@ -73,6 +61,8 @@ const substages = computed(() => [
 ])
 
 /* Итог подбора: все процессы разом — сколько роботов подошло, лучший и сколько в сравнении. */
+/* Подписи итога — те же слова, что у оценки робота на подборе. */
+const SUMMARY_LABEL: Record<string, string> = { pass: 'подходят', conditional: 'с допущениями', unknown: 'требуют уточнения', fail: 'несовместимы' }
 const passOf = (group: MatchGroup) => group.hits.filter((hit) => hit.verdict === 'pass').length
 const summaryRows = computed<SummaryRow[]>(() => groups.value.map((group) => {
   const counts = statusOrder.map((verdict) => [verdict, group.hits.filter((hit) => hit.verdict === verdict).length] as const).filter(([, n]) => n > 0)
@@ -85,7 +75,7 @@ const summaryRows = computed<SummaryRow[]>(() => groups.value.map((group) => {
     tone: passOf(group) ? 'ok' : group.hits.length ? 'warn' : 'todo',
     image: best ? photoFor(best.image_url, best.name, group.process_code) : null,
     robot: best ? best.name : group.hits.length ? 'ни один робот не подошёл полностью' : 'в каталоге нет роботов',
-    detail: counts.map(([verdict, n]) => `${verdictLabel[verdict]?.toLowerCase()} ${n}`).join(' · '),
+    detail: counts.map(([verdict, n]) => `${SUMMARY_LABEL[verdict]} ${n}`).join(' · '),
     aside: group.hits.length ? `в сравнении ${inside}` : '',
   }
 }))
@@ -123,7 +113,7 @@ const buttonLabel = computed(() => {
 
 const isImmature = (hit: MatchHit) => hit.notes.some((note) => note.startsWith('Готовность:'))
 const countText = (hit: MatchHit | null) => {
-  if (!hit || hit.count == null) return hit?.count_note || 'количество не задано'
+  if (!hit || hit.count == null) return 'Количество требует уточнения'
   const value = Number(hit.count)
   const text = Number.isInteger(value) ? value.toLocaleString('ru-RU') : value.toLocaleString('ru-RU', { maximumFractionDigits: 1 })
   return `${text} шт.`
@@ -147,7 +137,7 @@ const runMatch = async () => {
   startClock()
   try {
     const site = live.site.value
-    const result = await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site })
+    const result = await platformSend<{ groups: MatchGroup[] }>(`/projects/${id.value}/match`, 'POST', { site, tasks: live.tasks.value })
     groups.value = result.groups
     const requested = typeof route.query.process === 'string' ? route.query.process : ''
     const first = pass.done.value ? STEP_SUMMARY : result.groups[0]?.process_code
@@ -184,7 +174,7 @@ onBeforeUnmount(stopClock)
     :current-sub="activeCode"
     title="Подобранные решения"
     :subtitle="onSummary ? 'итог по всем процессам' : activeGroup ? `по процессу «${activeGroup.process_name}»` : undefined"
-    :lead="loadingMatch ? 'Считаем решения по выбранным процессам. Время на экране — сколько уже идёт расчёт.' : onSummary ? 'Все процессы разом: сколько роботов подошло, лучший и сколько в сравнении. Нажмите на процесс, чтобы открыть его.' : 'Система сама распределила роботов по группам. В сравнение уже попали роботы, которые прошли по всем параметрам. При желании добавьте роботов, которые подходят с условием.'"
+    :lead="loadingMatch ? 'Считаем решения по выбранным процессам. Время на экране — сколько уже идёт расчёт.' : onSummary ? 'Все процессы разом: сколько роботов подошло, лучший и сколько в сравнении. Нажмите на процесс, чтобы открыть его.' : 'Система сама распределила роботов по группам. В сравнении доступны подходящие решения, решения с допущениями и роботы, требующие уточнения. Допущения и вопросы поставщику указаны в подробностях.'"
   >
     <template #actions>
       <UiButton v-if="shell" size="lg" :disabled="loadingMatch" @click="goNext">
@@ -225,6 +215,7 @@ onBeforeUnmount(stopClock)
     </section>
 
     <template v-else>
+      <OperationContext :operation="activeGroup.operation" />
       <div class="tally glass" :class="{ empty: !compared }">
         <span class="tally-ico"><PhRobot :size="22" weight="duotone" /></span>
         <span class="tally-text">
@@ -243,8 +234,8 @@ onBeforeUnmount(stopClock)
             <span class="mono-sm">{{ countText(hit) }}</span>
             <RobotReadiness :trl="hit.trl" :stage="hit.stage" :flagged="isImmature(hit)" />
           </div>
-          <UiBadge :tone="verdictTone[hit.verdict] || 'neutral'" size="sm">{{ verdictLabel[hit.verdict] || hit.verdict }}</UiBadge>
-          <span class="caption">{{ hit.notes.join(' · ') || 'замечаний нет' }}</span>
+          <UiBadge :tone="assessmentTone(hit)" size="sm">{{ assessmentLabel(hit) }}</UiBadge>
+          <AssessmentStatus :hit="hit" />
           <button
             type="button"
             class="pick"

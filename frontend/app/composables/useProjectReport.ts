@@ -3,6 +3,7 @@ import { objectTypeLabel, isFullPath } from '~/data/projects'
 import { siteFieldMeta } from '~/data/siteFields'
 import { photoFor } from '~/data/placeholders'
 import { fetchErrorMessage } from '~/utils/errors'
+import { formatDemoValue, type DemoSyntheticValue } from '~/utils/demoSynthetic'
 import { fileStem, type TableSheet } from '~/utils/exportTables'
 import { platformGet, platformSend } from '~/composables/usePlatform'
 import { useLiveProject } from '~/composables/useLiveProject'
@@ -60,7 +61,7 @@ export interface RobotCard {
   price: string
   cost: string
   note: string
-  specs: { label: string; value: string }[]
+  specs: { label: string; value: string; synthetic?: DemoSyntheticValue }[]
   fig: EconFig | null
 }
 
@@ -126,6 +127,7 @@ const linesOf = (figs: EconFig[]) => figs
 
 const paybackText = (item: EconScenario) => {
   if (item.key === 'asis') return '—'
+  if (!item.available) return 'не определена'
   return item.payback.value != null ? figValue(item.payback.value, 'лет') : 'нет'
 }
 
@@ -239,6 +241,7 @@ export function useProjectReport(id: Ref<string>) {
   })
 
   const disclaimer = computed(() => economy.report.value?.disclaimer || PRELIMINARY)
+  const demoSynthetic = computed(() => economy.report.value?.demo_synthetic ?? [])
 
   const params = computed<ParamRow[]>(() => Object.entries(site.value).flatMap(([key, value]) => {
     if (!filled(value)) return []
@@ -346,7 +349,9 @@ export function useProjectReport(id: Ref<string>) {
       const hit = hitOf(row.process_code, row.product_id)
       const specs = (hit?.specs ?? [])
         .filter((spec) => spec.key !== 'price_rub')
-        .map((spec) => ({ label: spec.label, value: formatSpec(spec.value, spec.unit) }))
+        .map((spec) => ({ label: spec.label, value: formatSpec(spec.value, spec.unit),
+          synthetic: hit?.demo_synthetic?.find(item => item.key === spec.key && item.origin === 'demo_synthetic' && item.value === spec.value),
+        }))
       return {
         key: row.process_code,
         process: row.process_name,
@@ -429,7 +434,8 @@ export function useProjectReport(id: Ref<string>) {
 
   const sceneProcesses = computed<SimProcess[]>(() => groups.value.map((group) => {
     const hit = compare.remainingHit(group)
-    const robot = hit ? { name: hit.name, count: hit.count ?? null, specs: (hit.specs ?? []).map((spec) => ({ key: spec.key, value: spec.value })) } : null
+    const calculated = economy.report.value?.fleet.find(row => row.process_code === group.process_code && row.product_id === hit?.product_id && row.included)
+    const robot = hit ? { name: hit.name, count: economy.report.value ? calculated?.count_used ?? null : hit.count ?? null, specs: (hit.specs ?? []).map((spec) => ({ key: spec.key, value: spec.value })) } : null
     return buildProcess(group.process_code, group.process_name, robot, site.value, group.layout_items ?? [])
   }))
 
@@ -463,6 +469,22 @@ export function useProjectReport(id: Ref<string>) {
         headed: true,
         rows: [['Параметр', 'Значение'], ...params.value.map((item) => [item.label, item.value])],
       },
+      ...(economy.report.value?.fleet.length ? [{
+        name: 'Расчёт количества', headed: true,
+        rows: [['Процесс', 'Робот', 'Модель', 'Количество', 'Расчёт и исходные входы', 'Происхождение'],
+          ...economy.report.value.fleet.map(row => [row.process_name, row.name, row.sizing?.model ?? '—', String(row.count_used ?? '—'),
+            JSON.stringify(row.sizing ?? {}), row.uses_demo_synthetic ? 'calculated; demo_synthetic' : 'calculated'])],
+      }] : []),
+      ...(demoSynthetic.value.length ? [{
+        name: 'Синтетические допущения',
+        headed: true,
+        rows: [
+          ['Процесс', 'Робот', 'Характеристика', 'Значение', 'Единица', 'Происхождение', 'Требуется проверка', 'Включён в экономику', 'Пояснение'],
+          ...demoSynthetic.value.flatMap(group => group.fields.map(item => [group.process_name, group.name,
+            item.label, formatDemoValue(item.value), item.unit, item.origin, 'требуется',
+            group.included_in_economy ? 'да' : 'нет', item.explanation])),
+        ],
+      }] : []),
       {
         name: 'Сценарии',
         headed: true,
@@ -603,6 +625,7 @@ export function useProjectReport(id: Ref<string>) {
     ready,
     missing,
     disclaimer,
+    demoSynthetic,
     today,
     advice,
     scenarios,

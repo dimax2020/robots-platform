@@ -7,6 +7,8 @@ from __future__ import annotations
 import math
 import random
 
+from app.domain.assessment import valid_count
+
 from app.domain.specs import normalize_value
 from dataclasses import dataclass
 
@@ -150,7 +152,7 @@ PURCHASE_SUBSIDIES = ("mpt", "frp", "amort")
 SUPPORT_NOTE = "Право на меру и её размер подтверждаются условиями конкретной программы."
 
 NORM_BY_KEY = {norm.key: norm for norm in NORMS}
-LOAD_KEYS = ("inbound_pallets_per_day", "outbound_pallets_per_day", "pick_lines_per_day", "pick_units_per_day")
+LOAD_KEYS = ("flow_per_day", "inbound_pallets_per_day", "outbound_pallets_per_day", "pick_lines_per_day", "pick_units_per_day")
 
 _ROLES = (
     ("pickers_count", "picker_salary_month_rub", "Отборщики", r"\text{отб}"),
@@ -256,7 +258,7 @@ TYPE_NORMS = (
 )
 
 # Коэффициенты, которые можно задать одному процессу, не двигая весь парк.
-PROCESS_TUNABLE = frozenset(("price_factor", "energy_kwh", *TYPE_NORMS))
+PROCESS_TUNABLE = frozenset(("price_factor", "energy_kwh", "robots_per_operator", *TYPE_NORMS))
 _CAPEX_EXTRAS = ("infra_pct", "software_pct", "integration_pct", "commissioning_pct", "training_pct")
 _RAAS_EXTRAS = ("infra_pct", "integration_pct", "commissioning_pct", "training_pct")
 # direction -1: процессу помогает меньшее значение, +1: большее.
@@ -298,9 +300,11 @@ def blend_by_type(
     priced = []
     for row in rows:
         price = _num(row.get("price_rub"))
-        if price is None:
+        if price is None or price <= 0:
             continue
         count = _num(row.get("count"))
+        if count is not None and not valid_count(count):
+            continue
         priced.append((row.get("solution_type") or "", price * (count if count is not None else 1.0)))
     total = sum(weight for _code, weight in priced)
     if not total:
@@ -347,6 +351,9 @@ def scale_task_flows(tasks: list | None, load_pct: float) -> list:
         flow = _num(row.get("flow_per_day"))
         if flow is not None:
             row["flow_per_day"] = flow * load_pct / 100
+        passes = _num(row.get("cleaning_passes_per_day"))
+        if passes is not None:
+            row["cleaning_passes_per_day"] = passes * load_pct / 100
         scaled.append(row)
     return scaled
 
@@ -465,12 +472,14 @@ def calculate(
     overrides: dict | None = None,
     tasks: list[dict] | None = None,
     meta: dict[str, dict] | None = None,
+    blockers: list[dict] | None = None,
 ) -> dict:
     site = site or {}
     global_overrides, by_process = split_process_overrides(overrides)
     subsidies = enabled_subsidies(overrides)
     params = resolve(standard, global_overrides, site, meta)
     report = _compute(rows, site, tasks or [], params, by_process, with_processes=True, subsidies=subsidies)
+    _completeness(report, rows, blockers)
     report["sensitivity"] = _sensitivity(rows, site, tasks or [], params, report, by_process, subsidies)
     report["interval"] = _interval(report)
     report["breakeven"] = _breakeven(rows, site, tasks or [], params, report, by_process, subsidies)
@@ -555,7 +564,8 @@ def _line(row: dict, params: dict[str, dict], hours: dict, tariff: dict, by_proc
     p = {key: item["value"] for key, item in local.items()}
     price = _num(row.get("price_rub"))
     formula_count = _num(row.get("count"))
-    if formula_count is not None and formula_count <= 0:
+    zero_need = formula_count == 0
+    if formula_count is not None and (formula_count <= 0 or not valid_count(formula_count)):
         formula_count = None
     count = own.get("count") or formula_count
     power_w = _num(row.get("power_w"))
@@ -578,13 +588,21 @@ def _line(row: dict, params: dict[str, dict], hours: dict, tariff: dict, by_proc
         "raas_available": bool(row.get("raas_available")),
         "specs": row.get("specs") or {},
         "rate_own": own.get("rate"),
+        "operating_hours_per_day": row.get("operating_hours_per_day"),
         "kwh_per_hour": None,
         "kwh_source": "",
         "energy_rub": 0.0,
         "fig": None,
     }
-    if price is None:
+    if price is None or price <= 0:
         item["note"] = NO_PRICE
+        return item
+    if zero_need and not own.get("count"):
+        item["count_used"] = 0
+        item["note"] = "При нулевой потребности парк роботизации не формируется."
+        return item
+    if row.get("technical_ready") is False:
+        item["note"] = "Техническая применимость не подтверждена."
         return item
     if count is None:
         count = 1.0
@@ -602,7 +620,11 @@ def _line(row: dict, params: dict[str, dict], hours: dict, tariff: dict, by_proc
     item["kwh_per_hour"] = kwh
     item["kwh_source"] = kwh_source
     if hours["value"]:
-        item["energy_rub"] = count * kwh * hours["value"] * tariff["value"]
+        daily = _num(row.get("operating_hours_per_day"))
+        days = next((var["value"] for var in hours.get("vars", []) if var["symbol"] == "D"), None)
+        operating = daily * days if daily is not None and days else hours["value"]
+        item["operating_hours_year"] = operating
+        item["energy_rub"] = count * kwh * operating * tariff["value"]
     item["fig"] = _fig(
         f"cost:{item['process_code']}",
         item["name"],
@@ -1492,11 +1514,16 @@ def _num(raw: object) -> float | None:
     if raw is None or raw == "" or isinstance(raw, bool):
         return None
     if isinstance(raw, (int, float)):
-        return float(raw)
+        try:
+            value = float(raw)
+        except OverflowError:
+            return None
+        return value if math.isfinite(value) else None
     try:
-        return float(str(raw).replace(" ", "").replace(",", "."))
+        value = float(str(raw).replace(" ", "").replace(",", "."))
     except ValueError:
         return None
+    return value if math.isfinite(value) else None
 
 
 def _merge_params(params: dict[str, dict], own: dict[str, float]) -> dict[str, dict]:
@@ -1616,7 +1643,7 @@ def _reprice(item: dict, params: dict[str, dict], s: dict) -> dict:
     count = item["count_used"] or 0
     price = item["price_rub"] or 0
     kwh = item["kwh_per_hour"] or 0 if item.get("kwh_source") == "card" else params["energy_kwh"]["value"]
-    hours = (s.get("hours") or {}).get("value") or 0
+    hours = item.get("operating_hours_year", (s.get("hours") or {}).get("value")) or 0
     clone["price_used"] = price * factor / (1 + vat)
     clone["cost_rub"] = count * clone["price_used"]
     clone["kwh_per_hour"] = kwh
@@ -2553,6 +2580,30 @@ def _condition(suggestions: list[dict]) -> dict | None:
     # Реалистичных нет: показываем самое мягкое из жёстких — с наименьшей скидкой, условия площадки последними.
     softest = sorted(ranked, key=lambda item: (item["scope"] == "site", item["from"] - item["to"] if item["key"] == "price_factor" else 1e9))
     return {**softest[0], "hard": True} if softest else None
+
+
+def _completeness(report: dict, rows: list[dict], blockers: list[dict] | None) -> None:
+    """Чего не хватает расчёту: причины от подбора, позиции парка вне расчёта и процессы без людей или затрат.
+    Цифры не прячутся: посчитанное показывается, а недостающее — списком и подсказками у процессов."""
+    out = list(blockers or [])
+    out.extend({"process_code": item["process_code"], "code": "equipment_incomplete", "message": item["note"]}
+               for item in report["fleet"] if not item["included"] and item["note"])
+    # Количество не посчитано — в расчёте 1 робот: цифры есть, но это допущение, а не данные.
+    out.extend({"process_code": item["process_code"], "code": "count_default", "message": NO_COUNT}
+               for item in report["fleet"] if item["included"] and item.get("count_source") == "default")
+    if not rows:
+        out.append({"code": "empty_fleet", "message": "Нет подтверждённого парка для расчёта"})
+    equipment = not out
+    # Нет людей или затрат, или люди есть, а их стоимость неизвестна — экономии по процессу не посчитать.
+    missing = [item["process_code"] for item in report.get("processes") or []
+               if item["included"] and ((item.get("story") or {}).get("needs_staff") or (item.get("release") and item["release"].get("rate") is None))]
+    if missing:
+        out.append({"code": "labor_baseline_missing", "message": "Нет людей или затрат на части процессов", "processes": missing})
+    report["blockers"] = out
+    report["equipment_complete"] = equipment
+    report["labor_baseline_complete"] = not missing
+    report["complete"] = not out
+    report["status"] = "complete" if not out else "incomplete"
 
 
 def _annuity(rate: float, years: float) -> float:

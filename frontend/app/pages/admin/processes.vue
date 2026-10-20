@@ -443,7 +443,10 @@ const formatSite = (value: unknown) => (value === null || value === undefined ||
 <template>
   <div class="admin-page">
     <AdminHead label="Модель подбора" title="Процессы" lead="Процесс отвечает на три вопроса: какие роботы подходят, сколько их нужно и какой лучший. Справа видно, как настройка работает на демо-данных объекта, ещё до сохранения.">
-      <UiButton @click="creating = { name: '', objects: [] }"><template #icon><PhPlus :size="16" weight="bold" /></template>Новый процесс</UiButton>
+      <UiButton @click="creating = { name: '', objects: [] }"><template #icon><PhPlus :size="16" weight="bold" />
+    <UiCallout tone="info" title="Проверка применимости и количества">
+      Опубликованные характеристики используются автоматически, без ручного подтверждения карточек. Техническая применимость проверяется отдельно от количества и экономики. Для количества нужна совместимая модель; старые формулы сохранены для совместимости.
+    </UiCallout></template>Новый процесс</UiButton>
     </AdminHead>
     <UiCallout v-if="notice" :tone="notice.ok ? 'ok' : 'danger'">{{ notice.text }}</UiCallout>
 

@@ -1,4 +1,12 @@
-.PHONY: up down logs reset ps audit-platform normalize-platform snapshot
+.PHONY: up dev down logs reset ps audit-platform normalize-platform snapshot
+.DEFAULT_GOAL := up
+
+HTTP_PORT ?= 80
+export HTTP_PORT
+
+# Явное включение синтетического контура только локального DEV.
+dev:
+	$(MAKE) up DEMO_SYNTHETIC_ENABLED=true
 
 # Поднять платформу. Пустая база platform наполняется снимком каталога при старте контейнера.
 up:
@@ -10,9 +18,9 @@ up:
 		sleep 2; \
 	done
 	@echo
-	@echo "Сайт:      http://localhost"
-	@echo "Платформа: http://localhost/platform/api/v1/health"
-	@echo "Swagger:   http://localhost/platform/api/v1/docs"
+	@echo "Сайт:      http://localhost:$(HTTP_PORT)"
+	@echo "Платформа: http://localhost:$(HTTP_PORT)/platform/api/v1/health"
+	@echo "Swagger:   http://localhost:$(HTTP_PORT)/platform/api/v1/docs"
 
 down:
 	docker compose down

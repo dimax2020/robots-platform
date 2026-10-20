@@ -1,0 +1,468 @@
+{
+  "schema": "0024_assessment_profiles",
+  "demos": [
+    {
+      "slug": "demo-warehouse",
+      "groups": [
+        {
+          "process_code": "pallet_storage",
+          "verdicts": {
+            "unknown": 3,
+            "fail": 1
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "cart_towing",
+          "verdicts": {
+            "unknown": 2
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "tote_delivery",
+          "verdicts": {
+            "unknown": 40
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "warehouse_inventory",
+          "verdicts": {
+            "unknown": 2
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "order_picking",
+          "verdicts": {
+            "unknown": 7,
+            "fail": 2
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "facade_washing",
+          "verdicts": {
+            "unknown": 3
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "roof_inspection",
+          "verdicts": {},
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "perimeter_security",
+          "verdicts": {
+            "unknown": 12
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "palletizing",
+          "verdicts": {
+            "unknown": 2
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "pallet_transport",
+          "verdicts": {
+            "unknown": 12,
+            "fail": 1
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "rack_placement",
+          "verdicts": {
+            "unknown": 2
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "parcel_sorting",
+          "verdicts": {
+            "unknown": 4,
+            "fail": 1
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "floor_cleaning",
+          "verdicts": {
+            "unknown": 56,
+            "fail": 9
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "packing",
+          "verdicts": {
+            "unknown": 2,
+            "fail": 1
+          },
+          "best_product_id": null,
+          "best_count": null
+        }
+      ],
+      "robots": 0,
+      "status": "incomplete",
+      "coverage": {
+        "requested_processes": 14,
+        "included_processes": 0
+      },
+      "blockers": [
+        {
+          "process_code": "pallet_storage",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "cart_towing",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "tote_delivery",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "warehouse_inventory",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "order_picking",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "facade_washing",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "roof_inspection",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "perimeter_security",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "palletizing",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "pallet_transport",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "rack_placement",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "parcel_sorting",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "floor_cleaning",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "packing",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "code": "empty_fleet",
+          "message": "Нет подтверждённого парка для расчёта"
+        },
+        {
+          "code": "labor_baseline_missing",
+          "message": "Нет независимой исходной численности и стоимости труда для всех выбранных процессов",
+          "processes": []
+        }
+      ],
+      "purchase_capex": null,
+      "purchase_payback": null
+    },
+    {
+      "slug": "demo-airport",
+      "groups": [
+        {
+          "process_code": "tote_delivery",
+          "verdicts": {
+            "unknown": 40
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "passenger_service",
+          "verdicts": {
+            "unknown": 26
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "facade_washing",
+          "verdicts": {
+            "unknown": 3
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "territory_inspection",
+          "verdicts": {
+            "unknown": 3
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "roof_inspection",
+          "verdicts": {},
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "perimeter_security",
+          "verdicts": {
+            "unknown": 12
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "baggage_transport",
+          "verdicts": {
+            "unknown": 1
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "apron_transport",
+          "verdicts": {},
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "floor_cleaning",
+          "verdicts": {
+            "unknown": 56,
+            "fail": 9
+          },
+          "best_product_id": null,
+          "best_count": null
+        }
+      ],
+      "robots": 0,
+      "status": "incomplete",
+      "coverage": {
+        "requested_processes": 9,
+        "included_processes": 0
+      },
+      "blockers": [
+        {
+          "process_code": "tote_delivery",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "passenger_service",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "facade_washing",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "territory_inspection",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "roof_inspection",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "perimeter_security",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "baggage_transport",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "apron_transport",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "floor_cleaning",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "code": "empty_fleet",
+          "message": "Нет подтверждённого парка для расчёта"
+        },
+        {
+          "code": "labor_baseline_missing",
+          "message": "Нет независимой исходной численности и стоимости труда для всех выбранных процессов",
+          "processes": []
+        }
+      ],
+      "purchase_capex": null,
+      "purchase_payback": null
+    },
+    {
+      "slug": "demo-hospital",
+      "groups": [
+        {
+          "process_code": "biomaterial_delivery",
+          "verdicts": {
+            "fail": 5
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "medicine_delivery",
+          "verdicts": {
+            "fail": 1,
+            "unknown": 1
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "warehouse_inventory",
+          "verdicts": {
+            "unknown": 2
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "facade_washing",
+          "verdicts": {
+            "unknown": 3
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "perimeter_security",
+          "verdicts": {
+            "unknown": 12
+          },
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "ward_service",
+          "verdicts": {},
+          "best_product_id": null,
+          "best_count": null
+        },
+        {
+          "process_code": "floor_cleaning",
+          "verdicts": {
+            "unknown": 56,
+            "fail": 9
+          },
+          "best_product_id": null,
+          "best_count": null
+        }
+      ],
+      "robots": 0,
+      "status": "incomplete",
+      "coverage": {
+        "requested_processes": 7,
+        "included_processes": 0
+      },
+      "blockers": [
+        {
+          "process_code": "biomaterial_delivery",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "medicine_delivery",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "warehouse_inventory",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "facade_washing",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "perimeter_security",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "ward_service",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "process_code": "floor_cleaning",
+          "code": "no_eligible_candidate",
+          "message": "Нет подтверждённого решения с известным количеством и ценой"
+        },
+        {
+          "code": "empty_fleet",
+          "message": "Нет подтверждённого парка для расчёта"
+        },
+        {
+          "code": "labor_baseline_missing",
+          "message": "Нет независимой исходной численности и стоимости труда для всех выбранных процессов",
+          "processes": []
+        }
+      ],
+      "purchase_capex": null,
+      "purchase_payback": null
+    }
+  ]
+}

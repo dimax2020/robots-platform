@@ -22,6 +22,9 @@ python docs/tools/build_docx.py          # docs/dist/documentation.docx
 | 8. Демо-доступы и сценарий проверки | [appendix-G-demo-and-check.md](appendix-G-demo-and-check.md) |
 | 9. Презентация (раскадровка) | [presentation-outline.md](presentation-outline.md) |
 | 10. Пример отчёта | Выгрузить из платформы в `docs/examples/` |
+| Исправление допуска и экономики, этап 1 | [13-assessment-stage1.md](13-assessment-stage1.md) |
+| Автоматический подбор по данным каталога | [14-catalog-assessment.md](14-catalog-assessment.md) |
+| Выборочные синтетические дополнения DEV | [15-demo-synthetic.md](15-demo-synthetic.md) |
 | Матрица соответствия | [appendix-Z-compliance.md](appendix-Z-compliance.md) |
 
 Прочие приложения: [Д правила подбора](appendix-D-rules.md), [Е схема БД](appendix-E-schema.md), [Ж поля площадки](appendix-Zh-site-fields.md).
@@ -34,3 +37,13 @@ python docs/tools/build_docx.py          # docs/dist/documentation.docx
 | `tools/gen_schema.py` | Приложение Е из БД |
 | `tools/screenshots.py` | Скриншоты в `img/` |
 | `tools/build_docx.py` | Сборка DOCX |
+
+- [Сквозной демонстрационный расчёт](16-demo-calculation.md) — количество, программа объекта, What-if и происхождение.
+
+- [Расширение сравнимых демоальтернатив](17-demo-alternatives.md) — состав по процессам, параметры режимов и ограничения.
+
+- [Согласованные демосценарии экономики](18-demo-economy-scenarios.md) — выгодные, пограничные и невыгодные альтернативы, итоги трёх объектов.
+
+- [Подбор при неполных характеристиках](19-incomplete-selection.md) — условный допуск, значимые ограничения, происхождение допущений и обновление DEV.
+
+- [Покрытие всех процессов трёх демообъектов](20-demo-process-coverage.md) — реалистичная синтетика, матрица 30 процессов и проверенные экономические альтернативы.

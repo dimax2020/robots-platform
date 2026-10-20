@@ -1,0 +1,159 @@
+[
+  {
+    "name": "confirmed",
+    "group": {
+      "best_product_id": "a",
+      "hits": [
+        {
+          "product_id": "a",
+          "verdict": "pass",
+          "count": 2,
+          "economic_ready": true
+        }
+      ]
+    },
+    "expected": "a"
+  },
+  {
+    "name": "unknown",
+    "group": {
+      "best_product_id": "a",
+      "hits": [
+        {
+          "product_id": "a",
+          "verdict": "unknown",
+          "count": 2,
+          "economic_ready": true
+        }
+      ]
+    },
+    "expected": null
+  },
+  {
+    "name": "conditional",
+    "group": {
+      "best_product_id": "a",
+      "hits": [
+        {
+          "product_id": "a",
+          "verdict": "conditional",
+          "count": 2,
+          "economic_ready": true
+        }
+      ]
+    },
+    "expected": null
+  },
+  {
+    "name": "missing_count",
+    "group": {
+      "best_product_id": "a",
+      "hits": [
+        {
+          "product_id": "a",
+          "verdict": "pass",
+          "count": null,
+          "economic_ready": true
+        }
+      ]
+    },
+    "expected": null
+  },
+  {
+    "name": "unknown_price_scope",
+    "group": {
+      "best_product_id": "a",
+      "hits": [
+        {
+          "product_id": "a",
+          "verdict": "pass",
+          "count": 2,
+          "economic_ready": false
+        }
+      ]
+    },
+    "expected": null
+  },
+  {
+    "name": "stale",
+    "group": {
+      "best_product_id": "a",
+      "hits": [
+        {
+          "product_id": "a",
+          "verdict": "pass",
+          "count": 2,
+          "economic_ready": true
+        }
+      ]
+    },
+    "chosen_id": "deleted",
+    "explicit": true,
+    "expected": null
+  },
+  {
+    "name": "explicit_fail",
+    "group": {
+      "best_product_id": "a",
+      "hits": [
+        {
+          "product_id": "a",
+          "verdict": "fail",
+          "count": 2,
+          "economic_ready": true
+        }
+      ]
+    },
+    "chosen_id": "a",
+    "explicit": true,
+    "expected": null
+  },
+  {
+    "name": "explicit_empty",
+    "group": {
+      "best_product_id": "a",
+      "hits": [
+        {
+          "product_id": "a",
+          "verdict": "pass",
+          "count": 2,
+          "economic_ready": true
+        }
+      ]
+    },
+    "chosen_id": null,
+    "explicit": true,
+    "expected": null
+  },
+  {
+    "name": "zero_fleet",
+    "group": {
+      "best_product_id": "a",
+      "hits": [
+        {
+          "product_id": "a",
+          "verdict": "pass",
+          "count": 0,
+          "economic_ready": true
+        }
+      ]
+    },
+    "expected": null
+  },
+  {
+    "name": "conditional_applicability",
+    "group": {
+      "best_product_id": "a",
+      "hits": [
+        {
+          "product_id": "a",
+          "verdict": "pass",
+          "applicability": "conditional",
+          "count": 12,
+          "economic_ready": true
+        }
+      ]
+    },
+    "expected": "a"
+  }
+]

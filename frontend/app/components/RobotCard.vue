@@ -38,7 +38,7 @@ const statusKnown = computed(() => (props.product as Product & { statusKnown?: b
           {{ inCompare ? 'В сравнении' : 'Сравнить' }}
         </button>
       </div>
-      <div v-if="showGate && !product.autoMatch" class="noauto caption">Не участвует в автоподборе: УГТ ниже 5 или стадия разработки</div>
+      <div v-if="showGate && !product.autoMatch" class="noauto caption">Готовность по УГТ/стадии требует уточнения. Применимость проверяется для процесса и площадки.</div>
     </div>
   </article>
 </template>

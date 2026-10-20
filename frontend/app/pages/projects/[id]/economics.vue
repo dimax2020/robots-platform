@@ -500,6 +500,7 @@ const inactiveOpen = ref(false)
           />
         </template>
       </EconOverview>
+      <EconomicContext :report="report" />
       <UiCallout v-if="editError" tone="danger">{{ editError }}</UiCallout>
 
       <div ref="tabsRef" class="tabs-wrap"><UiTabs v-model="tab" :tabs="tabs" /></div>

@@ -4,11 +4,13 @@ import { platformGet } from '~/composables/usePlatform'
 import { formatRub, availabilityLabel, type Availability } from '~/data/catalog'
 import { formatAttributeValue } from '~/data/attributeValue'
 import { photoFor } from '~/data/placeholders'
+import type { DemoSyntheticValue } from '~/utils/demoSynthetic'
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 interface Attr { approximate?: boolean; condition?: string | null; unit?: string | null; key: string; label?: string; status: string; value: string | number | null; quote: string | null; source: { kind: string; publisher: string; url: string | null; parser_code: string | null } | null }
 interface Card {
+  demo_synthetic?: DemoSyntheticValue[]
   name: string
   manufacturer: string | null
   availability: string | null
@@ -77,6 +79,7 @@ onMounted(async () => {
             <span v-if="statusText" class="muted">{{ statusText }}</span>
           </div>
           <p v-if="product.summary" class="body-lg muted">{{ product.summary }}</p>
+          <DemoSyntheticNotice v-if="product.demo_synthetic?.length" :values="product.demo_synthetic" />
           <div v-if="product.highlights?.length" class="hl">
             <div v-for="item in product.highlights" :key="item" class="hl-item">
               <span class="mono-lg">{{ item }}</span>
