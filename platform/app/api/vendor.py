@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from app.api.auth import SessionUser, require_admin, require_vendor
 from app.config import get_settings
 from app.infrastructure.db.session import session_factory
+from app.infrastructure.db.analytics_repo import admin_board, ask_fix, ask_fixes, vendor_board
 from app.infrastructure.db.vendor_repo import (
     ask_withdraw,
     decide,
@@ -43,6 +44,20 @@ class RequestIn(BaseModel):
 class DecisionIn(BaseModel):
     status: str
     comment: str = ""
+
+
+class FixIn(BaseModel):
+    slug: str
+    comment: str = ""
+
+
+class FixItem(BaseModel):
+    slug: str
+    comment: str = ""
+
+
+class FixManyIn(BaseModel):
+    items: list[FixItem] = Field(default_factory=list)
 
 
 class RobotEdit(BaseModel):
@@ -92,6 +107,16 @@ def vendor_me(user: SessionUser = Depends(require_vendor)) -> dict:
             raise HTTPException(404, "Профиль вендора не заведён") from None
         pending = sum(1 for item in list_requests(db, user.id, audience="vendor") if item["status"] == "pending")
         return {"login": user.login, "profile": profile_view(row), "pending": pending}
+
+
+@router.get("/api/v1/vendor/analytics", tags=["Вендор"], summary="Готовность роботов к подбору и журнал пустых подборов без данных заказчиков")
+def vendor_analytics(user: SessionUser = Depends(require_vendor)) -> dict:
+    with session_factory()() as db:
+        try:
+            row = load_profile(db, user.id)
+        except KeyError:
+            raise HTTPException(404, "Профиль производителя не найден") from None
+        return vendor_board(db, row)
 
 
 @router.get("/api/v1/vendor/stats", tags=["Вендор"], summary="Сколько карточек, процессов и показов в подборе, без данных заказчиков")
@@ -235,6 +260,33 @@ def _send_file(name: str, user: SessionUser) -> FileResponse:
     if not path.is_file():
         raise HTTPException(404, "Файл не найден")
     return FileResponse(path)
+
+
+@router.get("/api/v1/admin/analytics", tags=["Админка · вендоры"], summary="Сводка подборов, готовность вендоров и роботы с дырами в карточке")
+def admin_analytics(user: SessionUser = Depends(require_admin)) -> dict:
+    del user
+    with session_factory()() as db:
+        return admin_board(db)
+
+
+@router.post("/api/v1/admin/analytics/fix", tags=["Админка · вендоры"], summary="Попросить вендора дополнить карточку. В каталог это не пишет")
+def admin_analytics_fix(body: FixIn, user: SessionUser = Depends(require_admin)) -> dict:
+    del user
+    with session_factory()() as db:
+        try:
+            return ask_fix(db, body.slug, body.comment)
+        except Exception as exc:
+            _fail(exc)
+
+
+@router.post("/api/v1/admin/analytics/fix-vendor", tags=["Админка · вендоры"], summary="Отправить вендору на доработку все проблемные карточки разом")
+def admin_analytics_fix_vendor(body: FixManyIn, user: SessionUser = Depends(require_admin)) -> dict:
+    del user
+    with session_factory()() as db:
+        try:
+            return ask_fixes(db, [item.model_dump() for item in body.items])
+        except Exception as exc:
+            _fail(exc)
 
 
 @router.get("/api/v1/admin/vendor-requests", tags=["Админка · вендоры"], summary="Очередь заявок вендоров")

@@ -310,6 +310,20 @@ class ProductOfferRow(Base):
     offers: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
 
+class MatchJournalRow(Base):
+    """Один запуск подбора без имени заказчика: итог, параметры площадки и почему робот не подошёл."""
+
+    __tablename__ = "match_journal"
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    object_code: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    object_name: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source: Mapped[str] = mapped_column(Text, nullable=False, default="project")
+    outcome: Mapped[str] = mapped_column(Text, nullable=False, default="empty")
+    site: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    summary: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+
 class ProductAssessmentRow(Base):
     """Проверенные служебные факты; импорт ТТХ не перезаписывает эту таблицу."""
     __tablename__ = 'product_assessment'

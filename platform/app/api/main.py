@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.api import admin_catalog, admin_objects, admin_products, vendor
 from app.api.assessment import router as assessment_router
+from app.infrastructure.db.analytics_repo import remember_preview_match, remember_project_match
 from app.infrastructure.db.vendor_repo import remember_offers
 from app.api.auth import SessionUser, load_user, optional_user, require_admin, require_user
 from app.config import get_settings
@@ -529,6 +530,8 @@ def catalog_preview_match(body: PreviewMatchIn) -> dict:
             result = match_object(db, body.object_code, body.site)
             # Пробный подбор без проекта тоже показ: заказчик уже видит модели.
             remember_offers(db, result.get("groups"))
+            # Журнал нужен аналитике. Имя человека и проект сюда не пишем.
+            remember_preview_match(db, body.object_code, body.site, result.get("groups"))
             return result
         except KeyError:
             raise HTTPException(404, "Объект не найден") from None
@@ -647,6 +650,8 @@ def match_project(project_key: str, body: MatchIn | None = None, user: SessionUs
         )
         # Считаем показ только на экране подбора. Расчёт экономики вызывает тот же подбор ещё раз и число не прибавляет.
         remember_offers(db, result.get("groups"))
+        used_site = project.site if body is None or body.site is None else body.site
+        remember_project_match(db, project, used_site, result.get("groups"))
         return result
 
 
